@@ -9,7 +9,8 @@ import type {
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Höheres Limit, da hochgeladene Bilder als komprimiertes Base64 im JSON-Body ankommen.
+app.use(express.json({ limit: '8mb' }));
 
 // ═══════════════════════════════════════════════════════════
 // Mandanten-Middleware: löst :orgSlug auf die passende
@@ -61,7 +62,11 @@ async function getFullState(db: Db) {
     : { points: 0, redeemed: [] as string[], loggedIn: false };
 
   return {
-    brand: brandDoc ? { name: brandDoc.name, accent: brandDoc.accent, logo: brandDoc.logo } : null,
+    brand: brandDoc ? {
+      name: brandDoc.name, accent: brandDoc.accent, logo: brandDoc.logo,
+      logoImage: brandDoc.logoImage ?? null, coverImage: brandDoc.coverImage ?? null,
+      font: brandDoc.font ?? 'Inter', cardStyle: brandDoc.cardStyle ?? 'standard',
+    } : null,
     branches: branches.map(serialize),
     dishes: dishes.map(serialize),
     tables: tables.map(serialize),
@@ -88,6 +93,31 @@ router.get('/tables/:number', async (req: OrgRequest, res) => {
     return;
   }
   res.json(serialize(table));
+});
+
+// ── Admin: neue Tische anlegen (damit eigene QR-Codes generiert werden können) ──
+router.post('/tables', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const count = Math.max(1, Math.min(50, Number(req.body?.count) || 1));
+  const branch = await db.collection('branches').findOne({});
+  if (!branch) {
+    res.status(400).json({ error: 'Es existiert noch keine Filiale für diese Organisation.' });
+    return;
+  }
+  const existing = await db.collection('tables').find().sort({ number: -1 }).limit(1).toArray();
+  const nextNumber = (existing[0]?.number ?? 0) + 1;
+  const newTables = Array.from({ length: count }, (_, i) => ({
+    branchId: String(branch._id), number: nextNumber + i,
+    status: 'frei' as const, items: [], openedAt: null,
+  }));
+  await db.collection('tables').insertMany(newTables);
+  res.json(await getFullState(db));
+});
+
+// ── Admin: Tisch (und damit seinen QR-Code) wieder entfernen ──
+router.delete('/tables/:id', async (req: OrgRequest, res) => {
+  await req.db!.collection('tables').deleteOne({ _id: new ObjectId(req.params.id) });
+  res.json(await getFullState(req.db!));
 });
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
@@ -241,14 +271,29 @@ router.delete('/users/:id', async (req: OrgRequest, res) => {
   res.json(await getFullState(req.db!));
 });
 
-// ── Admin: Branding-Einstellungen ──
+// ── Admin: Branding-Einstellungen (inkl. Design-Studio: Logo, Schrift, Karten-Layout) ──
 router.patch('/settings/brand', async (req: OrgRequest, res) => {
-  const { name, accent, logo } = req.body ?? {};
+  const { name, accent, logo, logoImage, coverImage, font, cardStyle } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
   if (logo !== undefined) update.logo = logo;
+  if (logoImage !== undefined) update.logoImage = logoImage;
+  if (coverImage !== undefined) update.coverImage = coverImage;
+  if (font !== undefined) update.font = font;
+  if (cardStyle !== undefined) update.cardStyle = cardStyle;
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
+  res.json(await getFullState(req.db!));
+});
+
+// ── Admin: Gerichtsfoto ersetzen ──
+router.patch('/dishes/:id/image', async (req: OrgRequest, res) => {
+  const { img } = req.body ?? {};
+  if (typeof img !== 'string' || !img.startsWith('data:image/')) {
+    res.status(400).json({ error: 'Ungültiges Bild.' });
+    return;
+  }
+  await req.db!.collection('dishes').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { img } });
   res.json(await getFullState(req.db!));
 });
 

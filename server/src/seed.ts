@@ -30,8 +30,8 @@ async function main() {
   const branchesCol = db.collection<Branch>('branches');
   let branch = await branchesCol.findOne({ slug: 'herrengasse' });
   if (!branch) {
-    const res = await branchesCol.insertOne({ slug: 'herrengasse', name: 'Graz · Herrengasse', address: 'Herrengasse 12, 8010 Graz' });
-    branch = { _id: res.insertedId, slug: 'herrengasse', name: 'Graz · Herrengasse', address: 'Herrengasse 12, 8010 Graz' };
+    const res = await branchesCol.insertOne({ slug: 'herrengasse', name: 'Herrengasse', address: 'Herrengasse 12, 8010 Graz' });
+    branch = { _id: res.insertedId, slug: 'herrengasse', name: 'Herrengasse', address: 'Herrengasse 12, 8010 Graz' };
     console.log('Filiale "Graz · Herrengasse" angelegt.');
   } else {
     console.log('Filiale existiert bereits.');

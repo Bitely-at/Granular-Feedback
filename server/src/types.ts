@@ -91,7 +91,11 @@ export interface BrandDoc {
   _id?: string; // konstant 'brand'
   name: string;
   accent: string;
-  logo: string;
+  logo: string; // Emoji-Fallback, solange kein Logo-Bild hochgeladen wurde
+  logoImage?: string | null; // Data-URI (Base64), überschreibt logo optisch wenn gesetzt
+  coverImage?: string | null; // Data-URI (Base64) — Titelbild auf dem Gast-Willkommensbildschirm
+  font?: string; // Name aus der kuratierten Schriftart-Liste
+  cardStyle?: 'standard' | 'kompakt' | 'editorial';
 }
 
 export interface GuestProfileDoc {

@@ -7,7 +7,54 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 // Organisation, wie ihn GET /api/:orgSlug/state liefert.
 // ═══════════════════════════════════════════════════════════
 
-export interface Brand { name: string; accent: string; logo: string; }
+export interface Brand {
+  name: string; accent: string; logo: string;
+  logoImage?: string | null; coverImage?: string | null;
+  font?: string; cardStyle?: 'standard' | 'kompakt' | 'editorial';
+}
+
+// Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.
+export const BRAND_FONTS = [
+  { name: 'Inter', category: 'Modern & neutral', googleFamily: 'Inter:wght@400;500;600;700' },
+  { name: 'Poppins', category: 'Freundlich & rund', googleFamily: 'Poppins:wght@400;500;600;700' },
+  { name: 'DM Sans', category: 'Klar & sachlich', googleFamily: 'DM+Sans:wght@400;500;600;700' },
+  { name: 'Fraunces', category: 'Editorial & warm', googleFamily: 'Fraunces:wght@400;500;600;700' },
+  { name: 'Playfair Display', category: 'Elegant & gehoben', googleFamily: 'Playfair+Display:wght@400;600;700' },
+  { name: 'Space Grotesk', category: 'Technisch & markant', googleFamily: 'Space+Grotesk:wght@400;500;600;700' },
+] as const;
+
+export const BRAND_CARD_STYLES: { id: NonNullable<Brand['cardStyle']>; label: string; desc: string }[] = [
+  { id: 'standard', label: 'Standard', desc: 'Bild links, Infos rechts — kompakt und bewährt.' },
+  { id: 'kompakt', label: 'Kompakt', desc: 'Kleineres Bild, engere Abstände — mehr Gerichte auf einen Blick.' },
+  { id: 'editorial', label: 'Editorial', desc: 'Großes Bild oben, Text darunter — wirkt hochwertiger.' },
+];
+
+// Verkleinert/komprimiert ein Bild im Browser vor dem Upload, damit die
+// Dokumente in MongoDB klein bleiben. Ergebnis ist ein data:-URI (JPEG).
+export function compressImageFile(file: File, maxDim = 480, quality = 0.78): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Bild konnte nicht geladen werden.'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas wird nicht unterstützt.')); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 export interface Branch { id: string; slug: string; name: string; address: string; }
 
 export interface Dish {
@@ -68,8 +115,13 @@ export function tableItemCount(t: TableRow): number {
   return t.items.reduce((a, i) => a + i.qty, 0);
 }
 
+// Lokal (npm run dev) leitet der Vite-Proxy /api an localhost:4000 weiter, dafür bleibt das leer.
+// Für einen Netlify-Build o. Ä. auf VITE_API_BASE_URL setzen (z. B. den Cloudflare-Tunnel oder eine echte Server-Domain) —
+// der Server hat CORS bereits offen, ein Cross-Origin-Aufruf funktioniert also direkt.
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
 async function api<T>(orgSlug: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/${orgSlug}${path}`, {
+  const res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
   });
@@ -98,6 +150,9 @@ interface StoreApi extends OrgState {
   addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<void>;
   removeUser: (id: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
+  updateDishImage: (dishId: string, img: string) => Promise<void>;
+  addTables: (count: number) => Promise<void>;
+  removeTable: (id: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -182,11 +237,26 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     setState(data);
   }, [orgSlug]);
 
+  const updateDishImage = useCallback(async (dishId: string, img: string) => {
+    const data = await api<OrgState>(orgSlug, `/dishes/${dishId}/image`, { method: 'PATCH', body: JSON.stringify({ img }) });
+    setState(data);
+  }, [orgSlug]);
+
+  const addTables = useCallback(async (count: number) => {
+    const data = await api<OrgState>(orgSlug, '/tables', { method: 'POST', body: JSON.stringify({ count }) });
+    setState(data);
+  }, [orgSlug]);
+
+  const removeTable = useCallback(async (id: string) => {
+    const data = await api<OrgState>(orgSlug, `/tables/${id}`, { method: 'DELETE' });
+    setState(data);
+  }, [orgSlug]);
+
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error,
     refresh, saveTableOrder, addItemToTable, submitReview, redeemVoucher,
-    loginGuest, resolveAlert, addUser, removeUser, updateBrand,
-  }), [state, orgSlug, loading, error, refresh, saveTableOrder, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand]);
+    loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
+  }), [state, orgSlug, loading, error, refresh, saveTableOrder, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

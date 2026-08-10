@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
+import QRCode from 'qrcode';
 import {
   Star, Search, Camera, Check, ChevronLeft, Plus, Minus, X,
   WifiOff, Wifi, LayoutDashboard, UtensilsCrossed, Users, Settings,
   MoreHorizontal, Download, QrCode, Pencil, AlertTriangle, TrendingUp,
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
-  Eye, Filter, Trash2, UserPlus, Lock, Building2,
+  Eye, Filter, Trash2, UserPlus, Lock, Building2, ImagePlus,
   Smartphone, Tablet, Monitor, AlertOctagon, Loader2,
 } from 'lucide-react';
 import {
@@ -15,8 +16,8 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine, Cell,
 } from 'recharts';
 import {
-  StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount,
-  type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput,
+  StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, BRAND_FONTS, BRAND_CARD_STYLES,
+  type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
 } from './store';
 
 // ═══════════════════════════════════════════════════════════
@@ -123,6 +124,34 @@ function EmptyState({ icon: Icon, title, desc }: { icon: React.ElementType; titl
   );
 }
 
+function BrandLogo({ brand, size = 40, textSize = 20, rounded = 'rounded-2xl' }: {
+  brand: Pick<Brand, 'logo' | 'logoImage'> | null | undefined; size?: number; textSize?: number; rounded?: string;
+}) {
+  if (brand?.logoImage) {
+    return <img src={brand.logoImage} alt="Logo" className={`${rounded} object-cover flex-shrink-0`} style={{ width: size, height: size }} />;
+  }
+  return (
+    <span className="flex-shrink-0 flex items-center justify-center" style={{ width: size, height: size, fontSize: textSize, lineHeight: 1 }}>
+      {brand?.logo ?? '🍽️'}
+    </span>
+  );
+}
+
+// Lädt eine kuratierte Google-Schriftart nach, sobald sie gebraucht wird (idempotent).
+function useGoogleFont(fontName: string | undefined) {
+  useEffect(() => {
+    const entry = BRAND_FONTS.find(f => f.name === fontName);
+    if (!entry) return;
+    const id = `bitely-font-${entry.name.replace(/\s+/g, '-')}`;
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${entry.googleFamily}&display=swap`;
+    document.head.appendChild(link);
+  }, [fontName]);
+}
+
 function FullScreenMessage({ children, error, action }: { children: React.ReactNode; error?: boolean; action?: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#F7F8FA] dark:bg-[#0D1117] p-8 text-center">
@@ -135,6 +164,86 @@ function FullScreenMessage({ children, error, action }: { children: React.ReactN
       )}
       <p className="text-[14px] text-gray-600 dark:text-gray-300 max-w-sm leading-relaxed">{children}</p>
       {action}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// GERICHTE-BEWERTUNGSKARTE — drei Layout-Varianten (Design-Studio),
+// gemeinsam genutzt vom echten Gast-Flow und der Live-Vorschau im Admin.
+// ═══════════════════════════════════════════════════════════
+
+function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', onRate, onToggleExpand, onNoteChange }: {
+  dish: Dish; stars: number; note: string; expanded: boolean; cardStyle?: NonNullable<Brand['cardStyle']>;
+  onRate: (v: number) => void; onToggleExpand: () => void; onNoteChange: (v: string) => void;
+}) {
+  const notesBlock = (
+    <AnimatePresence>
+      {expanded && (
+        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+          <div className="px-4 pb-4">
+            <textarea rows={2} value={note} onChange={e => onNoteChange(e.target.value)}
+              placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Anmerkung hinzufügen… (optional)'}
+              className="w-full text-[13px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2.5 outline-none resize-none focus:border-gray-400 transition-colors" />
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  if (cardStyle === 'editorial') {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <img src={dish.img} alt={dish.name} className="w-full h-32 object-cover" />
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <p className="text-[16px] font-semibold text-gray-900 dark:text-white">{dish.name}</p>
+              <p className="text-[12px] text-gray-400">{dish.price.toFixed(2)} €</p>
+            </div>
+            <button onClick={onToggleExpand} className="p-1.5 -mt-1 -mr-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
+              <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+          <StarRating value={stars} onChange={onRate} size={26} />
+        </div>
+        {notesBlock}
+      </div>
+    );
+  }
+
+  if (cardStyle === 'kompakt') {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2.5 p-2.5">
+          <img src={dish.img} alt={dish.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-gray-900 dark:text-white leading-tight truncate">{dish.name}</p>
+            <StarRating value={stars} onChange={onRate} size={18} />
+          </div>
+          <button onClick={onToggleExpand} className="p-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
+            <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+        {notesBlock}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+      <div className="flex gap-3 p-4">
+        <img src={dish.img} alt={dish.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
+          <p className="text-[12px] text-gray-400 mb-2">{dish.price.toFixed(2)} €</p>
+          <StarRating value={stars} onChange={onRate} size={24} />
+        </div>
+        <button onClick={onToggleExpand} className="self-start p-1.5 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors">
+          <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+      {notesBlock}
     </div>
   );
 }
@@ -229,34 +338,52 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
   return (
     <div className="relative flex flex-col flex-1 min-h-0 bg-[#F7F8FA] dark:bg-[#0D1117]">
 
-      {screen === 'welcome' && (
-        <motion.div key="welcome" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col flex-1 items-center justify-center p-6 min-h-full">
-          <div className="w-full space-y-4">
-            <div className="text-center mb-2">
-              <div className="w-20 h-20 rounded-2xl bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-center text-4xl mx-auto mb-4">{store.brand?.logo}</div>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{store.brand?.name}</p>
-              <p className="text-[13px] text-gray-500 mt-1">{store.branches[0]?.name}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 text-center">
-              <p className="text-[12px] text-gray-400 mb-1 uppercase tracking-wide">Dein Tisch</p>
-              <p className="text-4xl font-bold text-gray-900 dark:text-white mb-4">Tisch {tableNumber}</p>
-              <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.</p>
-            </div>
-            {tableDishes.length === 0 ? (
-              <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung erfasst"
-                desc="Dein Service-Team hat für diesen Tisch noch nichts eingetragen. Frag kurz nach oder versuch es gleich nochmal." />
-            ) : (
-              <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>
+      {screen === 'welcome' && (() => {
+        const hasCover = Boolean(store.brand?.coverImage);
+        return (
+          <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative flex-1 min-h-0">
+            {hasCover && (
+              <>
+                <img src={store.brand!.coverImage!} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/60" />
+              </>
             )}
-            {!store.guest.loggedIn && (
-              <button className="w-full text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 py-2 transition-colors" onClick={() => store.loginGuest()}>
-                Bereits Mitglied? Anmelden
-              </button>
+            {!hasCover && (
+              <div className="absolute inset-0"
+                style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ba, #16A34A) 16%, transparent), transparent 45%)' }} />
             )}
-          </div>
-        </motion.div>
-      )}
+            <div className="relative h-full overflow-y-auto flex flex-col items-center px-6 pt-40 pb-8">
+              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 ${hasCover ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
+                <BrandLogo brand={store.brand} size={80} textSize={36} rounded="rounded-none" />
+              </div>
+              <p className={`text-2xl font-semibold text-center ${hasCover ? 'text-white' : 'text-gray-900 dark:text-white'}`}
+                style={hasCover ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{store.brand?.name}</p>
+              <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>{store.branches[0]?.name}</p>
+              <div className="w-full max-w-sm space-y-4 flex-1 flex flex-col justify-center">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 text-center">
+                  <p className="text-[12px] text-gray-400 mb-1 uppercase tracking-wide">Dein Tisch</p>
+                  <p className="text-4xl font-bold text-gray-900 dark:text-white mb-4">Tisch {tableNumber}</p>
+                  <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.</p>
+                </div>
+                {tableDishes.length === 0 ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                    <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung erfasst"
+                      desc="Dein Service-Team hat für diesen Tisch noch nichts eingetragen. Frag kurz nach oder versuch es gleich nochmal." />
+                  </div>
+                ) : (
+                  <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>
+                )}
+                {!store.guest.loggedIn && (
+                  <button className={`w-full text-[13px] py-2 transition-colors ${hasCover ? 'text-white/80 hover:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    onClick={() => store.loginGuest()}>
+                    Bereits Mitglied? Anmelden
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        );
+      })()}
 
       {screen === 'review' && (
         <motion.div key="review" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
@@ -286,39 +413,16 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                   </div>
                 </div>
               ))
-            ) : tableDishes.map(dish => {
-              const stars = ratings[dish.id] || 0;
-              return (
-                <div key={dish.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-                  <div className="flex gap-3 p-4">
-                    <img src={dish.img} alt={dish.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[15px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
-                      <p className="text-[12px] text-gray-400 mb-2">{dish.price.toFixed(2)} €</p>
-                      <StarRating value={stars} onChange={v => {
-                        setRatings(p => ({ ...p, [dish.id]: v }));
-                        if (v > 0 && v <= 3) setExpanded(p => new Set(p).add(dish.id));
-                      }} size={24} />
-                    </div>
-                    <button onClick={() => setExpanded(p => { const n = new Set(p); n.has(dish.id) ? n.delete(dish.id) : n.add(dish.id); return n; })}
-                      className="self-start p-1.5 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors">
-                      <ChevronDown size={16} className={`transition-transform ${expanded.has(dish.id) ? 'rotate-180' : ''}`} />
-                    </button>
-                  </div>
-                  <AnimatePresence>
-                    {expanded.has(dish.id) && (
-                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                        <div className="px-4 pb-4">
-                          <textarea rows={2} value={notes[dish.id] ?? ''} onChange={e => setNotes(p => ({ ...p, [dish.id]: e.target.value }))}
-                            placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Anmerkung hinzufügen… (optional)'}
-                            className="w-full text-[13px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2.5 outline-none resize-none focus:border-gray-400 transition-colors" />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
+            ) : tableDishes.map(dish => (
+              <DishRatingCard key={dish.id} dish={dish} stars={ratings[dish.id] || 0} note={notes[dish.id] ?? ''}
+                expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
+                onRate={v => {
+                  setRatings(p => ({ ...p, [dish.id]: v }));
+                  if (v > 0 && v <= 3) setExpanded(p => new Set(p).add(dish.id));
+                }}
+                onToggleExpand={() => setExpanded(p => { const n = new Set(p); n.has(dish.id) ? n.delete(dish.id) : n.add(dish.id); return n; })}
+                onNoteChange={v => setNotes(p => ({ ...p, [dish.id]: v }))} />
+            ))}
             <button onClick={() => setShowSheet(true)}
               className="w-full py-3.5 text-[13px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center gap-2">
               <Plus size={14} strokeWidth={2} /> Etwas vergessen?
@@ -614,7 +718,10 @@ function WaiterApp() {
               <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-400" />
             </button>
           )}
-          <span className="text-[15px] sm:text-[17px] font-semibold text-gray-900 dark:text-white truncate min-w-0">{store.brand?.logo} {store.brand?.name}</span>
+          <span className="flex items-center gap-2 text-[15px] sm:text-[17px] font-semibold text-gray-900 dark:text-white truncate min-w-0">
+            <BrandLogo brand={store.brand} size={22} textSize={16} rounded="rounded-md" />
+            <span className="truncate">{store.brand?.name}</span>
+          </span>
           {activeTable && screen === 'detail' && <span className="hidden sm:inline text-[15px] text-gray-400 flex-shrink-0">· Tisch {activeTable.number}</span>}
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <button onClick={() => setOnline(p => !p)}
@@ -839,28 +946,83 @@ function WaiterApp() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// QR CODE SVG
+// ECHTER QR-CODE — kodiert die tatsächliche Tisch-URL, scanbar,
+// mit funktionierendem PNG-Download.
 // ═══════════════════════════════════════════════════════════
 
-function QRCodeSvg({ n }: { n: number }) {
-  const S = 21;
-  const seed = n * 7919;
-  const cells = Array.from({ length: S * S }, (_, i) => {
-    const r = Math.floor(i / S), c = i % S;
-    const inFinder = (r < 7 && c < 7) || (r < 7 && c >= S - 7) || (r >= S - 7 && c < 7);
-    if (inFinder) {
-      const ir = r < 7 ? r : r - (S - 7), ic = c < 7 ? c : c - (S - 7);
-      if (ir === 0 || ir === 6 || ic === 0 || ic === 6) return true;
-      if (ir >= 2 && ir <= 4 && ic >= 2 && ic <= 4) return true;
-      return false;
-    }
-    return ((seed * (i + 1) * 2654435761) >>> 0) % 3 !== 0;
-  });
+function tableUrl(orgSlug: string, tableNumber: number): string {
+  return `${window.location.origin}/${orgSlug}/table/${tableNumber}`;
+}
+
+function TableQRCode({ orgSlug, tableNumber }: { orgSlug: string; tableNumber: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const url = tableUrl(orgSlug, tableNumber);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, url, { width: 176, margin: 1, color: { dark: '#111827', light: '#ffffff' } }).catch(() => {});
+  }, [url]);
+
+  const download = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `tisch-${tableNumber}-qr.png`;
+      a.click();
+      URL.revokeObjectURL(href);
+    }, 'image/png');
+  };
+
   return (
-    <svg viewBox={`0 0 ${S} ${S}`} className="w-24 h-24">
-      <rect width={S} height={S} fill="white" />
-      {cells.map((on, i) => on ? <rect key={i} x={i % S} y={Math.floor(i / S)} width={1} height={1} fill="#111827" /> : null)}
-    </svg>
+    <>
+      <canvas ref={canvasRef} className="w-24 h-24 rounded-lg" />
+      <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {tableNumber}</p>
+      <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/table/{tableNumber}</p>
+      <button onClick={download} className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+        <Download size={11} strokeWidth={1.5} /> PNG laden
+      </button>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// GERICHTSFOTO-UPLOAD — kleines, immer sichtbares Upload-Badge
+// auf dem Thumbnail (funktioniert auch ohne Hover, also auf Touch).
+// ═══════════════════════════════════════════════════════════
+
+function DishImageUpload({ dish, size = 36 }: { dish: Dish; size?: number }) {
+  const store = useStore();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleFile = async (file: File) => {
+    setUploading(true);
+    setError(false);
+    try {
+      const dataUri = await compressImageFile(file, 480, 0.78);
+      await store.updateDishImage(dish.id, dataUri);
+    } catch {
+      setError(true);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <img src={dish.img} alt={dish.name} className="w-full h-full rounded-xl object-cover bg-gray-100" />
+      <button type="button" onClick={() => inputRef.current?.click()} title="Foto ändern"
+        className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center shadow-sm border ${error ? 'bg-red-500 border-red-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600'}`}>
+        {uploading ? <Loader2 size={9} className="animate-spin text-gray-500" /> : <ImagePlus size={9} className={error ? 'text-white' : 'text-gray-500 dark:text-gray-300'} />}
+      </button>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }} />
+    </div>
   );
 }
 
@@ -868,7 +1030,7 @@ function QRCodeSvg({ n }: { n: number }) {
 // ADMIN APP
 // ═══════════════════════════════════════════════════════════
 
-type AdminPage = 'dashboard' | 'reports' | 'menu' | 'users' | 'settings';
+type AdminPage = 'dashboard' | 'menu' | 'design' | 'users' | 'settings';
 
 function AdminApp({ orgSlug }: { orgSlug: string }) {
   const store = useStore();
@@ -881,13 +1043,29 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
   const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'Kellner' as AdminUser['role'], branchId: '' });
   const [branchDrop, setBranchDrop] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [noAccess, setNoAccess] = useState(false);
-  const [brandForm, setBrandForm] = useState({ name: store.brand?.name ?? '', accent: store.brand?.accent ?? '#16A34A' });
+  const [brandForm, setBrandForm] = useState({
+    name: store.brand?.name ?? '', accent: store.brand?.accent ?? '#16A34A',
+    logoImage: store.brand?.logoImage ?? null as string | null,
+    coverImage: store.brand?.coverImage ?? null as string | null,
+    font: store.brand?.font ?? 'Inter',
+    cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
+  });
   const [brandSaved, setBrandSaved] = useState(false);
+  const [previewStars, setPreviewStars] = useState(4);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [addTableCount, setAddTableCount] = useState(1);
+  const [addingTables, setAddingTables] = useState(false);
 
   useEffect(() => {
-    if (store.brand) setBrandForm({ name: store.brand.name, accent: store.brand.accent });
+    if (store.brand) setBrandForm({
+      name: store.brand.name, accent: store.brand.accent, logoImage: store.brand.logoImage ?? null,
+      coverImage: store.brand.coverImage ?? null,
+      font: store.brand.font ?? 'Inter', cardStyle: store.brand.cardStyle ?? 'standard',
+    });
   }, [store.brand]);
+
+  useGoogleFont(brandForm.font);
 
   const toggleMenu = (id: string) => setOpenMenus(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const hideWidget = (id: string) => { setHidden(p => new Set([...p, id])); setOpenMenus(new Set()); };
@@ -911,8 +1089,8 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-    { id: 'reports', label: 'Berichte', Icon: BarChart3 },
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
+    { id: 'design', label: 'Design', Icon: Palette },
     { id: 'users', label: 'Benutzer', Icon: Users },
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
   ];
@@ -928,9 +1106,36 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
   };
 
   const handleSaveBrand = async () => {
-    await store.updateBrand({ name: brandForm.name, accent: brandForm.accent });
+    await store.updateBrand({
+      name: brandForm.name, accent: brandForm.accent,
+      logoImage: brandForm.logoImage, coverImage: brandForm.coverImage,
+      font: brandForm.font, cardStyle: brandForm.cardStyle,
+    });
     setBrandSaved(true);
     setTimeout(() => setBrandSaved(false), 2000);
+  };
+
+  const handleLogoFile = async (file: File) => {
+    const dataUri = await compressImageFile(file, 240, 0.85);
+    setBrandForm(p => ({ ...p, logoImage: dataUri }));
+  };
+
+  const handleCoverFile = async (file: File) => {
+    const dataUri = await compressImageFile(file, 960, 0.8);
+    setBrandForm(p => ({ ...p, coverImage: dataUri }));
+  };
+
+  const previewDish = store.dishes[0];
+
+  const handleAddTables = async () => {
+    if (addingTables) return;
+    setAddingTables(true);
+    try {
+      await store.addTables(addTableCount);
+      setAddTableCount(1);
+    } finally {
+      setAddingTables(false);
+    }
   };
 
   return (
@@ -938,7 +1143,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
       <aside className="hidden lg:flex w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col fixed top-10 bottom-0 z-20">
         <div className="p-5 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-2.5">
-            <span className="text-2xl">{store.brand?.logo}</span>
+            <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
             <div>
               <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">{store.brand?.name}</p>
               <p className="text-[11px] text-gray-400">Admin Panel</p>
@@ -947,7 +1152,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {nav.map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => { setPage(id); setNoAccess(id === 'reports'); }}
+            <button key={id} onClick={() => setPage(id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-colors ${page === id ? 'text-white font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'}`}
               style={page === id ? { backgroundColor: 'var(--ba, #16A34A)' } : {}}>
               <Icon size={15} strokeWidth={1.5} />{label}
@@ -1006,7 +1211,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
           </div>
           <nav className="lg:hidden flex gap-1 px-3 pb-2 overflow-x-auto">
             {nav.map(({ id, label, Icon }) => (
-              <button key={id} onClick={() => { setPage(id); setNoAccess(id === 'reports'); }}
+              <button key={id} onClick={() => setPage(id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors flex-shrink-0 ${page === id ? 'text-white' : 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'}`}
                 style={page === id ? { backgroundColor: 'var(--ba, #16A34A)' } : {}}>
                 <Icon size={13} strokeWidth={1.5} />{label}
@@ -1016,20 +1221,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); }}>
-          {noAccess && page === 'reports' ? (
-            <div className="flex flex-col items-center justify-center h-80">
-              <div className="w-16 h-16 rounded-2xl bg-red-50 dark:bg-red-950 flex items-center justify-center mb-4">
-                <Shield size={26} className="text-red-500" strokeWidth={1.5} />
-              </div>
-              <p className="text-[18px] font-semibold text-gray-900 dark:text-white mb-1">Kein Zugriff</p>
-              <p className="text-[14px] text-gray-500 text-center max-w-xs">Du hast keine Berechtigung für diese Seite. Wende dich an deinen Administrator.</p>
-              <button onClick={() => { setNoAccess(false); setPage('dashboard'); }}
-                className="mt-5 px-5 py-2.5 rounded-xl text-[14px] font-medium text-white" style={{ backgroundColor: 'var(--ba)' }}>
-                Zum Dashboard
-              </button>
-            </div>
-          ) : (
-            <>
+          <>
               {page === 'dashboard' && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
@@ -1169,7 +1361,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                                   <td className="px-5 py-3 text-[13px] text-gray-400 dark:text-gray-600">{i + 1}</td>
                                   <td className="px-5 py-3">
                                     <div className="flex items-center gap-3">
-                                      <img src={dish.img} alt={dish.name} className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                                      <DishImageUpload dish={dish} size={32} />
                                       <p className="text-[14px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
                                     </div>
                                   </td>
@@ -1193,6 +1385,153 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {page === 'design' && (
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Design</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5">Wie deine Gäste die App sehen — Änderungen wirken sich auf Gast, Kellner &amp; Admin aus.</p>
+                  </div>
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5 items-start">
+                    <div className="space-y-5">
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-5">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Palette size={15} strokeWidth={1.5} className="text-gray-400" /> Logo &amp; Name</p>
+                        <div className="flex flex-col sm:flex-row gap-6">
+                          <div className="flex-shrink-0">
+                            <p className="text-[12px] text-gray-400 mb-2">Logo</p>
+                            <button type="button" onClick={() => logoInputRef.current?.click()}
+                              className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors overflow-hidden">
+                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={80} textSize={36} rounded="rounded-none" />
+                            </button>
+                            <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = ''; }} />
+                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                              <button onClick={() => logoInputRef.current?.click()} className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> Hochladen</button>
+                              {brandForm.logoImage && (
+                                <button onClick={() => setBrandForm(p => ({ ...p, logoImage: null }))} className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-1 space-y-4">
+                            <div>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname</p>
+                              <input value={brandForm.name} onChange={e => setBrandForm(p => ({ ...p, name: e.target.value }))}
+                                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
+                            </div>
+                            <div>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe — wird auf Gast, Kellner &amp; Admin übernommen</p>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <input type="color" value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
+                                  className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
+                                <input value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
+                                  className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
+                                <div className="flex gap-1.5">
+                                  {['#16A34A', '#DC2626', '#7C3AED', '#2563EB', '#D97706'].map(c => (
+                                    <button key={c} onClick={() => setBrandForm(p => ({ ...p, accent: c }))}
+                                      className="w-7 h-7 rounded-full border-2 border-white dark:border-gray-800 shadow hover:scale-110 transition-transform" style={{ backgroundColor: c }} />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><ImagePlus size={15} strokeWidth={1.5} className="text-gray-400" /> Titelbild</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">Erscheint oben auf dem Willkommensbildschirm deiner Gäste — macht aus der Logo-Box eine echte Restaurant-Ansicht.</p>
+                        </div>
+                        <button type="button" onClick={() => coverInputRef.current?.click()}
+                          className="relative w-full h-32 rounded-xl overflow-hidden border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+                          {brandForm.coverImage ? (
+                            <img src={brandForm.coverImage} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="flex flex-col items-center gap-1.5 text-gray-400">
+                              <ImagePlus size={22} strokeWidth={1.5} />
+                              <span className="text-[12px]">Titelbild hochladen</span>
+                            </span>
+                          )}
+                        </button>
+                        <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
+                        {brandForm.coverImage && (
+                          <div className="flex items-center gap-3">
+                            <button onClick={() => coverInputRef.current?.click()} className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> Ersetzen</button>
+                            <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))} className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Schriftart</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                          {BRAND_FONTS.map(f => (
+                            <button key={f.name} onClick={() => setBrandForm(p => ({ ...p, font: f.name }))}
+                              className="text-left px-4 py-3 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
+                              style={brandForm.font === f.name ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
+                              <p className="text-[16px] text-gray-900 dark:text-white" style={{ fontFamily: `'${f.name}', system-ui, sans-serif` }}>{f.name}</p>
+                              <p className="text-[11px] text-gray-400 mt-0.5">{f.category}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Kartenlayout — Gerichte bewerten</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {BRAND_CARD_STYLES.map(cs => (
+                            <button key={cs.id} onClick={() => setBrandForm(p => ({ ...p, cardStyle: cs.id }))}
+                              className="text-left p-4 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
+                              style={brandForm.cardStyle === cs.id ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
+                              <p className="text-[13px] font-semibold text-gray-900 dark:text-white mb-1">{cs.label}</p>
+                              <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">{cs.desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <PrimaryBtn full={false} sm onClick={handleSaveBrand}>Änderungen speichern</PrimaryBtn>
+                        {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> Gespeichert</span>}
+                      </div>
+                    </div>
+
+                    <div className="xl:sticky xl:top-24">
+                      <p className="text-[12px] text-gray-400 mb-2 uppercase tracking-wide">Live-Vorschau</p>
+                      <div className="bg-gray-200 dark:bg-gray-950 rounded-[32px] p-3 shadow-inner">
+                        <div className="relative rounded-[24px] overflow-hidden bg-[#F7F8FA] dark:bg-[#0D1117]"
+                          style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': brandForm.accent } as React.CSSProperties}>
+                          {brandForm.coverImage ? (
+                            <>
+                              <img src={brandForm.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/60" />
+                            </>
+                          ) : (
+                            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ba, #16A34A) 16%, transparent), transparent 55%)' }} />
+                          )}
+                          <div className="relative flex flex-col items-center px-5 pt-24 pb-5">
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden mb-2.5 ${brandForm.coverImage ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
+                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={48} textSize={22} rounded="rounded-none" />
+                            </div>
+                            <p className={`text-[15px] font-semibold text-center ${brandForm.coverImage ? 'text-white' : 'text-gray-900 dark:text-white'}`}
+                              style={brandForm.coverImage ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{brandForm.name || 'Dein Restaurant'}</p>
+                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{store.branches[0]?.name}</p>
+                            {previewDish ? (
+                              <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
+                                onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
+                            ) : (
+                              <div className="w-full h-24 rounded-xl bg-white/50 dark:bg-gray-800/50" />
+                            )}
+                            <button className="w-full mt-4 py-3 rounded-xl font-medium text-white text-[14px]" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Weiter →</button>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen — noch ungespeicherte Änderungen.</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1284,43 +1623,6 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
               {page === 'settings' && (
                 <div className="space-y-5 max-w-3xl">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">Einstellungen</p>
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-5">
-                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Palette size={15} strokeWidth={1.5} className="text-gray-400" /> Branding</p>
-                    <div className="flex flex-col sm:flex-row gap-6">
-                      <div className="flex-shrink-0">
-                        <p className="text-[12px] text-gray-400 mb-2">Logo</p>
-                        <div className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center text-4xl cursor-pointer hover:border-gray-400 transition-colors">{store.brand?.logo}</div>
-                        <button className="mt-2 text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> Logo ändern</button>
-                      </div>
-                      <div className="flex-1 space-y-4">
-                        <div>
-                          <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname</p>
-                          <input value={brandForm.name} onChange={e => setBrandForm(p => ({ ...p, name: e.target.value }))}
-                            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
-                        </div>
-                        <div>
-                          <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe — wird auf Gast, Kellner & Admin übernommen</p>
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <input type="color" value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
-                              className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
-                            <input value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
-                              className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
-                            <div className="flex gap-1.5">
-                              {['#16A34A', '#DC2626', '#7C3AED', '#2563EB', '#D97706'].map(c => (
-                                <button key={c} onClick={() => setBrandForm(p => ({ ...p, accent: c }))}
-                                  className="w-7 h-7 rounded-full border-2 border-white dark:border-gray-800 shadow hover:scale-110 transition-transform" style={{ backgroundColor: c }} />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <PrimaryBtn full={false} sm onClick={handleSaveBrand}>Änderungen speichern</PrimaryBtn>
-                      {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> Gespeichert</span>}
-                    </div>
-                  </div>
-
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <div className="flex items-center justify-between">
                       <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> Filialen</p>
@@ -1348,15 +1650,38 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                     <p className="text-[13px] text-gray-500 dark:text-gray-400">
                       Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/table/&lt;nummer&gt;</code> — das ist die Route, die Gäste beim Scannen öffnen.
                     </p>
+                    {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+                      <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
+                        <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+                        <p className="text-[12px] text-amber-800 dark:text-amber-200 leading-relaxed">
+                          Diese QR-Codes zeigen auf <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">localhost</code> — die funktionieren nur auf diesem Rechner, nicht wenn ein Handy sie scannt.
+                          Öffne diese Admin-Seite stattdessen über die Netzwerk-Adresse deines Rechners (z. B. <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">http://192.168.x.x:5173/…</code>), dann werden die QR-Codes automatisch mit dieser Adresse erzeugt. Für den echten Einsatz später: eine öffentliche Domain statt der lokalen IP verwenden.
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex items-end gap-3 flex-wrap pb-1 border-b border-gray-100 dark:border-gray-800">
+                      <div>
+                        <p className="text-[12px] text-gray-400 mb-1.5">Neue Tische</p>
+                        <input type="number" min={1} max={50} value={addTableCount}
+                          onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                          className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
+                      </div>
+                      <button onClick={handleAddTables} disabled={addingTables}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
+                        style={{ backgroundColor: 'var(--ba)' }}>
+                        <Plus size={14} strokeWidth={2} /> {addingTables ? 'Wird angelegt…' : 'Tisch(e) anlegen'}
+                      </button>
+                      <p className="text-[11px] text-gray-400">{store.tables.length} Tische insgesamt</p>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
-                      {[...store.tables].sort((a, b) => a.number - b.number).slice(0, 8).map(t => (
-                        <div key={t.id} className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
-                          <QRCodeSvg n={t.number} />
-                          <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {t.number}</p>
-                          <p className="text-[10px] text-gray-400 font-mono">/{orgSlug}/table/{t.number}</p>
-                          <button className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                            <Download size={11} strokeWidth={1.5} /> PNG laden
+                      {[...store.tables].sort((a, b) => a.number - b.number).map(t => (
+                        <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
+                          <button onClick={() => { if (confirm(`Tisch ${t.number} und seinen QR-Code wirklich löschen?`)) store.removeTable(t.id); }}
+                            title="Tisch löschen"
+                            className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                            <Trash2 size={12} strokeWidth={1.5} />
                           </button>
+                          <TableQRCode orgSlug={orgSlug} tableNumber={t.number} />
                         </div>
                       ))}
                     </div>
@@ -1475,7 +1800,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                               <td className="px-5 py-3.5 text-[13px] text-gray-400">{i + 1}</td>
                               <td className="px-5 py-3.5">
                                 <div className="flex items-center gap-3">
-                                  <img src={dish.img} alt={dish.name} className="w-9 h-9 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
+                                  <DishImageUpload dish={dish} size={36} />
                                   <p className="text-[14px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
                                 </div>
                               </td>
@@ -1503,8 +1828,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   </div>
                 </div>
               )}
-            </>
-          )}
+          </>
         </main>
       </div>
 
@@ -1608,6 +1932,7 @@ function OrgShell({ view }: { view: View }) {
 function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string; tableNumber: number | null }) {
   const store = useStore();
   const [dark, setDark] = useState(false);
+  useGoogleFont(store.brand?.font);
 
   if (store.loading) return <FullScreenMessage>Lädt Restaurantdaten…</FullScreenMessage>;
   if (store.error) {
@@ -1630,7 +1955,7 @@ function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string
   const firstTableNumber = tableNumber ?? [...store.tables].sort((a, b) => a.number - b.number)[0]?.number ?? 1;
 
   return (
-    <div className={dark ? 'dark' : ''} style={{ fontFamily: "'Inter', system-ui, sans-serif", '--ba': store.brand.accent } as React.CSSProperties}>
+    <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
       <TopBar orgSlug={orgSlug} view={view} defaultTableNumber={firstTableNumber} dark={dark} setDark={setDark} />
 
       {view === 'guest' && (
