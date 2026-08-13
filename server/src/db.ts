@@ -11,7 +11,15 @@ const client = new MongoClient(uri);
 let connectPromise: Promise<MongoClient> | null = null;
 
 function getClient(): Promise<MongoClient> {
-  if (!connectPromise) connectPromise = client.connect();
+  if (!connectPromise) {
+    // Ein fehlgeschlagener Verbindungsversuch darf NICHT dauerhaft zwischengespeichert
+    // werden — sonst antwortet der Server für immer mit 500, auch wenn die Datenbank
+    // längst wieder erreichbar ist, und ein manueller Neustart wäre nötig.
+    connectPromise = client.connect().catch(err => {
+      connectPromise = null;
+      throw err;
+    });
+  }
   return connectPromise;
 }
 
@@ -38,4 +46,45 @@ export async function orgDbBySlug(slug: string): Promise<Db> {
 
 export async function closeDb(): Promise<void> {
   await client.close();
+}
+
+// ═══════════════════════════════════════════════════════════
+// DIAGNOSE (für GET /health)
+//
+// Zeigt an, WELCHER Zugang tatsächlich verwendet wird und woran
+// eine Verbindung scheitert — ohne das Passwort preiszugeben.
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Benutzername + Host(s) aus der URI, Passwort maskiert.
+ * Bewusst per Regex statt new URL(): die Mehr-Host-Form
+ * (mongodb://user:pw@a:27017,b:27017,…) ist keine gültige URL.
+ */
+export function connectionSummary(): { user: string; host: string; scheme: string } {
+  const match = /^(mongodb(?:\+srv)?):\/\/(?:([^:@/]+)(?::[^@/]*)?@)?([^/?]+)/.exec(uri!);
+  if (!match) return { user: '(URI nicht lesbar)', host: '(unbekannt)', scheme: '(unbekannt)' };
+
+  const [, scheme, rawUser, hosts] = match;
+  let user = '(kein Benutzer in der URI)';
+  if (rawUser) {
+    try { user = decodeURIComponent(rawUser); } catch { user = rawUser; }
+  }
+  return { user, host: hosts, scheme };
+}
+
+/** Übersetzt einen Verbindungsfehler in einen konkreten nächsten Schritt. */
+export function explainDbError(err: unknown): string {
+  const e = err as { message?: string; code?: unknown; codeName?: string; name?: string };
+  const message = e?.message ?? '';
+
+  if (e?.code === 8000 || /bad auth|authentication failed/i.test(message)) {
+    return 'Benutzername oder Passwort in MONGODB_URI stimmen nicht. Prüfe in Atlas unter "Database Access", ob dieser Benutzer existiert, und ob das Passwort passt (Sonderzeichen müssen URL-kodiert sein).';
+  }
+  if (/querySrv|ENOTFOUND|EAI_AGAIN/i.test(message)) {
+    return 'Die Cluster-Adresse konnte per DNS nicht aufgelöst werden. Entweder ist der Hostname falsch geschrieben, oder DNS ist in dieser Umgebung blockiert — dann die Shard-Hosts direkt statt "mongodb+srv" verwenden.';
+  }
+  if (/MongoServerSelectionError|timed out|ECONNREFUSED/i.test(message) || e?.name === 'MongoServerSelectionError') {
+    return 'Der Cluster war nicht erreichbar. Prüfe in Atlas unter "Network Access", ob 0.0.0.0/0 freigegeben ist, und ob der Cluster pausiert ist.';
+  }
+  return 'Unerwarteter Datenbankfehler — vollständige Meldung siehe Feld "error".';
 }

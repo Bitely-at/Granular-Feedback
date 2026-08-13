@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
-import { platformDb, orgDbBySlug } from './db.js';
+import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import type {
   Organization, BrandDoc, GuestProfileDoc, DishRatingInput,
 } from './types.js';
@@ -76,6 +76,38 @@ async function getFullState(db: Db) {
     guest,
   };
 }
+
+// ── Health-Check: sagt im Klartext, ob die Datenbank steht ──
+// Bewusst ohne Mandanten-Kontext, damit er auch dann antwortet,
+// wenn noch keine Organisation angelegt ist.
+app.get('/health', async (_req, res) => {
+  const connection = connectionSummary();
+  try {
+    const db = await platformDb();
+    await db.command({ ping: 1 });
+    const orgs = await db.collection('organizations').find().toArray();
+    res.json({
+      ok: true,
+      database: 'verbunden',
+      connection,
+      organizations: orgs.map(o => o.slug),
+      hint: orgs.length === 0
+        ? 'Verbindung steht, aber es ist noch keine Organisation angelegt. Führe "npm run seed --prefix server" gegen diese Datenbank aus.'
+        : 'Alles bereit.',
+    });
+  } catch (err) {
+    const e = err as { message?: string; code?: unknown; codeName?: string };
+    res.status(503).json({
+      ok: false,
+      database: 'nicht verbunden',
+      connection,
+      error: e?.message ?? String(err),
+      code: e?.code ?? null,
+      codeName: e?.codeName ?? null,
+      hint: explainDbError(err),
+    });
+  }
+});
 
 const router = express.Router({ mergeParams: true });
 app.use('/api/:orgSlug', resolveOrg, router);
