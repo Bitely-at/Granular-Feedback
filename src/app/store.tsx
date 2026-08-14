@@ -142,6 +142,7 @@ interface StoreApi extends OrgState {
   error: string | null;
   refresh: () => Promise<void>;
   saveTableOrder: (tableNumber: number, cart: Record<string, number>) => Promise<void>;
+  closeTable: (tableNumber: number) => Promise<void>;
   addItemToTable: (tableNumber: number, dishId: string, qty?: number) => Promise<void>;
   submitReview: (tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
   redeemVoucher: (voucherId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -183,6 +184,13 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
 
   const saveTableOrder = useCallback(async (tableNumber: number, cart: Record<string, number>) => {
     const data = await api<OrgState>(orgSlug, `/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) });
+    setState(data);
+  }, [orgSlug]);
+
+  // Der Server antwortet mit dem vollständigen neuen Zustand — die Oberfläche
+  // übernimmt ihn direkt, statt lokal zu raten.
+  const closeTable = useCallback(async (tableNumber: number) => {
+    const data = await api<OrgState>(orgSlug, `/tables/${tableNumber}/close`, { method: 'POST' });
     setState(data);
   }, [orgSlug]);
 
@@ -254,9 +262,9 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
 
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error,
-    refresh, saveTableOrder, addItemToTable, submitReview, redeemVoucher,
+    refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher,
     loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
-  }), [state, orgSlug, loading, error, refresh, saveTableOrder, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable]);
+  }), [state, orgSlug, loading, error, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

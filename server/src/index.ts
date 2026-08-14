@@ -186,6 +186,27 @@ router.post('/tables/:number/order', async (req: OrgRequest, res, next) => {
   }
 });
 
+// ── Kellner: Tisch schließen und wieder freigeben ──
+// Gegenstück zum Buchen: räumt die laufende Bestellung ab und stellt den Tisch
+// auf 'frei'. Bewusst idempotent — ein zweiter Aufruf ist kein Fehler.
+router.post('/tables/:number/close', async (req: OrgRequest, res, next) => {
+  try {
+    const number = Number(req.params.number);
+    const table = await req.db!.collection('tables').findOne({ number });
+    if (!table) {
+      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      return;
+    }
+    await req.db!.collection('tables').updateOne(
+      { _id: table._id },
+      { $set: { status: 'frei', items: [], orderId: null, openedAt: null } }
+    );
+    res.json(await getFullState(req.db!));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Gast: einzelnes Gericht nachträglich zum Tisch hinzufügen ("Etwas vergessen?") ──
 router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
   try {
