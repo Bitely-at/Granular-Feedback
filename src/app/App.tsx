@@ -352,14 +352,20 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
               <div className="absolute inset-0"
                 style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ba, #16A34A) 16%, transparent), transparent 45%)' }} />
             )}
-            <div className="relative h-full overflow-y-auto flex flex-col items-center px-6 pt-40 pb-8">
+            {/* Scrollen übernimmt der äußere Container, das Zentrieren der innere
+                mit min-h-full. Zuvor saßen "flex-1 + justify-center" direkt im
+                Scroll-Container — sobald der Inhalt höher wurde als der Bildschirm,
+                zentrierte der Browser über beide Ränder hinaus: man scrollte durch
+                Leerraum und kam an den oberen Teil nicht mehr heran. */}
+            <div className="relative h-full overflow-y-auto">
+              <div className="min-h-full flex flex-col items-center justify-center px-6 py-10">
               <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 ${hasCover ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
                 <BrandLogo brand={store.brand} size={80} textSize={36} rounded="rounded-none" />
               </div>
               <p className={`text-2xl font-semibold text-center ${hasCover ? 'text-white' : 'text-gray-900 dark:text-white'}`}
                 style={hasCover ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{store.brand?.name}</p>
               <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>{store.branches[0]?.name}</p>
-              <div className="w-full max-w-sm space-y-4 flex-1 flex flex-col justify-center">
+              <div className="w-full max-w-sm space-y-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 text-center">
                   <p className="text-[12px] text-gray-400 mb-1 uppercase tracking-wide">Dein Tisch</p>
                   <p className="text-4xl font-bold text-gray-900 dark:text-white mb-4">Tisch {tableNumber}</p>
@@ -385,6 +391,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                     Bereits Mitglied? Anmelden
                   </button>
                 )}
+                </div>
               </div>
             </div>
           </motion.div>
@@ -917,7 +924,10 @@ function WaiterApp() {
       )}
 
       {screen === 'photo' && (
-        <div className="flex-1 flex items-center justify-center p-4 sm:p-10 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
+          {/* Gleiches Muster wie im Gast-Willkommensbildschirm: zentriert wird
+              innen mit min-h-full, gescrollt außen. */}
+          <div className="min-h-full flex items-center justify-center p-4 sm:p-10">
           {photoStep === 'scan' ? (
             <div className="w-full max-w-lg space-y-5">
               <div>
@@ -973,6 +983,7 @@ function WaiterApp() {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
