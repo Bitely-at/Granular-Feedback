@@ -114,7 +114,7 @@ function SField({ value, onChange, placeholder, large }: { value: string; onChan
 
 function EmptyState({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+    <div className="flex flex-col items-center justify-center py-10 sm:py-20 px-6 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
         <Icon size={26} className="text-gray-400" strokeWidth={1.5} />
       </div>
@@ -358,7 +358,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                 zentrierte der Browser über beide Ränder hinaus: man scrollte durch
                 Leerraum und kam an den oberen Teil nicht mehr heran. */}
             <div className="relative h-full overflow-y-auto">
-              <div className="min-h-full flex flex-col items-center justify-center px-6 py-10">
+              <div className="min-h-full flex flex-col items-center justify-center px-6 py-6 sm:py-10">
               <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 ${hasCover ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
                 <BrandLogo brand={store.brand} size={80} textSize={36} rounded="rounded-none" />
               </div>
@@ -366,9 +366,9 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                 style={hasCover ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{store.brand?.name}</p>
               <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>{store.branches[0]?.name}</p>
               <div className="w-full max-w-sm space-y-4">
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 text-center">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 sm:p-6 text-center">
                   <p className="text-[12px] text-gray-400 mb-1 uppercase tracking-wide">Dein Tisch</p>
-                  <p className="text-4xl font-bold text-gray-900 dark:text-white mb-4">Tisch {tableNumber}</p>
+                  <p className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">Tisch {tableNumber}</p>
                   <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.</p>
                 </div>
                 {tableDishes.length === 0 ? (
@@ -376,10 +376,10 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                     {/* Zwei verschiedene Leerzustände: bereits bewertet vs. noch nichts gebucht. */}
                     {table.status === 'abgeschlossen' ? (
                       <EmptyState icon={CheckCircle2} title="Keine offene Bestellung"
-                        desc="Für diesen Tisch liegt gerade nichts zum Bewerten vor. Sobald neue Gerichte gebucht werden, kannst du hier wieder Feedback geben." />
+                        desc="Sobald neue Gerichte gebucht werden, kannst du hier Feedback geben." />
                     ) : (
-                      <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung erfasst"
-                        desc="Dein Service-Team hat für diesen Tisch noch nichts eingetragen. Frag kurz nach oder versuch es gleich nochmal." />
+                      <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung"
+                        desc="Dein Service-Team hat noch nichts eingetragen. Frag kurz nach." />
                     )}
                   </div>
                 ) : (
@@ -2070,21 +2070,23 @@ function TopBar({ orgSlug, view, defaultTableNumber, dark, setDark }: {
     ['admin', 'Admin', Monitor, `/${orgSlug}/admin`],
   ];
   return (
-    <div className="bg-gray-950 text-white px-4 h-10 flex items-center gap-3 text-[12px] sticky top-0 z-50">
-      <span className="font-semibold tracking-tight text-white">Bitely</span>
-      <span className="text-gray-700 mx-1">|</span>
-      <div className="flex gap-0.5 bg-gray-900 p-0.5 rounded-lg">
+    // Am Handy nur Symbole: mit ausgeschriebenen Beschriftungen war diese Zeile
+    // breiter als der Bildschirm und hat die ganze Seite seitlich scrollbar gemacht.
+    <div className="bg-gray-950 text-white px-3 sm:px-4 h-10 flex items-center gap-2 sm:gap-3 text-[12px] sticky top-0 z-50 overflow-hidden">
+      <span className="font-semibold tracking-tight text-white flex-shrink-0">Bitely</span>
+      <span className="hidden sm:inline text-gray-700 mx-1">|</span>
+      <div className="flex gap-0.5 bg-gray-900 p-0.5 rounded-lg flex-shrink-0">
         {pills.map(([id, label, Icon, href]) => (
-          <Link key={id} to={href}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${view === id ? 'bg-white text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-300'}`}>
-            <Icon size={11} /> {label}
+          <Link key={id} to={href} title={label} aria-label={label}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md transition-colors ${view === id ? 'bg-white text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-300'}`}>
+            <Icon size={11} /> <span className="hidden sm:inline">{label}</span>
           </Link>
         ))}
       </div>
-      <button onClick={() => setDark(p => !p)}
-        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-gray-400 hover:text-gray-200 bg-gray-900 transition-colors">
+      <button onClick={() => setDark(p => !p)} title={dark ? 'Hell' : 'Dunkel'}
+        className="ml-auto flex-shrink-0 flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-gray-400 hover:text-gray-200 bg-gray-900 transition-colors">
         {dark ? <Sun size={12} /> : <Moon size={12} />}
-        {dark ? 'Hell' : 'Dunkel'}
+        <span className="hidden sm:inline">{dark ? 'Hell' : 'Dunkel'}</span>
       </button>
     </div>
   );
