@@ -83,6 +83,16 @@ export interface Alert {
   stars: number; note?: string; createdAt: number; resolved: boolean;
 }
 
+// Eine abgegebene Gast-Bewertung, wie sie der Server liefert. Enthält die
+// Freitexte, die der Gast zu einzelnen Gerichten geschrieben hat.
+export interface Review {
+  id: string;
+  tableNumber: number;
+  dishRatings: DishRatingInput[];
+  overall: { service: number; ambience: number; speed: number };
+  createdAt: number;
+}
+
 export interface GuestProfile { loggedIn: boolean; points: number; redeemed: string[]; }
 
 interface OrgState {
@@ -93,6 +103,7 @@ interface OrgState {
   vouchers: Voucher[];
   users: AdminUser[];
   alerts: Alert[];
+  reviews: Review[];
   guest: GuestProfile;
 }
 
@@ -159,7 +170,7 @@ interface StoreApi extends OrgState {
 const StoreContext = createContext<StoreApi | null>(null);
 
 const EMPTY_STATE: OrgState = {
-  brand: null, branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [],
+  brand: null, branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [], reviews: [],
   guest: { loggedIn: false, points: 0, redeemed: [] },
 };
 

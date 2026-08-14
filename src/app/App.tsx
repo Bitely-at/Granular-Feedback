@@ -9,7 +9,7 @@ import {
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
   Eye, Filter, Trash2, UserPlus, Lock, Building2, ImagePlus,
-  Smartphone, Tablet, Monitor, AlertOctagon, Loader2,
+  Smartphone, Tablet, Monitor, AlertOctagon, Loader2, MessageSquare,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -1097,7 +1097,7 @@ function DishImageUpload({ dish, size = 36 }: { dish: Dish; size?: number }) {
 // ADMIN APP
 // ═══════════════════════════════════════════════════════════
 
-type AdminPage = 'dashboard' | 'menu' | 'design' | 'users' | 'settings';
+type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'design' | 'users' | 'settings';
 
 function AdminApp({ orgSlug }: { orgSlug: string }) {
   const store = useStore();
@@ -1156,6 +1156,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+    { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
     { id: 'design', label: 'Design', Icon: Palette },
     { id: 'users', label: 'Benutzer', Icon: Users },
@@ -1753,6 +1754,90 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                       ))}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {page === 'reviews' && (
+                <div className="space-y-5 max-w-3xl">
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5">
+                      Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst
+                    </p>
+                  </div>
+
+                  {store.reviews.length === 0 ? (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <EmptyState icon={MessageSquare} title="Noch keine Bewertungen"
+                        desc="Sobald Gäste über den QR-Code Feedback abgeben, erscheinen die Rückmeldungen hier — inklusive der Freitexte zu einzelnen Gerichten." />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {store.reviews.map(rv => {
+                        const rated = rv.dishRatings.filter(d => d.stars > 0);
+                        const avg = rated.length > 0 ? rated.reduce((a, d) => a + d.stars, 0) / rated.length : 0;
+                        return (
+                          <div key={rv.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                            <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-50 dark:border-gray-700/60 flex-wrap">
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Tisch {rv.tableNumber}</span>
+                                <span className="text-[12px] text-gray-400">
+                                  {new Date(rv.createdAt).toLocaleString('de-AT', {
+                                    day: '2-digit', month: '2-digit', year: 'numeric',
+                                    hour: '2-digit', minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                              {rated.length > 0 && (
+                                <span className="flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: 'var(--ba)' }}>
+                                  <Star size={13} fill="currentColor" strokeWidth={0} />{avg.toFixed(1)}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="px-4 sm:px-5 py-3 space-y-3">
+                              {rated.map(d => {
+                                const dish = store.dishes.find(x => x.id === d.dishId);
+                                return (
+                                  <div key={d.dishId} className="flex items-start gap-3">
+                                    {dish && (
+                                      <img src={dish.img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="text-[13px] font-medium text-gray-900 dark:text-white">
+                                          {dish?.name ?? 'Gelöschtes Gericht'}
+                                        </p>
+                                        <StarRating value={d.stars} size={13} />
+                                      </div>
+                                      {d.note && (
+                                        <p className="text-[13px] text-gray-600 dark:text-gray-300 mt-1 leading-relaxed border-l-2 border-gray-200 dark:border-gray-600 pl-2.5">
+                                          „{d.note}"
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div className="px-4 sm:px-5 py-2.5 bg-gray-50 dark:bg-gray-900/40 flex gap-4 sm:gap-6 flex-wrap">
+                              {([
+                                ['Service', rv.overall.service],
+                                ['Ambiente', rv.overall.ambience],
+                                ['Tempo', rv.overall.speed],
+                              ] as const).map(([label, value]) => (
+                                <span key={label} className="flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400">
+                                  {label}
+                                  <span className="font-semibold text-gray-700 dark:text-gray-200">{value > 0 ? `${value}/5` : '—'}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

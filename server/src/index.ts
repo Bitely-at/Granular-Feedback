@@ -40,13 +40,16 @@ async function resolveOrg(req: OrgRequest, res: Response, next: NextFunction) {
   }
 }
 
+// Wie viele Rezensionen der Gesamtzustand mitliefert (neueste zuerst).
+const REVIEW_PAGE_SIZE = 100;
+
 function serialize<T extends WithId<Document>>(doc: T) {
   const { _id, ...rest } = doc;
   return { id: String(_id), ...rest };
 }
 
 async function getFullState(db: Db) {
-  const [brandDoc, branches, dishes, tables, vouchers, users, alerts, guestDoc] = await Promise.all([
+  const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, guestDoc] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection('branches').find().toArray(),
     db.collection('dishes').find().toArray(),
@@ -54,6 +57,9 @@ async function getFullState(db: Db) {
     db.collection('vouchers').find().toArray(),
     db.collection('users').find().toArray(),
     db.collection('alerts').find().sort({ createdAt: -1 }).toArray(),
+    // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
+    // Rezensionen wachsen als einzige Collection unbegrenzt mit.
+    db.collection('reviews').find().sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
     db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' }),
   ]);
 
@@ -73,6 +79,7 @@ async function getFullState(db: Db) {
     vouchers: vouchers.map(serialize),
     users: users.map(serialize),
     alerts: alerts.map(serialize),
+    reviews: reviews.map(serialize),
     guest,
   };
 }
