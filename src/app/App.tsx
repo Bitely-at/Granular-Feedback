@@ -367,8 +367,14 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                 </div>
                 {tableDishes.length === 0 ? (
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-                    <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung erfasst"
-                      desc="Dein Service-Team hat für diesen Tisch noch nichts eingetragen. Frag kurz nach oder versuch es gleich nochmal." />
+                    {/* Zwei verschiedene Leerzustände: bereits bewertet vs. noch nichts gebucht. */}
+                    {table.status === 'abgeschlossen' ? (
+                      <EmptyState icon={CheckCircle2} title="Keine offene Bestellung"
+                        desc="Für diesen Tisch liegt gerade nichts zum Bewerten vor. Sobald neue Gerichte gebucht werden, kannst du hier wieder Feedback geben." />
+                    ) : (
+                      <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung erfasst"
+                        desc="Dein Service-Team hat für diesen Tisch noch nichts eingetragen. Frag kurz nach oder versuch es gleich nochmal." />
+                    )}
                   </div>
                 ) : (
                   <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>
@@ -640,38 +646,69 @@ type WaiterScreen = 'tables' | 'detail' | 'photo';
 function WaiterApp() {
   const store = useStore();
   const [screen, setScreen] = useState<WaiterScreen>('tables');
-  const [activeTable, setActiveTable] = useState<TableRow | null>(null);
+  // Nur die Nummer festhalten, nicht den Tisch selbst: der Tisch wird bei jedem
+  // Render frisch aus dem Server-Zustand gelesen. Eine Kopie im lokalen State
+  // würde nach dem Speichern weiter die alten Positionen anzeigen.
+  const [activeTableNumber, setActiveTableNumber] = useState<number | null>(null);
   const [online, setOnline] = useState(true);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('Speisen');
   const [cart, setCart] = useState<Record<string, number>>({});
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState<null | 'save' | 'close'>(null);
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [photoStep, setPhotoStep] = useState<'scan' | 'confirm'>('scan');
   const [chips, setChips] = useState(['Spicy Tuna Roll', 'Miso Suppe', 'Asahi Bier']);
   const cartTotal = Object.values(cart).reduce((a, b) => a + b, 0);
 
+  const activeTable = activeTableNumber == null
+    ? null
+    : store.tables.find(t => t.number === activeTableNumber) ?? null;
+
+  // Die drei Zustände müssen auf einen Blick unterscheidbar sein — vorher waren
+  // 'frei' und 'offen' beide grau und unterschieden sich nur in der Rahmenstufe.
   const statusCls: Record<TableRow['status'], string> = {
-    frei: 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-500',
-    offen: 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300',
-    abgeschlossen: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300',
+    frei: 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500',
+    offen: 'bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300',
+    abgeschlossen: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300',
   };
 
   const openAlerts = store.alerts.filter(a => !a.resolved);
 
   const openTableByNumber = (number: number) => {
     const t = store.tables.find(x => x.number === number);
-    if (t) { setActiveTable(t); setScreen('detail'); }
+    if (t) { setActiveTableNumber(t.number); setScreen('detail'); }
   };
 
-  const handleCompleteTable = async () => {
+  // Bestellung buchen: Gerichte aus dem Warenkorb auf den Tisch schreiben.
+  const handleSaveOrder = async () => {
     if (!activeTable || saving) return;
     setSaving(true);
+    setActionError(null);
     try {
       await store.saveTableOrder(activeTable.number, cart);
-      setConfirm(false);
-      setScreen('tables');
+      setConfirm(null);
       setCart({});
+      setScreen('tables');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Bestellung konnte nicht gespeichert werden.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Tisch schließen: laufende Bestellung abräumen, Tisch wieder freigeben.
+  const handleCloseTable = async () => {
+    if (!activeTable || saving) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      await store.closeTable(activeTable.number);
+      setConfirm(null);
+      setCart({});
+      setScreen('tables');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Tisch konnte nicht geschlossen werden.');
     } finally {
       setSaving(false);
     }
@@ -682,7 +719,12 @@ function WaiterApp() {
       const matches = chips
         .map(name => store.dishes.find(d => d.name === name)?.id)
         .filter((id): id is string => Boolean(id));
-      await Promise.all(matches.map(id => store.addItemToTable(activeTable.number, id, 1)));
+      try {
+        for (const id of matches) await store.addItemToTable(activeTable.number, id, 1);
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Erkannte Gerichte konnten nicht gespeichert werden.');
+        return;
+      }
     }
     setScreen(activeTable ? 'detail' : 'tables');
   };
@@ -714,7 +756,7 @@ function WaiterApp() {
       <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
         <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 h-14">
           {screen !== 'tables' && (
-            <button onClick={() => { setScreen('tables'); setConfirm(false); }} className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
+            <button onClick={() => { setScreen('tables'); setConfirm(null); setActionError(null); }} className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
               <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-400" />
             </button>
           )}
@@ -742,14 +784,14 @@ function WaiterApp() {
           <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
             <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Tischübersicht</p>
             <div className="flex items-center gap-3 sm:gap-4 text-[12px] sm:text-[13px] text-gray-500">
-              {([['bg-gray-300', 'Frei'], ['bg-gray-500', 'Offen'], ['bg-emerald-500', 'Fertig']] as const).map(([cls, l]) => (
+              {([['bg-gray-300', 'Frei'], ['bg-amber-400', 'Offen'], ['bg-emerald-500', 'Fertig']] as const).map(([cls, l]) => (
                 <span key={l} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${cls}`} />{l}</span>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3">
             {[...store.tables].sort((a, b) => a.number - b.number).map(t => (
-              <button key={t.id} onClick={() => { setActiveTable(t); setScreen('detail'); }}
+              <button key={t.id} onClick={() => { setActiveTableNumber(t.number); setScreen('detail'); }}
                 className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-3 transition-all hover:scale-105 active:scale-95 relative ${statusCls[t.status]}`}>
                 {openAlerts.some(a => a.tableNumber === t.number) && (
                   <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-amber-500" />
@@ -847,11 +889,21 @@ function WaiterApp() {
                 })
               )}
             </div>
-            <div className="p-4 border-t border-gray-100 dark:border-gray-800">
-              <button onClick={() => setConfirm(true)} disabled={cartTotal === 0}
+            {/* Zwei getrennte Aktionen: Buchen braucht einen gefüllten Warenkorb,
+                Schließen nicht — vorher war beides derselbe Button. */}
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
+              {actionError && (
+                <p className="text-[12px] text-red-600 dark:text-red-400 text-center leading-snug px-1">{actionError}</p>
+              )}
+              <button onClick={() => setConfirm('save')} disabled={cartTotal === 0 || saving}
                 className="w-full py-3.5 rounded-xl text-[14px] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                Tisch abschließen
+                Bestellung speichern
+              </button>
+              <button onClick={() => setConfirm('close')}
+                disabled={saving || (activeTable.status === 'frei' && activeTable.items.length === 0)}
+                className="w-full py-3.5 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                Tisch schließen
               </button>
             </div>
           </div>
@@ -929,12 +981,27 @@ function WaiterApp() {
                   <CheckCircle2 size={22} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
                 </div>
                 <div>
-                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Tisch {activeTable?.number} abschließen?</p>
-                  <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">{cartTotal} Gerichte · Die Gäste erhalten den Feedback-Link per QR-Code.</p>
+                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">
+                    {confirm === 'save'
+                      ? `Bestellung für Tisch ${activeTable?.number} speichern?`
+                      : `Tisch ${activeTable?.number} schließen?`}
+                  </p>
+                  <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                    {confirm === 'save'
+                      ? `${cartTotal} Gerichte · Die Gäste erhalten den Feedback-Link per QR-Code.`
+                      : 'Die laufende Bestellung wird abgeräumt und der Tisch wieder freigegeben. Noch nicht abgegebene Bewertungen sind damit nicht mehr möglich.'}
+                  </p>
                 </div>
+                {actionError && (
+                  <p className="text-[13px] text-red-600 dark:text-red-400 leading-snug">{actionError}</p>
+                )}
                 <div className="flex gap-3 pt-1">
-                  <SecondaryBtn onClick={() => setConfirm(false)}>Abbrechen</SecondaryBtn>
-                  <PrimaryBtn onClick={handleCompleteTable} disabled={saving}>{saving ? 'Speichert…' : 'Abschließen'}</PrimaryBtn>
+                  <SecondaryBtn onClick={() => setConfirm(null)}>Abbrechen</SecondaryBtn>
+                  {confirm === 'save' ? (
+                    <PrimaryBtn onClick={handleSaveOrder} disabled={saving}>{saving ? 'Speichert…' : 'Speichern'}</PrimaryBtn>
+                  ) : (
+                    <PrimaryBtn onClick={handleCloseTable} disabled={saving}>{saving ? 'Schließt…' : 'Schließen'}</PrimaryBtn>
+                  )}
                 </div>
               </div>
             </motion.div>

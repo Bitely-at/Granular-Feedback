@@ -8,7 +8,8 @@
     "dev": "vite",
     "server:install": "npm install --prefix server",
     "server:seed": "npm run seed --prefix server",
-    "server:dev": "npm run dev --prefix server"
+    "server:dev": "npm run dev --prefix server",
+    "verify:tables": "node scripts/verify-table-flows.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
