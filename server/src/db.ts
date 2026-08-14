@@ -1,4 +1,4 @@
-import { MongoClient, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
 if (!uri) {
@@ -39,9 +39,48 @@ function dbNameForOrg(slug: string): string {
   return `bitely_org_${safe}`;
 }
 
+// Pro Prozess einmal je Organisation: Indizes anlegen und Altbestand nachziehen.
+const preparedOrgs = new Set<string>();
+
+/**
+ * Legt den eindeutigen Index an, der verhindert, dass dieselbe Bestellung
+ * zweimal bewertet wird, und rüstet Tische ohne orderId nach.
+ *
+ * Der Index ist partiell (nur Dokumente MIT orderId), damit Bewertungen aus der
+ * Zeit vor diesem Feld — die kein orderId tragen — ihn nicht verletzen.
+ */
+async function ensureOrgSchema(db: Db): Promise<void> {
+  await db.collection('reviews').createIndex(
+    { orderId: 1 },
+    { unique: true, partialFilterExpression: { orderId: { $exists: true } }, name: 'uniq_orderId' }
+  );
+
+  // Tische, auf denen noch eine Bestellung liegt, haben nach einem Update aus
+  // der Zeit davor keine orderId. Ohne sie wären sie nicht bewertbar.
+  const legacy = await db.collection('tables')
+    .find({ orderId: { $exists: false }, 'items.0': { $exists: true } })
+    .project({ _id: 1 })
+    .toArray();
+  for (const { _id } of legacy) {
+    await db.collection('tables').updateOne({ _id }, { $set: { orderId: new ObjectId() } });
+  }
+
+  // Tische ohne Bestellung bekommen explizit null, damit "keine offene
+  // Bestellung" überall gleich aussieht.
+  await db.collection('tables').updateMany(
+    { orderId: { $exists: false } },
+    { $set: { orderId: null } }
+  );
+}
+
 export async function orgDbBySlug(slug: string): Promise<Db> {
   const c = await getClient();
-  return c.db(dbNameForOrg(slug));
+  const db = c.db(dbNameForOrg(slug));
+  if (!preparedOrgs.has(slug)) {
+    await ensureOrgSchema(db);
+    preparedOrgs.add(slug);
+  }
+  return db;
 }
 
 export async function closeDb(): Promise<void> {

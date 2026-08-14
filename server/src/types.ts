@@ -30,6 +30,11 @@ export interface TableDoc {
   status: 'frei' | 'offen' | 'abgeschlossen';
   items: TableItem[];
   openedAt: number | null;
+  // Identität der aktuell offenen Bestellung. Wird gesetzt, sobald das erste
+  // Gericht auf den Tisch gebucht wird, und auf null zurückgesetzt, sobald die
+  // Bestellung bewertet oder der Tisch geschlossen wurde. null = keine offene
+  // Bestellung. Trägt den Doppelbewertungs-Schutz (unique index auf reviews).
+  orderId?: ObjectId | null;
 }
 
 export interface DishDoc {
@@ -50,6 +55,9 @@ export interface DishRatingInput {
 
 export interface ReviewDoc {
   _id?: ObjectId;
+  // Verweist auf TableDoc.orderId. Eindeutiger Index -> pro Bestellung genau
+  // eine Bewertung, auch bei zwei gleichzeitigen Anfragen.
+  orderId: ObjectId;
   branchId: string;
   tableId: string;
   tableNumber: number;

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { ObjectId } from 'mongodb';
 import { platformDb, orgDbBySlug, closeDb } from './db.js';
 import type { Organization, Branch, DishDoc, TableDoc, VoucherDoc, UserDoc, BrandDoc, GuestProfileDoc } from './types.js';
 
@@ -70,16 +71,19 @@ async function main() {
       status,
       items: itemIdxQty.map(([idx, qty]) => ({ dishId: dishIds[idx], qty })),
       openedAt: minutesAgo == null ? null : Date.now() - minutesAgo * 60000,
+      // Ein Tisch mit Gerichten trägt eine offene Bestellung; leere Tische nicht.
+      orderId: itemIdxQty.length > 0 ? new ObjectId() : null,
     });
     await tablesCol.insertMany([
       mk(1, 'frei', [], null),
       mk(2, 'offen', [[0, 2], [6, 2]], 22),
-      mk(3, 'abgeschlossen', [[4, 2], [8, 2], [5, 2]], 60),
+      // 'abgeschlossen' heißt: bewertet und abgeräumt — deshalb ohne Gerichte.
+      mk(3, 'abgeschlossen', [], 60),
       mk(4, 'offen', [[0, 1], [1, 1], [2, 1]], 8), // Tisch 4 = Demo-Gasttisch, siehe README
       mk(5, 'frei', [], null),
       mk(6, 'offen', [[1, 3], [7, 2], [3, 2]], 45),
       mk(7, 'frei', [], null),
-      mk(8, 'abgeschlossen', [[4, 1], [8, 2]], 120),
+      mk(8, 'abgeschlossen', [], 120),
       mk(9, 'offen', [[2, 2], [5, 3]], 15),
       mk(10, 'frei', [], null),
       mk(11, 'offen', [[6, 3]], 33),

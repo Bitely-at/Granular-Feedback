@@ -153,98 +153,154 @@ router.delete('/tables/:id', async (req: OrgRequest, res) => {
 });
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
-router.post('/tables/:number/order', async (req: OrgRequest, res) => {
-  const number = Number(req.params.number);
-  const cart = (req.body?.cart ?? {}) as Record<string, number>;
-  const table = await req.db!.collection('tables').findOne({ number });
-  if (!table) {
-    res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
-    return;
+router.post('/tables/:number/order', async (req: OrgRequest, res, next) => {
+  try {
+    const number = Number(req.params.number);
+    const cart = (req.body?.cart ?? {}) as Record<string, number>;
+    const table = await req.db!.collection('tables').findOne({ number });
+    if (!table) {
+      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      return;
+    }
+    const items = [...(table.items as { dishId: string; qty: number }[])];
+    for (const [dishId, qty] of Object.entries(cart)) {
+      if (qty <= 0) continue;
+      const existing = items.find(i => i.dishId === dishId);
+      if (existing) existing.qty += qty; else items.push({ dishId, qty });
+    }
+    await req.db!.collection('tables').updateOne(
+      { _id: table._id },
+      {
+        $set: {
+          items,
+          status: 'offen',
+          openedAt: table.openedAt ?? Date.now(),
+          // Erste Buchung auf einen leeren Tisch eröffnet eine neue Bestellung.
+          orderId: table.orderId ?? new ObjectId(),
+        },
+      }
+    );
+    res.json(await getFullState(req.db!));
+  } catch (err) {
+    next(err);
   }
-  const items = [...(table.items as { dishId: string; qty: number }[])];
-  for (const [dishId, qty] of Object.entries(cart)) {
-    if (qty <= 0) continue;
-    const existing = items.find(i => i.dishId === dishId);
-    if (existing) existing.qty += qty; else items.push({ dishId, qty });
-  }
-  await req.db!.collection('tables').updateOne(
-    { _id: table._id },
-    { $set: { items, status: 'offen', openedAt: table.openedAt ?? Date.now() } }
-  );
-  res.json(await getFullState(req.db!));
 });
 
 // ── Gast: einzelnes Gericht nachträglich zum Tisch hinzufügen ("Etwas vergessen?") ──
-router.post('/tables/:number/items', async (req: OrgRequest, res) => {
-  const number = Number(req.params.number);
-  const { dishId, qty = 1 } = req.body ?? {};
-  const table = await req.db!.collection('tables').findOne({ number });
-  if (!table) {
-    res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
-    return;
+router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
+  try {
+    const number = Number(req.params.number);
+    const { dishId, qty = 1 } = req.body ?? {};
+    const table = await req.db!.collection('tables').findOne({ number });
+    if (!table) {
+      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      return;
+    }
+    const items = [...(table.items as { dishId: string; qty: number }[])];
+    const existing = items.find(i => i.dishId === dishId);
+    if (existing) existing.qty += qty; else items.push({ dishId, qty });
+    await req.db!.collection('tables').updateOne(
+      { _id: table._id },
+      {
+        $set: {
+          items,
+          // Ein Nachtrag macht den Tisch in jedem Fall wieder aktiv — auch wenn
+          // er zuvor bewertet war; dann eröffnet er eine neue Bestellung.
+          status: 'offen',
+          openedAt: table.openedAt ?? Date.now(),
+          orderId: table.orderId ?? new ObjectId(),
+        },
+      }
+    );
+    res.json(await getFullState(req.db!));
+  } catch (err) {
+    next(err);
   }
-  const items = [...(table.items as { dishId: string; qty: number }[])];
-  const existing = items.find(i => i.dishId === dishId);
-  if (existing) existing.qty += qty; else items.push({ dishId, qty });
-  await req.db!.collection('tables').updateOne(
-    { _id: table._id },
-    { $set: { items, status: table.status === 'frei' ? 'offen' : table.status, openedAt: table.openedAt ?? Date.now() } }
-  );
-  res.json(await getFullState(req.db!));
 });
 
 // ── Gast: Bewertung für einen Tisch abschicken ──
-router.post('/tables/:number/review', async (req: OrgRequest, res) => {
-  const number = Number(req.params.number);
-  const dishRatings = (req.body?.dishRatings ?? []) as DishRatingInput[];
-  const overall = req.body?.overall ?? { service: 0, ambience: 0, speed: 0 };
-  const db = req.db!;
+router.post('/tables/:number/review', async (req: OrgRequest, res, next) => {
+  try {
+    const number = Number(req.params.number);
+    const dishRatings = (req.body?.dishRatings ?? []) as DishRatingInput[];
+    const overall = req.body?.overall ?? { service: 0, ambience: 0, speed: 0 };
+    const db = req.db!;
 
-  const table = await db.collection('tables').findOne({ number });
-  if (!table) {
-    res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
-    return;
-  }
+    const table = await db.collection('tables').findOne({ number });
+    if (!table) {
+      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      return;
+    }
 
-  const ratedCount = dishRatings.filter(d => d.stars > 0).length;
-  const pointsEarned = ratedCount * 20 + 30;
+    // Ohne offene Bestellung gibt es nichts zu bewerten. Fängt den Normalfall ab:
+    // Seite neu geladen oder erneut über den QR-Code geöffnet.
+    const orderId = table.orderId as ObjectId | null | undefined;
+    if (!orderId || (table.items as unknown[]).length === 0) {
+      res.status(409).json({ error: 'Für diesen Tisch liegt aktuell keine offene Bestellung vor.' });
+      return;
+    }
 
-  for (const r of dishRatings) {
-    if (r.stars <= 0) continue;
-    await db.collection('dishes').updateOne(
-      { _id: new ObjectId(r.dishId) },
-      { $inc: { ratingsSum: r.stars, ratingsCount: 1 } }
-    );
-  }
-
-  await db.collection('tables').updateOne({ _id: table._id }, { $set: { status: 'abgeschlossen' } });
-
-  await db.collection('reviews').insertOne({
-    branchId: table.branchId, tableId: String(table._id), tableNumber: number,
-    dishRatings, overall, createdAt: Date.now(),
-  });
-
-  const lowRated = dishRatings.filter(d => d.stars > 0 && d.stars < 3);
-  if (lowRated.length > 0) {
-    const dishDocs = await db.collection('dishes').find({}).toArray();
-    const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
-    await db.collection('alerts').insertMany(
-      lowRated.map(d => ({
+    // Die Bewertung wird ZUERST geschrieben. Der eindeutige Index auf orderId ist
+    // die eigentliche Absicherung — er trägt auch den Fall zweier gleichzeitiger
+    // Anfragen, den eine vorgelagerte Prüfung nicht abfangen kann. Erst wenn dieser
+    // Schreibvorgang durch ist, folgen die Nebenwirkungen (Sterne, Alarme, Punkte);
+    // andernfalls würde eine abgelehnte Doppelabgabe die Statistik verfälschen.
+    try {
+      await db.collection('reviews').insertOne({
+        orderId,
         branchId: table.branchId, tableId: String(table._id), tableNumber: number,
-        dishName: nameOf(d.dishId), stars: d.stars, note: d.note,
-        createdAt: Date.now(), resolved: false,
-      }))
+        dishRatings, overall, createdAt: Date.now(),
+      });
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) {
+        res.status(409).json({ error: 'Diese Bestellung wurde bereits bewertet.' });
+        return;
+      }
+      throw err;
+    }
+
+    const ratedCount = dishRatings.filter(d => d.stars > 0).length;
+    const pointsEarned = ratedCount * 20 + 30;
+
+    for (const r of dishRatings) {
+      if (r.stars <= 0) continue;
+      await db.collection('dishes').updateOne(
+        { _id: new ObjectId(r.dishId) },
+        { $inc: { ratingsSum: r.stars, ratingsCount: 1 } }
+      );
+    }
+
+    const lowRated = dishRatings.filter(d => d.stars > 0 && d.stars < 3);
+    if (lowRated.length > 0) {
+      const dishDocs = await db.collection('dishes').find({}).toArray();
+      const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
+      await db.collection('alerts').insertMany(
+        lowRated.map(d => ({
+          branchId: table.branchId, tableId: String(table._id), tableNumber: number,
+          dishName: nameOf(d.dishId), stars: d.stars, note: d.note,
+          createdAt: Date.now(), resolved: false,
+        }))
+      );
+    }
+
+    await db.collection<GuestProfileDoc>('guestProfile').updateOne(
+      { _id: 'default' },
+      { $inc: { points: pointsEarned } },
+      { upsert: true }
     );
+
+    // Bestellung abräumen: der Tisch gilt als bewertet, ein erneuter Aufruf des
+    // QR-Links zeigt den Leerzustand statt derselben Gerichte.
+    await db.collection('tables').updateOne(
+      { _id: table._id },
+      { $set: { status: 'abgeschlossen', items: [], orderId: null } }
+    );
+
+    const state = await getFullState(db);
+    res.json({ ...state, pointsEarned });
+  } catch (err) {
+    next(err);
   }
-
-  await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: 'default' },
-    { $inc: { points: pointsEarned } },
-    { upsert: true }
-  );
-
-  const state = await getFullState(db);
-  res.json({ ...state, pointsEarned });
 });
 
 // ── Gast: Gutschein einlösen ──
