@@ -814,7 +814,9 @@ function WaiterApp() {
 
       {screen === 'detail' && activeTable && (
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          <div className="flex-[3] md:flex-1 min-h-0 flex flex-col p-4 sm:p-5 md:pr-3 overflow-hidden">
+          {/* Am Handy bekommt die Gerichteliste den ganzen Rest; der Warenkorb
+              darunter wächst nur so weit, wie er Inhalt hat (max. 45 % Höhe). */}
+          <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 md:pr-3 overflow-hidden">
             <div className="mb-4"><SField value={search} onChange={setSearch} placeholder="Gericht oder Getränk suchen…" large /></div>
             <div className="mb-4"><TabBar tabs={['Speisen', 'Getränke', 'Favoriten']} active={tab} onChange={setTab} /></div>
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -839,7 +841,7 @@ function WaiterApp() {
               )}
             </div>
           </div>
-          <div className="flex-[2] md:flex-none min-h-0 md:w-72 bg-white dark:bg-gray-900 border-t md:border-t-0 md:border-l border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0">
+          <div className="flex-none max-h-[45vh] md:max-h-none md:w-72 min-h-0 bg-white dark:bg-gray-900 border-t md:border-t-0 md:border-l border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0">
             <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between md:block">
               <div>
                 <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Tisch {activeTable.number}</p>
@@ -895,16 +897,20 @@ function WaiterApp() {
               {actionError && (
                 <p className="text-[12px] text-red-600 dark:text-red-400 text-center leading-snug px-1">{actionError}</p>
               )}
-              <button onClick={() => setConfirm('save')} disabled={cartTotal === 0 || saving}
-                className="w-full py-3.5 rounded-xl text-[14px] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                Bestellung speichern
-              </button>
-              <button onClick={() => setConfirm('close')}
-                disabled={saving || (activeTable.status === 'frei' && activeTable.items.length === 0)}
-                className="w-full py-3.5 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                Tisch schließen
-              </button>
+              <div className="flex gap-2 md:flex-col">
+                <button onClick={() => setConfirm('save')} disabled={cartTotal === 0 || saving}
+                  className="flex-1 py-3.5 rounded-xl text-[14px] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                  <span className="md:hidden">Speichern</span>
+                  <span className="hidden md:inline">Bestellung speichern</span>
+                </button>
+                <button onClick={() => setConfirm('close')}
+                  disabled={saving || (activeTable.status === 'frei' && activeTable.items.length === 0)}
+                  className="flex-1 py-3.5 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  <span className="md:hidden">Schließen</span>
+                  <span className="hidden md:inline">Tisch schließen</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1158,7 +1164,9 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
     { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
-    { id: 'design', label: 'Design', Icon: Palette },
+    // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
+    // Zum Zurückholen die folgende Zeile wieder einkommentieren:
+    // { id: 'design', label: 'Design', Icon: Palette },
     { id: 'users', label: 'Benutzer', Icon: Users },
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
   ];
@@ -1292,7 +1300,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
           <>
               {page === 'dashboard' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">Alle bisherigen Bewertungen · {store.branches[0]?.name}</p>
@@ -1605,7 +1613,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
               {page === 'users' && (
                 <div className="space-y-5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Benutzer</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">{store.users.length} Benutzer · {store.brand?.name}</p>
@@ -1843,7 +1851,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
               {page === 'menu' && (
                 <div className="space-y-5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Menü</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">Performance aller Gerichte</p>
