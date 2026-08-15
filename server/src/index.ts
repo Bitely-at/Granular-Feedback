@@ -48,6 +48,106 @@ function serialize<T extends WithId<Document>>(doc: T) {
   return { id: String(_id), ...rest };
 }
 
+type RouteHandler = (req: OrgRequest, res: Response, next: NextFunction) => unknown;
+
+// ═══════════════════════════════════════════════════════════
+// EINGABEPRÜFUNG
+//
+// Alles unter /api ist öffentlich erreichbar. Was von dort in die Datenbank
+// wandert, muss geprüft sein — insbesondere Zahlen, die per $inc dauerhaft
+// aufaddiert werden.
+// ═══════════════════════════════════════════════════════════
+
+/** Fehler mit HTTP-Status; wird vom zentralen Fehler-Handler beantwortet. */
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function requireObjectId(value: unknown, field: string): ObjectId {
+  if (typeof value !== 'string' || !ObjectId.isValid(value)) {
+    throw new HttpError(400, `${field} ist ungültig.`);
+  }
+  return new ObjectId(value);
+}
+
+function requireTableNumber(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 9999) {
+    throw new HttpError(400, 'Tischnummer ist ungültig.');
+  }
+  return n;
+}
+
+/**
+ * Sterne: ganze Zahl von 0 bis 5. Ohne diese Grenze verschiebt ein einziger
+ * manipulierter Aufruf (`stars: 1000`) den Durchschnitt eines Gerichts
+ * dauerhaft — rückgängig nur per Eingriff in die Datenbank.
+ */
+function requireStars(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 5) {
+    throw new HttpError(400, 'Sterne müssen eine ganze Zahl von 0 bis 5 sein.');
+  }
+  return n;
+}
+
+function requireQty(value: unknown, fallback = 1): number {
+  const n = Number(value ?? fallback);
+  if (!Number.isInteger(n) || n < 1 || n > 99) {
+    throw new HttpError(400, 'Menge muss eine ganze Zahl von 1 bis 99 sein.');
+  }
+  return n;
+}
+
+function optionalText(value: unknown, field: string, max: number): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') throw new HttpError(400, `${field} muss Text sein.`);
+  const trimmed = value.trim();
+  if (trimmed.length > max) {
+    throw new HttpError(400, `${field} darf höchstens ${max} Zeichen lang sein.`);
+  }
+  return trimmed === '' ? undefined : trimmed;
+}
+
+function requireText(value: unknown, field: string, max: number): string {
+  const text = optionalText(value, field, max);
+  if (!text) throw new HttpError(400, `${field} darf nicht leer sein.`);
+  return text;
+}
+
+function requirePrice(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100000) {
+    throw new HttpError(400, 'Preis muss zwischen 0 und 100000 liegen.');
+  }
+  return Math.round(n * 100) / 100;
+}
+
+function sanitizeDishRatings(raw: unknown): DishRatingInput[] {
+  if (!Array.isArray(raw)) throw new HttpError(400, 'dishRatings muss eine Liste sein.');
+  if (raw.length > 100) throw new HttpError(400, 'Eine Bewertung darf höchstens 100 Gerichte umfassen.');
+  return raw.map(entry => {
+    const e = (entry ?? {}) as Record<string, unknown>;
+    requireObjectId(e.dishId, 'dishId');
+    return {
+      dishId: String(e.dishId),
+      stars: requireStars(e.stars),
+      note: optionalText(e.note, 'Anmerkung', 500),
+    };
+  });
+}
+
+function sanitizeOverall(raw: unknown): { service: number; ambience: number; speed: number } {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  return {
+    service: requireStars(o.service ?? 0),
+    ambience: requireStars(o.ambience ?? 0),
+    speed: requireStars(o.speed ?? 0),
+  };
+}
+
 async function getFullState(db: Db) {
   const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, guestDoc] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
@@ -117,6 +217,19 @@ app.get('/health', async (_req, res) => {
 });
 
 const router = express.Router({ mergeParams: true });
+
+// Express 4 leitet abgelehnte Promises aus async-Handlern NICHT an den
+// Fehler-Handler weiter: die Anfrage bliebe ohne Antwort hängen und das Handy
+// wartet endlos. Statt jede Route einzeln zu umschließen, wird das hier einmal
+// zentral nachgerüstet — gilt damit auch für später hinzukommende Routen.
+for (const method of ['get', 'post', 'patch', 'delete'] as const) {
+  const original = router[method].bind(router) as (path: string, handler: unknown) => unknown;
+  (router as unknown as Record<string, unknown>)[method] = (path: string, handler: RouteHandler) =>
+    original(path, (req: Request, res: Response, next: NextFunction) =>
+      Promise.resolve(handler(req as OrgRequest, res, next)).catch(next)
+    );
+}
+
 app.use('/api/:orgSlug', resolveOrg, router);
 
 // ── Gesamtzustand einer Organisation (ein Aufruf pro Seitenladung) ──
@@ -155,15 +268,20 @@ router.post('/tables', async (req: OrgRequest, res) => {
 
 // ── Admin: Tisch (und damit seinen QR-Code) wieder entfernen ──
 router.delete('/tables/:id', async (req: OrgRequest, res) => {
-  await req.db!.collection('tables').deleteOne({ _id: new ObjectId(req.params.id) });
+  await req.db!.collection('tables').deleteOne({ _id: requireObjectId(req.params.id, 'Tisch-ID') });
   res.json(await getFullState(req.db!));
 });
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
 router.post('/tables/:number/order', async (req: OrgRequest, res, next) => {
   try {
-    const number = Number(req.params.number);
-    const cart = (req.body?.cart ?? {}) as Record<string, number>;
+    const number = requireTableNumber(req.params.number);
+    const cartRaw = (req.body?.cart ?? {}) as Record<string, unknown>;
+    const cart: Record<string, number> = {};
+    for (const [dishId, qty] of Object.entries(cartRaw)) {
+      requireObjectId(dishId, 'dishId');
+      cart[dishId] = requireQty(qty);
+    }
     const table = await req.db!.collection('tables').findOne({ number });
     if (!table) {
       res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
@@ -217,8 +335,10 @@ router.post('/tables/:number/close', async (req: OrgRequest, res, next) => {
 // ── Gast: einzelnes Gericht nachträglich zum Tisch hinzufügen ("Etwas vergessen?") ──
 router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
   try {
-    const number = Number(req.params.number);
-    const { dishId, qty = 1 } = req.body ?? {};
+    const number = requireTableNumber(req.params.number);
+    requireObjectId(req.body?.dishId, 'dishId');
+    const dishId = String(req.body.dishId);
+    const qty = requireQty(req.body?.qty);
     const table = await req.db!.collection('tables').findOne({ number });
     if (!table) {
       res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
@@ -249,9 +369,9 @@ router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
 // ── Gast: Bewertung für einen Tisch abschicken ──
 router.post('/tables/:number/review', async (req: OrgRequest, res, next) => {
   try {
-    const number = Number(req.params.number);
-    const dishRatings = (req.body?.dishRatings ?? []) as DishRatingInput[];
-    const overall = req.body?.overall ?? { service: 0, ambience: 0, speed: 0 };
+    const number = requireTableNumber(req.params.number);
+    const dishRatings = sanitizeDishRatings(req.body?.dishRatings ?? []);
+    const overall = sanitizeOverall(req.body?.overall);
     const db = req.db!;
 
     const table = await db.collection('tables').findOne({ number });
@@ -334,7 +454,7 @@ router.post('/tables/:number/review', async (req: OrgRequest, res, next) => {
 // ── Gast: Gutschein einlösen ──
 router.post('/vouchers/:id/redeem', async (req: OrgRequest, res) => {
   const db = req.db!;
-  const voucher = await db.collection('vouchers').findOne({ _id: new ObjectId(req.params.id) });
+  const voucher = await db.collection('vouchers').findOne({ _id: requireObjectId(req.params.id, 'Gutschein-ID') });
   const guest = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' });
   if (!voucher) {
     res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
@@ -414,6 +534,12 @@ router.patch('/dishes/:id/image', async (req: OrgRequest, res) => {
 });
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  // Geprüfte Eingabefehler bekommen ihren eigenen Status und eine Meldung, die
+  // der Oberfläche etwas sagt. Alles andere bleibt ein 500 ohne Interna.
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
   console.error(err);
   res.status(500).json({ error: 'Interner Serverfehler.' });
 });
