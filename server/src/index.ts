@@ -125,6 +125,55 @@ function requirePrice(value: unknown): number {
   return Math.round(n * 100) / 100;
 }
 
+function requirePoints(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 100000) {
+    throw new HttpError(400, 'Punkte müssen eine ganze Zahl von 0 bis 100000 sein.');
+  }
+  return n;
+}
+
+const DISH_CATEGORIES = ['Speisen', 'Getränke'] as const;
+
+function requireCategory(value: unknown): 'Speisen' | 'Getränke' {
+  if (value !== 'Speisen' && value !== 'Getränke') {
+    throw new HttpError(400, `Kategorie muss ${DISH_CATEGORIES.join(' oder ')} sein.`);
+  }
+  return value;
+}
+
+/**
+ * Bilder kommen entweder als hochgeladenes Base64 (data:) oder als Adresse
+ * eines fremd gehosteten Fotos (https:) — die Seed-Daten nutzen Unsplash.
+ * Alles andere (javascript:, file: …) wird abgewiesen, weil der Wert
+ * ungeprüft in ein src-Attribut wandert.
+ */
+function optionalImage(value: unknown): string | undefined {
+  if (value == null || value === '') return undefined;
+  if (typeof value !== 'string') throw new HttpError(400, 'Bild muss Text sein.');
+  if (!/^data:image\//.test(value) && !/^https?:\/\//.test(value)) {
+    throw new HttpError(400, 'Bild muss ein Upload oder eine http(s)-Adresse sein.');
+  }
+  return value;
+}
+
+// Platzhalter für Gerichte und Gutscheine ohne Foto: ein grauer Kasten. Damit
+// bleibt jedes <img src> gültig, statt als kaputtes Bild zu erscheinen.
+const IMAGE_PLACEHOLDER =
+  "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='96' height='96' fill='%23e5e7eb'/%3E%3Ccircle cx='48' cy='48' r='18' fill='%23d1d5db'/%3E%3C/svg%3E";
+
+/** Aus einem Namen eine URL-taugliche, in der Organisation eindeutige Kennung machen. */
+async function uniqueBranchSlug(db: Db, name: string): Promise<string> {
+  const base = name.toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'filiale';
+  let slug = base;
+  for (let i = 2; await db.collection('branches').countDocuments({ slug }) > 0; i++) {
+    slug = `${base}-${i}`;
+  }
+  return slug;
+}
+
 function sanitizeDishRatings(raw: unknown): DishRatingInput[] {
   if (!Array.isArray(raw)) throw new HttpError(400, 'dishRatings muss eine Liste sein.');
   if (raw.length > 100) throw new HttpError(400, 'Eine Bewertung darf höchstens 100 Gerichte umfassen.');
@@ -251,7 +300,11 @@ router.get('/tables/:number', async (req: OrgRequest, res) => {
 router.post('/tables', async (req: OrgRequest, res) => {
   const db = req.db!;
   const count = Math.max(1, Math.min(50, Number(req.body?.count) || 1));
-  const branch = await db.collection('branches').findOne({});
+  // Ohne Angabe landen neue Tische in der ersten Filiale — so verhält sich die
+  // Route wie vor der Filialverwaltung.
+  const branch = req.body?.branchId
+    ? await db.collection('branches').findOne({ _id: requireObjectId(req.body.branchId, 'Filial-ID') })
+    : await db.collection('branches').findOne({});
   if (!branch) {
     res.status(400).json({ error: 'Es existiert noch keine Filiale für diese Organisation.' });
     return;
@@ -531,6 +584,163 @@ router.patch('/dishes/:id/image', async (req: OrgRequest, res) => {
   }
   await req.db!.collection('dishes').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { img } });
   res.json(await getFullState(req.db!));
+});
+
+// ── Admin: Menüverwaltung ──
+// Neue Gerichte starten ohne Bewertungen; ratingsSum/ratingsCount wachsen
+// ausschließlich über abgegebene Bewertungen.
+router.post('/dishes', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  await db.collection('dishes').insertOne({
+    name: requireText(req.body?.name, 'Name', 80),
+    price: requirePrice(req.body?.price),
+    cat: requireCategory(req.body?.cat),
+    img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
+    ratingsSum: 0,
+    ratingsCount: 0,
+  });
+  res.json(await getFullState(db));
+});
+
+router.patch('/dishes/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const update: Record<string, unknown> = {};
+  if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 80);
+  if (req.body?.price !== undefined) update.price = requirePrice(req.body.price);
+  if (req.body?.cat !== undefined) update.cat = requireCategory(req.body.cat);
+  if (req.body?.img !== undefined) update.img = optionalImage(req.body.img) ?? IMAGE_PLACEHOLDER;
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
+    return;
+  }
+  const result = await db.collection('dishes').updateOne(
+    { _id: requireObjectId(req.params.id, 'Gericht-ID') }, { $set: update }
+  );
+  if (result.matchedCount === 0) {
+    res.status(404).json({ error: 'Gericht wurde nicht gefunden.' });
+    return;
+  }
+  res.json(await getFullState(db));
+});
+
+/**
+ * Ein gelöschtes Gericht verschwindet auch aus den laufenden Bestellungen —
+ * sonst hinge es unbewertbar auf dem Tisch. Bereits abgegebene Bewertungen
+ * behalten ihre dishId; die Oberfläche zeigt dafür "Gelöschtes Gericht".
+ */
+router.delete('/dishes/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const id = requireObjectId(req.params.id, 'Gericht-ID');
+  await db.collection('dishes').deleteOne({ _id: id });
+  await db.collection('tables').updateMany({}, { $pull: { items: { dishId: String(id) } } } as never);
+  // Tische, die dadurch leer geworden sind, gelten als nicht mehr belegt.
+  await db.collection('tables').updateMany(
+    { status: 'offen', items: { $size: 0 } },
+    { $set: { status: 'frei', orderId: null, openedAt: null } }
+  );
+  res.json(await getFullState(db));
+});
+
+// ── Admin: Gutscheinverwaltung ──
+router.post('/vouchers', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  await db.collection('vouchers').insertOne({
+    title: requireText(req.body?.title, 'Titel', 80),
+    points: requirePoints(req.body?.points),
+    expiry: requireText(req.body?.expiry, 'Gültig bis', 40),
+    img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
+  });
+  res.json(await getFullState(db));
+});
+
+router.patch('/vouchers/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const update: Record<string, unknown> = {};
+  if (req.body?.title !== undefined) update.title = requireText(req.body.title, 'Titel', 80);
+  if (req.body?.points !== undefined) update.points = requirePoints(req.body.points);
+  if (req.body?.expiry !== undefined) update.expiry = requireText(req.body.expiry, 'Gültig bis', 40);
+  if (req.body?.img !== undefined) update.img = optionalImage(req.body.img) ?? IMAGE_PLACEHOLDER;
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
+    return;
+  }
+  const result = await db.collection('vouchers').updateOne(
+    { _id: requireObjectId(req.params.id, 'Gutschein-ID') }, { $set: update }
+  );
+  if (result.matchedCount === 0) {
+    res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
+    return;
+  }
+  res.json(await getFullState(db));
+});
+
+router.delete('/vouchers/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const id = requireObjectId(req.params.id, 'Gutschein-ID');
+  await db.collection('vouchers').deleteOne({ _id: id });
+  // Aus der Einlöse-Liste des Gasts nehmen, damit dort keine toten IDs bleiben.
+  await db.collection<GuestProfileDoc>('guestProfile').updateOne(
+    { _id: 'default' }, { $pull: { redeemed: String(id) } }
+  );
+  res.json(await getFullState(db));
+});
+
+// ── Admin: Filialverwaltung ──
+router.post('/branches', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const name = requireText(req.body?.name, 'Name', 80);
+  await db.collection('branches').insertOne({
+    slug: await uniqueBranchSlug(db, name),
+    name,
+    address: requireText(req.body?.address, 'Adresse', 160),
+  });
+  res.json(await getFullState(db));
+});
+
+router.patch('/branches/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const update: Record<string, unknown> = {};
+  if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 80);
+  if (req.body?.address !== undefined) update.address = requireText(req.body.address, 'Adresse', 160);
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
+    return;
+  }
+  // Der slug bleibt bewusst unverändert: er steckt in bereits gedruckten Links.
+  const result = await db.collection('branches').updateOne(
+    { _id: requireObjectId(req.params.id, 'Filial-ID') }, { $set: update }
+  );
+  if (result.matchedCount === 0) {
+    res.status(404).json({ error: 'Filiale wurde nicht gefunden.' });
+    return;
+  }
+  res.json(await getFullState(db));
+});
+
+/**
+ * Filialen tragen die Tische, und Tische tragen die QR-Codes. Eine Filiale mit
+ * Tischen zu löschen würde also gedruckte Codes ins Leere zeigen lassen —
+ * deshalb erst die Tische, dann die Filiale. Die letzte Filiale bleibt stehen,
+ * weil neue Tische sonst nirgends mehr angelegt werden könnten.
+ */
+router.delete('/branches/:id', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const id = requireObjectId(req.params.id, 'Filial-ID');
+  if (await db.collection('branches').countDocuments() <= 1) {
+    res.status(400).json({ error: 'Die letzte Filiale kann nicht gelöscht werden.' });
+    return;
+  }
+  const tableCount = await db.collection('tables').countDocuments({ branchId: String(id) });
+  if (tableCount > 0) {
+    res.status(409).json({
+      error: `Zu dieser Filiale gehören noch ${tableCount} Tische. Lösche zuerst die Tische.`,
+    });
+    return;
+  }
+  await db.collection('branches').deleteOne({ _id: id });
+  // Benutzer, die nur dieser Filiale zugeordnet waren, gelten wieder für alle.
+  await db.collection('users').updateMany({ branchId: String(id) }, { $set: { branchId: null } });
+  res.json(await getFullState(db));
 });
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

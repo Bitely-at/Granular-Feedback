@@ -9,7 +9,7 @@ import {
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
   Eye, Filter, Trash2, UserPlus, Lock, Building2, ImagePlus,
-  Smartphone, Tablet, Monitor, AlertOctagon, Loader2, MessageSquare,
+  Smartphone, Tablet, Monitor, AlertOctagon, Loader2, MessageSquare, Ticket,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -18,6 +18,7 @@ import {
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, BRAND_FONTS, BRAND_CARD_STYLES,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
+  type Branch,
 } from './store';
 
 // ═══════════════════════════════════════════════════════════
@@ -1110,10 +1111,250 @@ function DishImageUpload({ dish, size = 36 }: { dish: Dish; size?: number }) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ADMIN-DIALOGE — Menü, Gutscheine, Filialen
+//
+// Alle drei folgen demselben Ablauf: lokales Formular, beim Speichern der
+// Aufruf im Store, der mit dem vollständigen Serverzustand antwortet. Fehler
+// (abgewiesene Eingabe, belegte Filiale) bleiben im Dialog stehen, damit die
+// Eingaben nicht verloren gehen.
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Dialograhmen. Gescrollt wird AUSSEN, zentriert INNEN per min-h-full —
+ * andernfalls schiebt ein hoher Dialog seinen eigenen Kopf über den oberen
+ * Rand hinaus und wird am Handy unerreichbar.
+ */
+function AdminModal({ title, onClose, children, footer }: {
+  title: string; onClose: () => void; children: React.ReactNode; footer: React.ReactNode;
+}) {
+  return (
+    <>
+      <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-8">
+        <div className="min-h-full flex items-center justify-center">
+          <motion.div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4"
+            initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-[18px] font-semibold text-gray-900 dark:text-white">{title}</p>
+              <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
+            </div>
+            {children}
+            <div className="flex gap-3 pt-1">{footer}</div>
+          </motion.div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const FIELD_CLASS = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors';
+
+function Field({ label, value, onChange, placeholder, type = 'text', hint }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; type?: string; hint?: string;
+}) {
+  return (
+    <div>
+      <label className="text-[12px] text-gray-500 mb-1 block">{label}</label>
+      <input type={type} value={value} placeholder={placeholder} inputMode={type === 'number' ? 'decimal' : undefined}
+        onChange={e => onChange(e.target.value)} className={FIELD_CLASS} />
+      {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+/** Foto auswählen und im Browser verkleinern, bevor es als Base64 mitgeschickt wird. */
+function ImageField({ label, value, onChange, aspect = 'square' }: {
+  label: string; value: string | null; onChange: (v: string) => void; aspect?: 'square' | 'wide';
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const handleFile = async (file: File) => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      onChange(await compressImageFile(file, aspect === 'wide' ? 800 : 480, 0.78));
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-[12px] text-gray-500 mb-1 block">{label}</label>
+      <div className="flex items-center gap-3">
+        <div className={`${aspect === 'wide' ? 'w-24 h-14' : 'w-14 h-14'} rounded-xl bg-gray-100 dark:bg-gray-800 overflow-hidden flex-shrink-0`}>
+          {value && <img src={value} alt="" className="w-full h-full object-cover" />}
+        </div>
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
+          className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 disabled:opacity-50 transition-colors">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={1.5} />}
+          {value ? 'Foto ändern' : 'Foto wählen'}
+        </button>
+      </div>
+      {failed && <p className="text-[11px] text-red-500 mt-1">Das Bild konnte nicht gelesen werden.</p>}
+      <input ref={inputRef} type="file" accept="image/*" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }} />
+    </div>
+  );
+}
+
+/** Fehlermeldung des Servers im Dialog. */
+function DialogError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
+      <AlertOctagon size={14} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+      <p className="text-[12px] text-red-700 dark:text-red-300 leading-relaxed">{message}</p>
+    </div>
+  );
+}
+
+/** Gemeinsame Speicher-Mechanik der drei Dialoge: sperren, Fehler behalten, schließen. */
+function useDialogSave(onClose: () => void) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async (run: () => Promise<void>) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await run();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return { saving, error, save };
+}
+
+function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void }) {
+  const store = useStore();
+  const { saving, error, save } = useDialogSave(onClose);
+  const [form, setForm] = useState({
+    name: dish?.name ?? '',
+    price: dish ? String(dish.price) : '',
+    cat: (dish?.cat ?? 'Speisen') as Dish['cat'],
+    img: dish?.img ?? null as string | null,
+  });
+
+  const price = Number(form.price.replace(',', '.'));
+  const valid = form.name.trim() !== '' && Number.isFinite(price) && price >= 0;
+
+  const handleSave = () => save(async () => {
+    const payload = { name: form.name.trim(), price, cat: form.cat, img: form.img ?? undefined };
+    if (dish) await store.updateDish(dish.id, payload);
+    else await store.addDish(payload);
+  });
+
+  return (
+    <AdminModal title={dish ? 'Gericht bearbeiten' : 'Gericht hinzufügen'} onClose={onClose}
+      footer={<>
+        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+      </>}>
+      <div className="space-y-3">
+        <Field label="Name" value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Spicy Tuna Roll" />
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Field label="Preis (€)" type="text" value={form.price} onChange={v => setForm(p => ({ ...p, price: v }))} placeholder="14.50" />
+          </div>
+          <div className="flex-1">
+            <label className="text-[12px] text-gray-500 mb-1 block">Kategorie</label>
+            <select value={form.cat} onChange={e => setForm(p => ({ ...p, cat: e.target.value as Dish['cat'] }))}
+              className={FIELD_CLASS}>
+              {(['Speisen', 'Getränke'] as const).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        <ImageField label="Foto" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} />
+        <DialogError message={error} />
+      </div>
+    </AdminModal>
+  );
+}
+
+function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose: () => void }) {
+  const store = useStore();
+  const { saving, error, save } = useDialogSave(onClose);
+  const [form, setForm] = useState({
+    title: voucher?.title ?? '',
+    points: voucher ? String(voucher.points) : '100',
+    expiry: voucher?.expiry ?? '',
+    img: voucher?.img ?? null as string | null,
+  });
+
+  const points = Number(form.points);
+  const valid = form.title.trim() !== '' && form.expiry.trim() !== '' && Number.isInteger(points) && points >= 0;
+
+  const handleSave = () => save(async () => {
+    const payload = { title: form.title.trim(), points, expiry: form.expiry.trim(), img: form.img ?? undefined };
+    if (voucher) await store.updateVoucher(voucher.id, payload);
+    else await store.addVoucher(payload);
+  });
+
+  return (
+    <AdminModal title={voucher ? 'Gutschein bearbeiten' : 'Gutschein hinzufügen'} onClose={onClose}
+      footer={<>
+        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+      </>}>
+      <div className="space-y-3">
+        <Field label="Titel" value={form.title} onChange={v => setForm(p => ({ ...p, title: v }))} placeholder="Gratis Miso Suppe" />
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Field label="Punkte" type="number" value={form.points} onChange={v => setForm(p => ({ ...p, points: v }))} placeholder="100" />
+          </div>
+          <div className="flex-1">
+            <Field label="Gültig bis" value={form.expiry} onChange={v => setForm(p => ({ ...p, expiry: v }))} placeholder="31.12.2026" />
+          </div>
+        </div>
+        <ImageField label="Bild" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} aspect="wide" />
+        <DialogError message={error} />
+      </div>
+    </AdminModal>
+  );
+}
+
+function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () => void }) {
+  const store = useStore();
+  const { saving, error, save } = useDialogSave(onClose);
+  const [form, setForm] = useState({ name: branch?.name ?? '', address: branch?.address ?? '' });
+  const valid = form.name.trim() !== '' && form.address.trim() !== '';
+
+  const handleSave = () => save(async () => {
+    const payload = { name: form.name.trim(), address: form.address.trim() };
+    if (branch) await store.updateBranch(branch.id, payload);
+    else await store.addBranch(payload);
+  });
+
+  return (
+    <AdminModal title={branch ? 'Filiale bearbeiten' : 'Filiale hinzufügen'} onClose={onClose}
+      footer={<>
+        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+      </>}>
+      <div className="space-y-3">
+        <Field label="Name" value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Herrengasse" />
+        <Field label="Adresse" value={form.address} onChange={v => setForm(p => ({ ...p, address: v }))} placeholder="Herrengasse 12, 8010 Graz" />
+        <DialogError message={error} />
+      </div>
+    </AdminModal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // ADMIN APP
 // ═══════════════════════════════════════════════════════════
 
-type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'design' | 'users' | 'settings';
+type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'vouchers' | 'design' | 'users' | 'settings';
 
 function AdminApp({ orgSlug }: { orgSlug: string }) {
   const store = useStore();
@@ -1138,7 +1379,13 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [addTableCount, setAddTableCount] = useState(1);
+  const [addTableBranch, setAddTableBranch] = useState('');
   const [addingTables, setAddingTables] = useState(false);
+  // Offener Dialog: { dish: null } heißt "neu anlegen", { dish } heißt "bearbeiten".
+  const [dishDialog, setDishDialog] = useState<{ dish: Dish | null } | null>(null);
+  const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
+  const [branchDialog, setBranchDialog] = useState<{ branch: Branch | null } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (store.brand) setBrandForm({
@@ -1174,6 +1421,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
     { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
+    { id: 'vouchers', label: 'Gutscheine', Icon: Ticket },
     // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
     // Zum Zurückholen die folgende Zeile wieder einkommentieren:
     // { id: 'design', label: 'Design', Icon: Palette },
@@ -1259,10 +1507,22 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
     if (addingTables) return;
     setAddingTables(true);
     try {
-      await store.addTables(addTableCount);
+      await store.addTables(addTableCount, addTableBranch || null);
       setAddTableCount(1);
     } finally {
       setAddingTables(false);
+    }
+  };
+
+  // Löschen und andere Sofortaktionen: der Server kann sie begründet ablehnen
+  // (z. B. eine Filiale, an der noch Tische hängen). Diese Begründung gehört
+  // sichtbar auf die Seite, statt still verschluckt zu werden.
+  const runAction = async (fn: () => Promise<void>) => {
+    setActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Aktion fehlgeschlagen.');
     }
   };
 
@@ -1350,6 +1610,14 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); }}>
           <>
+              {actionError && (
+                <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3 mb-5">
+                  <AlertOctagon size={15} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <p className="flex-1 text-[13px] text-red-700 dark:text-red-300 leading-relaxed">{actionError}</p>
+                  <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0"><X size={14} /></button>
+                </div>
+              )}
+
               {page === 'dashboard' && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1754,23 +2022,31 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <div className="flex items-center justify-between">
                       <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> Filialen</p>
-                      <button className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl text-white" style={{ backgroundColor: 'var(--ba)' }}>
+                      <button onClick={() => setBranchDialog({ branch: null })}
+                        className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl text-white" style={{ backgroundColor: 'var(--ba)' }}>
                         <Plus size={12} strokeWidth={2} /> Hinzufügen
                       </button>
                     </div>
-                    {store.branches.map(b => (
-                      <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
-                        <span className="text-2xl">🏠</span>
-                        <div className="flex-1">
-                          <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
-                          <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
+                    {store.branches.map(b => {
+                      const tableCount = store.tables.filter(t => t.branchId === b.id).length;
+                      return (
+                        <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
+                          <span className="text-2xl">🏠</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
+                            <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">{tableCount} {tableCount === 1 ? 'Tisch' : 'Tische'}</p>
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button onClick={() => setBranchDialog({ branch: b })} title="Filiale bearbeiten"
+                              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
+                            <button title="Filiale löschen"
+                              onClick={() => { if (confirm(`Filiale „${b.name}" wirklich löschen?`)) runAction(() => store.removeBranch(b.id)); }}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
+                          </div>
                         </div>
-                        <div className="flex gap-1">
-                          <button className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                          <button className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
@@ -1794,6 +2070,16 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                           onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
                           className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
                       </div>
+                      {store.branches.length > 1 && (
+                        <div>
+                          <p className="text-[12px] text-gray-400 mb-1.5">Filiale</p>
+                          <select value={addTableBranch} onChange={e => setAddTableBranch(e.target.value)}
+                            className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
+                            <option value="">{store.branches[0].name}</option>
+                            {store.branches.slice(1).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                        </div>
+                      )}
                       <button onClick={handleAddTables} disabled={addingTables}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
                         style={{ backgroundColor: 'var(--ba)' }}>
@@ -1810,6 +2096,11 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                             <Trash2 size={12} strokeWidth={1.5} />
                           </button>
                           <TableQRCode orgSlug={orgSlug} tableNumber={t.number} />
+                          {store.branches.length > 1 && (
+                            <p className="text-[10px] text-gray-400 -mt-1 text-center leading-tight">
+                              {store.branches.find(b => b.id === t.branchId)?.name ?? 'Ohne Filiale'}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1914,12 +2205,18 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Menü</p>
-                      <p className="text-[13px] text-gray-400 mt-0.5">Performance aller Gerichte</p>
+                      <p className="text-[13px] text-gray-400 mt-0.5">{store.dishes.length} Gerichte · Performance und Verwaltung</p>
                     </div>
-                    <button onClick={exportDishesCsv}
-                      className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                      <Download size={13} strokeWidth={1.5} /> Export
-                    </button>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={exportDishesCsv}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                        <Download size={13} strokeWidth={1.5} /> Export
+                      </button>
+                      <button onClick={() => setDishDialog({ dish: null })}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
+                        <Plus size={13} strokeWidth={2} /> Gericht
+                      </button>
+                    </div>
                   </div>
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6">
@@ -2000,12 +2297,16 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   </div>
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                    {store.dishes.length === 0 ? (
+                      <EmptyState icon={UtensilsCrossed} title="Noch keine Gerichte"
+                        desc="Lege die Karte an — jedes Gericht kann danach am Tisch einzeln bewertet werden." />
+                    ) : (
                     <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                          {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Rezensionen', 'Preis', 'Trend'].map(h => (
-                            <th key={h} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
+                          {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Rezensionen', 'Preis', 'Trend', ''].map((h, i) => (
+                            <th key={i} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -2040,18 +2341,88 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                               <td className="px-5 py-3.5">
                                 {TrendIcon ? <TrendIcon size={16} className={trendColor} strokeWidth={2} /> : <span className="w-4 h-0.5 bg-gray-200 dark:bg-gray-700 inline-block rounded-full" />}
                               </td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex gap-1 justify-end">
+                                  <button onClick={() => setDishDialog({ dish })} title="Gericht bearbeiten"
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
+                                  <button title="Gericht löschen"
+                                    onClick={() => { if (confirm(`„${dish.name}" wirklich aus dem Menü löschen? Bereits abgegebene Bewertungen bleiben erhalten.`)) runAction(() => store.removeDish(dish.id)); }}
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                     </div>
+                    )}
                   </div>
+                </div>
+              )}
+
+              {page === 'vouchers' && (
+                <div className="space-y-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Gutscheine</p>
+                      <p className="text-[13px] text-gray-400 mt-0.5">
+                        Was Gäste für ihre gesammelten Punkte einlösen können
+                      </p>
+                    </div>
+                    <button onClick={() => setVoucherDialog({ voucher: null })}
+                      className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
+                      <Plus size={13} strokeWidth={2} /> Gutschein
+                    </button>
+                  </div>
+
+                  {store.vouchers.length === 0 ? (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <EmptyState icon={Ticket} title="Noch keine Gutscheine"
+                        desc="Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an." />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {[...store.vouchers].sort((a, b) => a.points - b.points).map(v => {
+                        const redeemed = store.guest.redeemed.includes(v.id);
+                        return (
+                          <div key={v.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                            <div className="h-28 bg-gray-100 dark:bg-gray-900">
+                              <img src={v.img} alt="" className="w-full h-full object-cover" />
+                            </div>
+                            <div className="p-4 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-[14px] font-semibold text-gray-900 dark:text-white leading-snug">{v.title}</p>
+                                <span className="text-[11px] px-2 py-1 rounded-full font-medium text-white flex-shrink-0" style={{ backgroundColor: 'var(--ba)' }}>{v.points} P</span>
+                              </div>
+                              <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
+                                <Clock size={11} strokeWidth={1.5} /> Gültig bis {v.expiry}
+                                {redeemed && <span className="text-emerald-600 dark:text-emerald-400 ml-1">· eingelöst</span>}
+                              </p>
+                              <div className="flex gap-1 pt-1">
+                                <button onClick={() => setVoucherDialog({ voucher: v })} title="Gutschein bearbeiten"
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
+                                <button title="Gutschein löschen"
+                                  onClick={() => { if (confirm(`„${v.title}" wirklich löschen?`)) runAction(() => store.removeVoucher(v.id)); }}
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
           </>
         </main>
       </div>
+
+      <AnimatePresence>
+        {dishDialog && <DishDialog dish={dishDialog.dish} onClose={() => setDishDialog(null)} />}
+        {voucherDialog && <VoucherDialog voucher={voucherDialog.voucher} onClose={() => setVoucherDialog(null)} />}
+        {branchDialog && <BranchDialog branch={branchDialog.branch} onClose={() => setBranchDialog(null)} />}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showInvite && (

@@ -32,6 +32,7 @@ npm run server:dev       # Backend, Port 4000
 npm run server:seed      # Demo-Daten anlegen
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
+npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
 npm run build            # Produktionsbuild
 ```
 
@@ -80,6 +81,13 @@ Sobald der Inhalt höher wird als der Container, zentriert der Browser über bei
 Ränder hinaus: man scrollt durch Leerraum und kommt an den Anfang nicht mehr
 heran. Stattdessen: außen scrollen, innen `min-h-full` zentrieren.
 
+**Löschen räumt mit auf.** Ein gelöschtes Gericht wird auch aus den laufenden
+Bestellungen gezogen (sonst hinge es unbewertbar auf dem Tisch); ein Tisch, der
+dadurch leer wird, geht zurück auf `frei`. Eine Filiale mit Tischen lässt sich
+nicht löschen — die QR-Codes hängen daran und sind womöglich schon gedruckt.
+Die letzte Filiale bleibt immer stehen, weil neue Tische sonst nirgends mehr
+angelegt werden könnten.
+
 **Zustand nie lokal kopieren.** `activeTable` im Kellner war eine Kopie und
 zeigte nach dem Speichern veraltete Daten. Immer aus `store.tables` ableiten.
 
@@ -105,6 +113,9 @@ auf Englisch.
 ## Bekannte Lücken
 
 Keine Authentifizierung (`/admin` und `/staff` sind öffentlich), ein geteiltes
-Gastprofil für alle Gäste (`guestProfile._id: 'default'`), keine Menü-,
-Gutschein- oder Filialverwaltung, kein Auto-Close nach 30 Minuten, CORS offen,
-keine Ratenbegrenzung.
+Gastprofil für alle Gäste (`guestProfile._id: 'default'`), kein Auto-Close nach
+30 Minuten, CORS offen, keine Ratenbegrenzung.
+
+Die Filiale ist zwar verwaltbar, aber noch nicht *wirksam*: der Umschalter oben
+im Admin filtert nichts, und Kellner- wie Gastansicht kennen alle Tische
+unabhängig von der Filiale. Neue Tische landen ohne Angabe in der ersten.

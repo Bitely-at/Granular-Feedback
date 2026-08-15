@@ -78,6 +78,12 @@ export interface AdminUser {
 
 export interface DishRatingInput { dishId: string; stars: number; note?: string; }
 
+// Was der Admin beim Anlegen/Bearbeiten schickt — ohne die Felder, die
+// ausschließlich der Server pflegt (id, ratingsSum, ratingsCount).
+export type DishInput = Pick<Dish, 'name' | 'price' | 'cat'> & { img?: string };
+export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?: string };
+export type BranchInput = Pick<Branch, 'name' | 'address'>;
+
 export interface Alert {
   id: string; tableId: string; tableNumber: number; dishName: string;
   stars: number; note?: string; createdAt: number; resolved: boolean;
@@ -163,8 +169,17 @@ interface StoreApi extends OrgState {
   removeUser: (id: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
   updateDishImage: (dishId: string, img: string) => Promise<void>;
-  addTables: (count: number) => Promise<void>;
+  addTables: (count: number, branchId?: string | null) => Promise<void>;
   removeTable: (id: string) => Promise<void>;
+  addDish: (d: DishInput) => Promise<void>;
+  updateDish: (id: string, d: Partial<DishInput>) => Promise<void>;
+  removeDish: (id: string) => Promise<void>;
+  addVoucher: (v: VoucherInput) => Promise<void>;
+  updateVoucher: (id: string, v: Partial<VoucherInput>) => Promise<void>;
+  removeVoucher: (id: string) => Promise<void>;
+  addBranch: (b: BranchInput) => Promise<void>;
+  updateBranch: (id: string, b: Partial<BranchInput>) => Promise<void>;
+  removeBranch: (id: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -261,8 +276,8 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     setState(data);
   }, [orgSlug]);
 
-  const addTables = useCallback(async (count: number) => {
-    const data = await api<OrgState>(orgSlug, '/tables', { method: 'POST', body: JSON.stringify({ count }) });
+  const addTables = useCallback(async (count: number, branchId?: string | null) => {
+    const data = await api<OrgState>(orgSlug, '/tables', { method: 'POST', body: JSON.stringify({ count, branchId }) });
     setState(data);
   }, [orgSlug]);
 
@@ -271,11 +286,36 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     setState(data);
   }, [orgSlug]);
 
+  // Menü-, Gutschein- und Filialverwaltung: alle nach demselben Muster —
+  // der Server antwortet mit dem vollständigen Zustand, der ihn hier ersetzt.
+  // Fehler (z. B. eine Filiale mit Tischen) werden geworfen und von der
+  // Oberfläche angezeigt.
+  const write = useCallback(async (path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown) => {
+    const data = await api<OrgState>(orgSlug, path, {
+      method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    setState(data);
+  }, [orgSlug]);
+
+  const addDish = useCallback((d: DishInput) => write('/dishes', 'POST', d), [write]);
+  const updateDish = useCallback((id: string, d: Partial<DishInput>) => write(`/dishes/${id}`, 'PATCH', d), [write]);
+  const removeDish = useCallback((id: string) => write(`/dishes/${id}`, 'DELETE'), [write]);
+
+  const addVoucher = useCallback((v: VoucherInput) => write('/vouchers', 'POST', v), [write]);
+  const updateVoucher = useCallback((id: string, v: Partial<VoucherInput>) => write(`/vouchers/${id}`, 'PATCH', v), [write]);
+  const removeVoucher = useCallback((id: string) => write(`/vouchers/${id}`, 'DELETE'), [write]);
+
+  const addBranch = useCallback((b: BranchInput) => write('/branches', 'POST', b), [write]);
+  const updateBranch = useCallback((id: string, b: Partial<BranchInput>) => write(`/branches/${id}`, 'PATCH', b), [write]);
+  const removeBranch = useCallback((id: string) => write(`/branches/${id}`, 'DELETE'), [write]);
+
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher,
     loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
-  }), [state, orgSlug, loading, error, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable]);
+    addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
+    addBranch, updateBranch, removeBranch,
+  }), [state, orgSlug, loading, error, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
