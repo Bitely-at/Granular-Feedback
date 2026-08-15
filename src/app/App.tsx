@@ -355,71 +355,58 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
     );
   }
 
+  // Auf dem Willkommensbildschirm trägt der Einleitungstext selbst die
+  // Information, ob es etwas zu bewerten gibt — dafür braucht es keine eigene
+  // Leerzustands-Box, die den Hero-Aufbau sprengen würde.
+  const welcomeText = tableDishes.length > 0
+    ? 'In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.'
+    : table.status === 'abgeschlossen'
+      ? 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald neue Gerichte gebucht werden, kannst du hier Feedback geben.'
+      : 'Dein Service-Team hat noch nichts eingetragen. Frag kurz nach — danach kannst du jedes Gericht einzeln bewerten.';
+
   return (
     <div className="relative flex flex-col flex-1 min-h-0 bg-[#F7F8FA] dark:bg-[#0D1117]">
 
-      {screen === 'welcome' && (() => {
-        const hasCover = Boolean(store.brand?.coverImage);
-        return (
-          <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative flex-1 min-h-0">
-            {hasCover && (
-              <>
-                <img src={store.brand!.coverImage!} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/60" />
-              </>
-            )}
-            {!hasCover && (
-              <div className="absolute inset-0"
-                style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ba, #16A34A) 16%, transparent), transparent 45%)' }} />
-            )}
-            {/* Scrollen übernimmt der äußere Container, das Zentrieren der innere
-                mit min-h-full. Zuvor saßen "flex-1 + justify-center" direkt im
-                Scroll-Container — sobald der Inhalt höher wurde als der Bildschirm,
-                zentrierte der Browser über beide Ränder hinaus: man scrollte durch
-                Leerraum und kam an den oberen Teil nicht mehr heran. */}
-            <div className="relative h-full overflow-y-auto">
-              <div className="min-h-full flex flex-col items-center justify-center px-6 py-6 sm:py-10">
-              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 ${hasCover ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
-                <BrandLogo brand={store.brand} size={80} textSize={36} rounded="rounded-none" />
-              </div>
-              <p className={`text-2xl font-semibold text-center ${hasCover ? 'text-white' : 'text-gray-900 dark:text-white'}`}
-                style={hasCover ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{store.brand?.name}</p>
-              {/* Die Tischnummer steht bewusst klein hier statt als große Zahl in
-                  der Karte: der Gast sitzt bereits am Tisch und muss sie nur
-                  kurz gegenprüfen, falls er den falschen QR-Code erwischt hat. */}
-              <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>
-                {store.branches[0]?.name} · Tisch {tableNumber}
-              </p>
-              <div className="w-full max-w-sm space-y-4">
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 sm:p-6 text-center">
-                  <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.</p>
-                </div>
-                {tableDishes.length === 0 ? (
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-                    {/* Zwei verschiedene Leerzustände: bereits bewertet vs. noch nichts gebucht. */}
-                    {table.status === 'abgeschlossen' ? (
-                      <EmptyState icon={CheckCircle2} title="Keine offene Bestellung"
-                        desc="Sobald neue Gerichte gebucht werden, kannst du hier Feedback geben." />
-                    ) : (
-                      <EmptyState icon={UtensilsCrossed} title="Noch keine Bestellung"
-                        desc="Dein Service-Team hat noch nichts eingetragen. Frag kurz nach." />
-                    )}
+      {screen === 'welcome' && (
+          <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="flex-1 min-h-0 bg-white dark:bg-gray-900">
+            {/* Scrollen übernimmt dieser Container, das Verteilen der innere mit
+                min-h-full. "flex-1 + justify-center" direkt im Scroll-Container
+                zentriert über beide Ränder hinaus, sobald der Inhalt höher wird
+                als der Bildschirm: man scrollt durch Leerraum und kommt an den
+                oberen Teil nicht mehr heran. */}
+            <div className="h-full overflow-y-auto">
+              <div className="min-h-full flex flex-col px-6">
+                {/* Hero — wächst und hält seinen Inhalt mittig */}
+                <div className="flex-1 flex flex-col items-center justify-center text-center pt-10">
+                  <div className="mb-6">
+                    <BrandLogo brand={store.brand} size={64} textSize={60} rounded="rounded-2xl" />
                   </div>
-                ) : (
-                  <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>
-                )}
-                {!store.guest.loggedIn && (
-                  <button className={`w-full text-[13px] py-2 transition-colors ${hasCover ? 'text-white/80 hover:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                    onClick={() => store.loginGuest()}>
-                    Bereits Mitglied? Anmelden
-                  </button>
-                )}
+                  <p className="text-[26px] font-bold text-gray-900 dark:text-white leading-tight">{store.brand?.name}</p>
+                  {/* Die Tischnummer steht bewusst klein hier: der Gast sitzt
+                      bereits am Tisch und muss sie nur kurz gegenprüfen, falls
+                      er den falschen QR-Code erwischt hat. */}
+                  <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-1">
+                    {store.branches[0]?.name} · Tisch {tableNumber}
+                  </p>
+                  <p className="text-[16px] text-gray-600 dark:text-gray-300 max-w-[280px] mt-5 leading-relaxed">
+                    {welcomeText}
+                  </p>
+                </div>
+                {/* Fuß — bleibt unten, ohne den Hero zu stauchen */}
+                <div className="w-full max-w-sm mx-auto pt-4 pb-10 flex-shrink-0">
+                  {tableDishes.length > 0 && <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>}
+                  {!store.guest.loggedIn && (
+                    <button onClick={() => store.loginGuest()}
+                      className="w-full text-[15px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-3 transition-colors">
+                      Bereits Mitglied? Anmelden
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           </motion.div>
-        );
-      })()}
+      )}
 
       {screen === 'review' && (
         <motion.div key="review" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
