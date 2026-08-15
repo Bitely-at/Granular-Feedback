@@ -384,11 +384,14 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
               </div>
               <p className={`text-2xl font-semibold text-center ${hasCover ? 'text-white' : 'text-gray-900 dark:text-white'}`}
                 style={hasCover ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{store.brand?.name}</p>
-              <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>{store.branches[0]?.name}</p>
+              {/* Die Tischnummer steht bewusst klein hier statt als große Zahl in
+                  der Karte: der Gast sitzt bereits am Tisch und muss sie nur
+                  kurz gegenprüfen, falls er den falschen QR-Code erwischt hat. */}
+              <p className={`text-[13px] mb-6 ${hasCover ? 'text-white/85' : 'text-gray-500'}`}>
+                {store.branches[0]?.name} · Tisch {tableNumber}
+              </p>
               <div className="w-full max-w-sm space-y-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 sm:p-6 text-center">
-                  <p className="text-[12px] text-gray-400 mb-1 uppercase tracking-wide">Dein Tisch</p>
-                  <p className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">Tisch {tableNumber}</p>
                   <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.</p>
                 </div>
                 {tableDishes.length === 0 ? (
