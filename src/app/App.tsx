@@ -124,6 +124,26 @@ function EmptyState({ icon: Icon, title, desc }: { icon: React.ElementType; titl
   );
 }
 
+// Erzeugt eine CSV-Datei im Browser und lädt sie herunter — ohne Serverroute
+// und ohne zusätzliche Abhängigkeit.
+function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const escape = (value: string | number) => {
+    const s = String(value ?? '');
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  // Semikolon als Trenner und ein vorangestelltes BOM: so öffnet Excel im
+  // deutschsprachigen Raum die Datei direkt und mit korrekten Umlauten.
+  const csv = '﻿' + rows.map(r => r.map(escape).join(';')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
 function BrandLogo({ brand, size = 40, textSize = 20, rounded = 'rounded-2xl' }: {
   brand: Pick<Brand, 'logo' | 'logoImage'> | null | undefined; size?: number; textSize?: number; rounded?: string;
 }) {
@@ -265,7 +285,6 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
   const [sheetTab, setSheetTab] = useState('Speisen');
   const [sheetQ, setSheetQ] = useState('');
   const [vTab, setVTab] = useState('Verfügbar');
-  const [skeleton, setSkeleton] = useState(false);
   const [pts, setPts] = useState(0);
   const [earnedPts, setEarnedPts] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -416,17 +435,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {skeleton ? (
-              [...Array(3)].map((_, i) => (
-                <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-4 flex gap-3 shadow-sm">
-                  <Sk h={64} w={64} r={12} />
-                  <div className="flex-1 space-y-2.5 pt-1">
-                    <Sk h={15} w="60%" /><Sk h={12} w="35%" />
-                    <div className="flex gap-1 pt-1">{[...Array(5)].map((_, j) => <Sk key={j} h={22} w={22} r={999} />)}</div>
-                  </div>
-                </div>
-              ))
-            ) : tableDishes.map(dish => (
+            {tableDishes.map(dish => (
               <DishRatingCard key={dish.id} dish={dish} stars={ratings[dish.id] || 0} note={notes[dish.id] ?? ''}
                 expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
                 onRate={v => {
@@ -441,11 +450,8 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
               <Plus size={14} strokeWidth={2} /> Etwas vergessen?
             </button>
           </div>
-          <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4 space-y-2">
+          <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4">
             <PrimaryBtn onClick={() => go('overall')} disabled={!allRated}>Weiter →</PrimaryBtn>
-            <button className="w-full text-[12px] text-gray-400 py-1" onClick={() => setSkeleton(p => !p)}>
-              {skeleton ? 'Lade-Skeleton ausblenden' : 'Lade-Skeleton anzeigen →'}
-            </button>
           </div>
         </motion.div>
       )}
@@ -525,18 +531,14 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                   </div>
                   <p className="text-[13px] text-gray-500 dark:text-gray-400">Melde dich an, um deine Punkte dauerhaft zu speichern.</p>
                 </div>
-                <div className="space-y-2">
-                  {[
-                    { icon: '✉', label: 'Mit E-Mail anmelden' },
-                    { icon: 'G', label: 'Mit Google fortfahren' },
-                    { icon: '', label: 'Mit Apple fortfahren' },
-                  ].map(({ icon, label }) => (
-                    <button key={label} className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-2">
-                      <span className="text-[15px]">{icon}</span> {label}
-                    </button>
-                  ))}
-                </div>
-                <button onClick={() => store.loginGuest()} className="w-full text-[12px] text-gray-400 py-1">Demo: eingeloggte Ansicht →</button>
+                {/* Vorher standen hier drei Anmelde-Attrappen (E-Mail/Google/Apple)
+                    ohne Funktion plus ein Entwickler-Link — alles für Gäste sichtbar.
+                    Ersetzt durch die eine Aktion, die tatsächlich etwas tut. */}
+                <PrimaryBtn onClick={() => store.loginGuest()}>Punkte sichern</PrimaryBtn>
+                <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+                  Deine Punkte bleiben auf diesem Gerät gespeichert. Ein Konto mit
+                  E-Mail-Anmeldung kommt später.
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -971,9 +973,6 @@ function WaiterApp() {
                       <button onClick={() => setChips(p => p.filter(x => x !== c))} className="hover:text-gray-900 dark:hover:text-white transition-colors"><X size={12} strokeWidth={2} /></button>
                     </span>
                   ))}
-                  <button className="inline-flex items-center gap-1 px-3 py-1.5 border border-dashed border-gray-300 dark:border-gray-600 text-[13px] text-gray-400 rounded-full hover:border-gray-400">
-                    <Plus size={12} strokeWidth={2} /> Hinzufügen
-                  </button>
                 </div>
               </div>
               {!activeTable && <p className="text-[12px] text-gray-400">Ohne ausgewählten Tisch werden erkannte Gerichte nicht gespeichert — nur zur Ansicht.</p>}
@@ -1214,6 +1213,48 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
   const previewDish = store.dishes[0];
 
+  const exportDishesCsv = () => {
+    downloadCsv(`gerichte-${today()}.csv`, [
+      ['Gericht', 'Kategorie', 'Preis', 'Anzahl Bewertungen', 'Durchschnitt'],
+      ...store.dishes.map(d => [
+        d.name, d.cat, d.price.toFixed(2), d.ratingsCount,
+        d.ratingsCount > 0 ? (dishAvg(d) ?? 0).toFixed(2) : '',
+      ]),
+    ]);
+  };
+
+  // Eine Zeile je bewertetem Gericht, damit sich die Datei in Excel filtern
+  // und pivotieren lässt.
+  const exportReviewsCsv = () => {
+    const rows: (string | number)[][] = [
+      ['Datum', 'Tisch', 'Gericht', 'Sterne', 'Anmerkung', 'Service', 'Ambiente', 'Tempo'],
+    ];
+    for (const rv of store.reviews) {
+      const when = new Date(rv.createdAt).toLocaleString('de-AT');
+      for (const d of rv.dishRatings) {
+        rows.push([
+          when, rv.tableNumber,
+          store.dishes.find(x => x.id === d.dishId)?.name ?? 'Gelöschtes Gericht',
+          d.stars, d.note ?? '',
+          rv.overall.service, rv.overall.ambience, rv.overall.speed,
+        ]);
+      }
+    }
+    downloadCsv(`bewertungen-${today()}.csv`, rows);
+  };
+
+  // Die Skeleton-Anzeigen hingen zuvor an einem Testschalter mit Attrappen-Timer.
+  // Jetzt zeigen sie das, was sie sollen: ein tatsächlich laufendes Nachladen.
+  const handleRefresh = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await store.refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAddTables = async () => {
     if (addingTables) return;
     setAddingTables(true);
@@ -1285,11 +1326,11 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
               </AnimatePresence>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-              <button onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 1800); }}
-                className="hidden sm:flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                <RefreshCw size={12} strokeWidth={1.5} /> Skeleton
+              <button onClick={handleRefresh} disabled={loading}
+                className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors" title="Daten neu laden">
+                <RefreshCw size={16} strokeWidth={1.5} className={`text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
               </button>
-              <button onClick={() => store.refresh()} className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 relative" title="Aktualisieren">
+              <button onClick={() => setPage('dashboard')} className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 relative" title={`${openOutstandingAlerts} offene Alarme`}>
                 <Bell size={17} strokeWidth={1.5} className="text-gray-600 dark:text-gray-400" />
                 {openOutstandingAlerts > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />}
               </button>
@@ -1346,7 +1387,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                             {openMenus.has(kpi.id) && (
                               <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[140px]">
                                 <button onClick={() => hideWidget(kpi.id)} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Ausblenden</button>
-                                <button className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Exportieren</button>
+                                <button onClick={() => { setOpenMenus(new Set()); exportReviewsCsv(); }} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bewertungen als CSV</button>
                               </div>
                             )}
                           </div>
@@ -1419,7 +1460,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                           {openMenus.has('dishes') && (
                             <div className="absolute mt-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[150px]">
                               <button onClick={() => hideWidget('dishes')} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Ausblenden</button>
-                              <button className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">CSV exportieren</button>
+                              <button onClick={() => { setOpenMenus(new Set()); exportDishesCsv(); }} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">CSV exportieren</button>
                             </div>
                           )}
                         </div>
@@ -1778,11 +1819,19 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
               {page === 'reviews' && (
                 <div className="space-y-5 max-w-3xl">
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
-                    <p className="text-[13px] text-gray-400 mt-0.5">
-                      Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst
-                    </p>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
+                      <p className="text-[13px] text-gray-400 mt-0.5">
+                        Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst
+                      </p>
+                    </div>
+                    {store.reviews.length > 0 && (
+                      <button onClick={exportReviewsCsv}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                        <Download size={13} strokeWidth={1.5} /> CSV
+                      </button>
+                    )}
                   </div>
 
                   {store.reviews.length === 0 ? (
@@ -1867,7 +1916,8 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Menü</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">Performance aller Gerichte</p>
                     </div>
-                    <button className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                    <button onClick={exportDishesCsv}
+                      className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
                       <Download size={13} strokeWidth={1.5} /> Export
                     </button>
                   </div>
