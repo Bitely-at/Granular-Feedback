@@ -14,10 +14,12 @@ const IMG = (id: string, w = 400, h = 400) =>
 // Unterschied zwischen Filial- und Ketten-Blick im Admin sichtbar wird.
 function seedDish(
   name: string, img: string, price: number, cat: DishDoc['cat'],
-  avg: number, count: number, branchId: string
+  avg: number, count: number, branchId: string,
+  // null = die ganze Kette führt es. Nur die Ausnahmen bekommen eine Liste.
+  branchIds: string[] | null = null
 ): Omit<DishDoc, '_id'> {
   return {
-    name, img, price, cat,
+    name, img, price, cat, branchIds,
     ratingsByBranch: { [branchId]: { sum: Math.round(avg * count), count } },
   };
 }
@@ -72,6 +74,9 @@ async function main() {
       seedDish('Asahi Bier', IMG('photo-1571613316887-6f8d5cbf7ef7'), 4.8, 'Getränke', 4.5, 38, branchId),
       seedDish('Japanischer Sake', IMG('photo-1594035900144-17151c9910af'), 6.5, 'Getränke', 4.3, 29, branchId),
       seedDish('Matcha Latte', IMG('photo-1515823064-d6e0c04616a7'), 4.2, 'Getränke', 4.7, 61, branchId),
+      // Absichtlich nur in EINER Filiale: so ist auf einen Blick prüfbar, dass
+      // die Karte je Filiale abweichen kann.
+      seedDish('Herrengassen-Bowl', IMG('photo-1617196034183-421b4917c92d'), 15.9, 'Speisen', 4.4, 12, branchId, [branchId]),
     ]);
     console.log('Gerichte angelegt.');
   } else {
@@ -139,10 +144,13 @@ async function main() {
   const vouchersCol = db.collection<VoucherDoc>('vouchers');
   if ((await vouchersCol.countDocuments()) === 0) {
     await vouchersCol.insertMany([
-      { title: 'Gratis Miso Suppe', points: 100, expiry: '30.09.2026', img: IMG('photo-1680137248903-7af5d51a3350', 800, 400) },
-      { title: '10 % Rabatt auf alles', points: 250, expiry: '31.10.2026', img: IMG('photo-1562158074-d49fbeffcc91', 800, 400) },
-      { title: 'Gratis Inside-Out Roll', points: 400, expiry: '15.11.2026', img: IMG('photo-1611143669185-af224c5e3252', 800, 400) },
-      { title: '20 % auf den gesamten Besuch', points: 600, expiry: '31.12.2026', img: IMG('photo-1617196034183-421b4917c92d', 800, 400) },
+      // branchIds: null = in der ganzen Kette einlösbar. Der Gast sammelt
+      // seine Punkte überall, also gilt der Gutschein auch überall.
+      { title: 'Gratis Miso Suppe', points: 100, expiry: '30.09.2026', branchIds: null, img: IMG('photo-1680137248903-7af5d51a3350', 800, 400) },
+      { title: '10 % Rabatt auf alles', points: 250, expiry: '31.10.2026', branchIds: null, img: IMG('photo-1562158074-d49fbeffcc91', 800, 400) },
+      { title: 'Gratis Inside-Out Roll', points: 400, expiry: '15.11.2026', branchIds: null, img: IMG('photo-1611143669185-af224c5e3252', 800, 400) },
+      // Eine Filialaktion — nur hier einlösbar.
+      { title: '20 % am Hauptplatz', points: 600, expiry: '31.12.2026', branchIds: [secondBranch._id!.toString()], img: IMG('photo-1617196034183-421b4917c92d', 800, 400) },
     ]);
     console.log('Gutscheine angelegt.');
   } else {

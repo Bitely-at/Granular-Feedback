@@ -44,6 +44,15 @@ export interface DishDoc {
   price: number;
   cat: 'Speisen' | 'Getränke';
   /**
+   * Welche Filialen dieses Gericht führen. `null` = alle — so bleiben Karten
+   * ohne Abweichung ohne Pflegeaufwand, und eine neue Filiale startet nicht
+   * mit leerer Karte.
+   *
+   * Die Stammdaten (Name, Preis, Foto) gehören der Kette; nur die
+   * Verfügbarkeit ist Sache der Filiale.
+   */
+  branchIds: string[] | null;
+  /**
    * Bewertungen getrennt nach Filiale — die Küche der einen sagt nichts über
    * die der anderen. Schlüssel ist die Filial-ID als Zeichenkette.
    *
@@ -91,6 +100,9 @@ export interface VoucherDoc {
   points: number;
   expiry: string;
   img: string;
+  // Wo der Gutschein gilt. `null` = in der ganzen Kette — das ist der
+  // Normalfall, weil der Gast seine Punkte auch überall sammelt.
+  branchIds: string[] | null;
 }
 
 export interface UserDoc {

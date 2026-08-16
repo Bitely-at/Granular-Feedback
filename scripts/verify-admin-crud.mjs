@@ -267,6 +267,79 @@ async function main() {
         if (invited) await req('DELETE', `/users/${invited.id}`);
       }
     }
+
+    // ── 5) Menü pro Filiale ──────────────────────────────────────
+    console.log('\n5) Gerichte lassen sich pro Filiale führen');
+    {
+      const state = await req('GET', '/state');
+      const [b1, b2] = state.json.branches;
+      if (!b2) {
+        console.log('  \x1b[33mSKIP\x1b[0m  nur eine Filiale vorhanden');
+      } else {
+        // Ein Gericht nur für Filiale 1 anlegen.
+        const add = await req('POST', '/dishes', {
+          name: `${MARK} Nur B1`, price: 7.5, cat: 'Speisen', branchIds: [b1.id],
+        });
+        const only1 = findDish(add.json, `${MARK} Nur B1`);
+        created.dishId = only1?.id ?? null;
+        check('Gericht mit Filial-Einschränkung anlegen: 200', add.status === 200, `HTTP ${add.status}`);
+        check('… trägt genau diese Filiale', JSON.stringify(only1?.branchIds) === JSON.stringify([b1.id]),
+          `ist: ${JSON.stringify(only1?.branchIds)}`);
+
+        const in1 = await req('GET', `/state?branch=${b1.slug}`);
+        check('… erscheint in Filiale 1', Boolean(findDish(in1.json, `${MARK} Nur B1`)));
+        const in2 = await req('GET', `/state?branch=${b2.slug}`);
+        // Der Admin sieht die ganze Karte (er verwaltet sie) — der Gast nicht.
+        const guest2 = await req('GET', `/state?branch=${b2.slug}`, undefined, { auth: false });
+        check('… erscheint für den Gast in Filiale 2 NICHT',
+          !findDish(guest2.json, `${MARK} Nur B1`));
+        check('… der Admin sieht es trotzdem (sonst nicht mehr einschaltbar)',
+          Boolean(findDish(in2.json, `${MARK} Nur B1`)));
+
+        // Alle Filialen ausgewählt = "überall", als null gespeichert.
+        const toAll = await req('PATCH', `/dishes/${created.dishId}`, { branchIds: [b1.id, b2.id] });
+        check('Alle Filialen ausgewählt wird zu "überall" (null)',
+          findDish(toAll.json, `${MARK} Nur B1`)?.branchIds === null,
+          `ist: ${JSON.stringify(findDish(toAll.json, `${MARK} Nur B1`)?.branchIds)}`);
+
+        // Verfügbarkeits-Schalter der Filialleitung.
+        const off = await req('PATCH', `/branches/${b2.slug}/dishes/${created.dishId}/availability`, { active: false });
+        check('In einer Filiale abschalten: 200', off.status === 200, `HTTP ${off.status}`);
+        const afterOff = findDish(off.json, `${MARK} Nur B1`);
+        check('… "überall" wird zur ausdrücklichen Liste ohne diese Filiale',
+          Array.isArray(afterOff?.branchIds) && !afterOff.branchIds.includes(b2.id),
+          `ist: ${JSON.stringify(afterOff?.branchIds)}`);
+
+        const on = await req('PATCH', `/branches/${b2.slug}/dishes/${created.dishId}/availability`, { active: true });
+        check('Wieder anschalten macht daraus erneut "überall"',
+          findDish(on.json, `${MARK} Nur B1`)?.branchIds === null,
+          `ist: ${JSON.stringify(findDish(on.json, `${MARK} Nur B1`)?.branchIds)}`);
+
+        // Ein Gericht, das die Filiale nicht führt, darf dort nicht buchbar sein.
+        await req('PATCH', `/branches/${b2.slug}/dishes/${created.dishId}/availability`, { active: false });
+        const tablesB2 = (await req('GET', `/state?branch=${b2.slug}`)).json.tables;
+        if (tablesB2.length > 0) {
+          const t = tablesB2[0];
+          const book = await req('POST', `/branches/${b2.slug}/tables/${t.number}/order`,
+            { cart: { [created.dishId]: 1 } });
+          check('Nicht geführtes Gericht buchen wird mit 400 abgelehnt', book.status === 400,
+            `HTTP ${book.status}`);
+        }
+
+        await req('DELETE', `/dishes/${created.dishId}`);
+        created.dishId = null;
+
+        const badBranch = await req('POST', '/dishes', {
+          name: `${MARK} Ungültig`, price: 5, cat: 'Speisen', branchIds: ['000000000000000000000000'],
+        });
+        check('Unbekannte Filial-ID wird mit 400 abgelehnt', badBranch.status === 400, `HTTP ${badBranch.status}`);
+
+        const emptyList = await req('POST', '/dishes', {
+          name: `${MARK} Ungültig`, price: 5, cat: 'Speisen', branchIds: [],
+        });
+        check('Leere Filial-Liste wird mit 400 abgelehnt', emptyList.status === 400, `HTTP ${emptyList.status}`);
+      }
+    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
     // Läuft auch nach einem Abbruch mitten im Test, damit nichts liegenbleibt.

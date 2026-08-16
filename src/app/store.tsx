@@ -59,7 +59,17 @@ export interface Branch { id: string; slug: string; name: string; address: strin
 
 export interface Dish {
   id: string; name: string; img: string; price: number; cat: 'Speisen' | 'Getränke';
+  // Welche Filialen es führen; null = alle. Die Stammdaten gehören der Kette,
+  // die Verfügbarkeit der Filiale.
+  branchIds: string[] | null;
+  // Bereits auf die betrachtete Filiale heruntergerechnet (oder über die Kette
+  // summiert) — der Server macht das, siehe serializeDish in index.ts.
   ratingsSum: number; ratingsCount: number;
+}
+
+/** Führt diese Filiale das Gericht bzw. gilt der Gutschein dort? */
+export function availableIn(item: { branchIds: string[] | null }, branchId: string): boolean {
+  return item.branchIds == null || item.branchIds.includes(branchId);
 }
 
 export interface TableItem { dishId: string; qty: number; }
@@ -69,7 +79,11 @@ export interface TableRow {
   status: 'frei' | 'offen' | 'abgeschlossen'; items: TableItem[]; openedAt: number | null;
 }
 
-export interface Voucher { id: string; title: string; points: number; expiry: string; img: string; }
+export interface Voucher {
+  id: string; title: string; points: number; expiry: string; img: string;
+  // Wo er gilt; null = ganze Kette.
+  branchIds: string[] | null;
+}
 
 export interface AdminUser {
   id: string; name: string; email: string; role: 'Admin' | 'Manager' | 'Kellner';
@@ -90,8 +104,8 @@ export interface DishRatingInput { dishId: string; stars: number; note?: string;
 
 // Was der Admin beim Anlegen/Bearbeiten schickt — ohne die Felder, die
 // ausschließlich der Server pflegt (id, ratingsSum, ratingsCount).
-export type DishInput = Pick<Dish, 'name' | 'price' | 'cat'> & { img?: string };
-export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?: string };
+export type DishInput = Pick<Dish, 'name' | 'price' | 'cat'> & { img?: string; branchIds?: string[] | null };
+export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?: string; branchIds?: string[] | null };
 export type BranchInput = Pick<Branch, 'name' | 'address'>;
 
 export interface Alert {
@@ -205,7 +219,9 @@ interface StoreApi extends OrgState {
   closeTable: (branchSlug: string, tableNumber: number) => Promise<void>;
   addItemToTable: (branchSlug: string, tableNumber: number, dishId: string, qty?: number) => Promise<void>;
   submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
-  redeemVoucher: (voucherId: string) => Promise<{ ok: boolean; error?: string }>;
+  redeemVoucher: (branchSlug: string, voucherId: string) => Promise<{ ok: boolean; error?: string }>;
+  // Gericht in EINER Filiale führen oder nicht — der Hebel der Filialleitung.
+  setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
   loginGuest: () => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
   addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<void>;
@@ -347,13 +363,19 @@ export function StoreProvider({ orgSlug, scope, children }: {
     return pointsEarned;
   }, [call]);
 
-  const redeemVoucher = useCallback(async (voucherId: string) => {
+  const redeemVoucher = useCallback(async (branchSlug: string, voucherId: string) => {
     try {
-      setState(await call<OrgState>(`/vouchers/${voucherId}/redeem`, { method: 'POST' }));
+      setState(await call<OrgState>(`/branches/${branchSlug}/vouchers/${voucherId}/redeem`, { method: 'POST' }));
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Einlösen fehlgeschlagen.' };
     }
+  }, [call]);
+
+  const setDishAvailability = useCallback(async (branchSlug: string, dishId: string, active: boolean) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/dishes/${dishId}/availability`, {
+      method: 'PATCH', body: JSON.stringify({ active }),
+    }));
   }, [call]);
 
   const loginGuest = useCallback(async () => {
@@ -413,10 +435,11 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher,
+    setDishAvailability,
     loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
-  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

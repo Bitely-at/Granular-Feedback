@@ -155,6 +155,24 @@ async function findTableInBranch(req: OrgRequest, number: number) {
 }
 
 /**
+ * Stellt sicher, dass jedes Gericht in DIESER Filiale geführt wird. Ohne diese
+ * Prüfung ließe sich ein Gericht auf einen Tisch buchen, das die Filiale gar
+ * nicht anbietet — der Gast bekäme es dann zum Bewerten vorgelegt.
+ */
+async function assertDishesAvailable(req: OrgRequest, dishIds: string[]): Promise<void> {
+  const unique = [...new Set(dishIds)];
+  if (unique.length === 0) return;
+  const branchId = String(req.branch!._id);
+  const found = await req.db!.collection('dishes').countDocuments({
+    _id: { $in: unique.map(id => new ObjectId(id)) },
+    $or: [{ branchIds: null }, { branchIds: branchId }],
+  });
+  if (found !== unique.length) {
+    throw new HttpError(400, 'Mindestens ein Gericht wird in dieser Filiale nicht geführt.');
+  }
+}
+
+/**
  * Auf welche Filiale die Antwort eingegrenzt wird. Steht eine Filiale im Pfad,
  * gilt sie; sonst entscheidet die Bindung des angemeldeten Kontos. null heißt
  * Ketten-Blick und kommt nur für Konten ohne feste Filiale zustande (Admin).
@@ -165,6 +183,16 @@ async function findTableInBranch(req: OrgRequest, number: number) {
 function scopeOf(req: OrgRequest): string | null {
   if (req.branch) return String(req.branch._id);
   return req.user?.branchId ?? null;
+}
+
+/**
+ * Der Zustand, wie ihn genau dieser Aufrufer sehen darf. Jede schreibende Route
+ * antwortet damit — so trägt die Antwort automatisch die richtige Reichweite,
+ * ohne dass jede Route sie einzeln bestimmen muss.
+ */
+function stateFor(req: OrgRequest) {
+  const managesMenu = req.user?.role === 'Admin' || req.user?.role === 'Manager';
+  return getFullState(req.db!, scopeOf(req), managesMenu);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -250,6 +278,29 @@ function requirePoints(value: unknown): number {
   return n;
 }
 
+/**
+ * Filial-Auswahl für Gerichte und Gutscheine. `null` (oder gar nichts) heißt
+ * "gilt überall" — bewusst nicht dasselbe wie eine Liste mit allen Filialen:
+ * so gilt eine neu angelegte Filiale automatisch mit, statt jedes Gericht
+ * nachpflegen zu müssen.
+ */
+async function optionalBranchIds(db: Db, value: unknown): Promise<string[] | null | undefined> {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) throw new HttpError(400, 'Filialen müssen als Liste übergeben werden.');
+  if (value.length === 0) throw new HttpError(400, 'Mindestens eine Filiale muss ausgewählt sein.');
+  const ids = value.map(v => String(requireObjectId(v, 'Filial-ID')));
+  const known = await db.collection('branches')
+    .find({ _id: { $in: ids.map(i => new ObjectId(i)) } }).toArray();
+  if (known.length !== new Set(ids).size) {
+    throw new HttpError(400, 'Mindestens eine der angegebenen Filialen existiert nicht.');
+  }
+  // Alle Filialen ausgewählt = überall gültig. Als null speichern, damit
+  // später hinzukommende Filialen mitgelten.
+  const total = await db.collection('branches').countDocuments();
+  return new Set(ids).size === total ? null : [...new Set(ids)];
+}
+
 const DISH_CATEGORIES = ['Speisen', 'Getränke'] as const;
 
 function requireCategory(value: unknown): 'Speisen' | 'Getränke' {
@@ -325,14 +376,23 @@ function sanitizeOverall(raw: unknown): { service: number; ambience: number; spe
  * Filialübergreifend bleiben: Branding (gehört der Marke), Gutscheine und
  * Punkte des Gasts (er sammelt in der ganzen Kette) sowie die Filialliste.
  */
-async function getFullState(db: Db, branchId: string | null) {
+async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
   const branchFilter = branchId ? { branchId } : {};
+  // Was in DIESER Filiale geführt wird: entweder überall gültig (null) oder
+  // ausdrücklich für sie freigegeben. Im Ketten-Blick kommt alles.
+  //
+  // fullMenu hebt das auf: wer die Verfügbarkeit verwaltet, muss auch die
+  // Gerichte sehen, die seine Filiale gerade NICHT führt — sonst könnte er sie
+  // nie wieder einschalten.
+  const availableHere = branchId && !fullMenu
+    ? { $or: [{ branchIds: null }, { branchIds: branchId }] }
+    : {};
   const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, guestDoc] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection('branches').find().toArray(),
-    db.collection('dishes').find().toArray(),
+    db.collection('dishes').find(availableHere).toArray(),
     db.collection('tables').find(branchFilter).toArray(),
-    db.collection('vouchers').find().toArray(),
+    db.collection('vouchers').find(availableHere).toArray(),
     db.collection('users').find().toArray(),
     db.collection('alerts').find(branchFilter).sort({ createdAt: -1 }).toArray(),
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
@@ -460,6 +520,8 @@ router.get('/auth/me', async (req: OrgRequest, res) => {
 router.get('/state', async (req: OrgRequest, res) => {
   const wanted = typeof req.query.branch === 'string' ? req.query.branch : null;
   const user = readUser(req);
+  // stateFor liest die Rolle aus req.user; auf dieser Route ist sie optional.
+  req.user = user ?? undefined;
 
   if (wanted === 'all') {
     if (!user) {
@@ -470,7 +532,7 @@ router.get('/state', async (req: OrgRequest, res) => {
       res.status(403).json({ error: 'Dein Konto ist an eine Filiale gebunden.' });
       return;
     }
-    res.json(await getFullState(req.db!, null));
+    res.json(await stateFor(req));
     return;
   }
 
@@ -484,7 +546,8 @@ router.get('/state', async (req: OrgRequest, res) => {
       res.status(403).json({ error: 'Diese Filiale gehört nicht zu deinem Konto.' });
       return;
     }
-    res.json(await getFullState(req.db!, String(branch._id)));
+    req.branch = branch;
+    res.json(await stateFor(req));
     return;
   }
 
@@ -492,7 +555,7 @@ router.get('/state', async (req: OrgRequest, res) => {
     res.status(400).json({ error: 'Es muss eine Filiale angegeben werden (?branch=<slug>).' });
     return;
   }
-  res.json(await getFullState(req.db!, user.branchId ?? null));
+  res.json(await stateFor(req));
 });
 
 // ── Tisch per Nummer holen (für QR-Route /:orgSlug/:branchSlug/table/:number) ──
@@ -540,7 +603,7 @@ router.post('/branches/:branchSlug/tables', branchAdmin(withBranch(async (req: O
       status: 'frei' as const, items: [], openedAt: null, orderId: null,
     }))
   );
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 })));
 
 // ── Tisch (und damit seinen QR-Code) wieder entfernen ──
@@ -555,7 +618,7 @@ router.delete('/branches/:branchSlug/tables/:id', branchAdmin(withBranch(async (
     res.status(404).json({ error: 'Tisch wurde in dieser Filiale nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 })));
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
@@ -573,6 +636,7 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
       res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
+    await assertDishesAvailable(req, Object.keys(cart));
     const items = [...(table.items as { dishId: string; qty: number }[])];
     for (const [dishId, qty] of Object.entries(cart)) {
       if (qty <= 0) continue;
@@ -591,7 +655,7 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
         },
       }
     );
-    res.json(await getFullState(req.db!, scopeOf(req)));
+    res.json(await stateFor(req));
   } catch (err) {
     next(err);
   }
@@ -612,7 +676,7 @@ router.post('/branches/:branchSlug/tables/:number/close', staffOrAdmin(withBranc
       { _id: table._id },
       { $set: { status: 'frei', items: [], orderId: null, openedAt: null } }
     );
-    res.json(await getFullState(req.db!, scopeOf(req)));
+    res.json(await stateFor(req));
   } catch (err) {
     next(err);
   }
@@ -630,6 +694,7 @@ router.post('/branches/:branchSlug/tables/:number/items', withBranch(async (req:
       res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
+    await assertDishesAvailable(req, [dishId]);
     const items = [...(table.items as { dishId: string; qty: number }[])];
     const existing = items.find(i => i.dishId === dishId);
     if (existing) existing.qty += qty; else items.push({ dishId, qty });
@@ -646,7 +711,7 @@ router.post('/branches/:branchSlug/tables/:number/items', withBranch(async (req:
         },
       }
     );
-    res.json(await getFullState(req.db!, scopeOf(req)));
+    res.json(await stateFor(req));
   } catch (err) {
     next(err);
   }
@@ -739,7 +804,7 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
       { $set: { status: 'abgeschlossen', items: [], orderId: null } }
     );
 
-    const state = await getFullState(db, scopeOf(req));
+    const state = await stateFor(req);
     res.json({ ...state, pointsEarned });
   } catch (err) {
     next(err);
@@ -747,12 +812,19 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
 }));
 
 // ── Gast: Gutschein einlösen ──
-router.post('/vouchers/:id/redeem', async (req: OrgRequest, res) => {
+// Liegt unter der Filiale, weil eingelöst wird, wo der Gast sitzt — nur so
+// lässt sich prüfen, ob der Gutschein hier überhaupt gilt.
+router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: OrgRequest, res) => {
   const db = req.db!;
   const voucher = await db.collection('vouchers').findOne({ _id: requireObjectId(req.params.id, 'Gutschein-ID') });
   const guest = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' });
   if (!voucher) {
     res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
+    return;
+  }
+  const branchId = String(req.branch!._id);
+  if (voucher.branchIds != null && !(voucher.branchIds as string[]).includes(branchId)) {
+    res.status(400).json({ error: `Dieser Gutschein gilt nicht in der Filiale ${req.branch!.name}.` });
     return;
   }
   const points = guest?.points ?? 0;
@@ -770,15 +842,15 @@ router.post('/vouchers/:id/redeem', async (req: OrgRequest, res) => {
     { $inc: { points: -voucher.points }, $push: { redeemed: req.params.id } },
     { upsert: true }
   );
-  res.json(await getFullState(db, scopeOf(req)));
-});
+  res.json(await stateFor(req));
+}));
 
 // ── Gast: Demo-Login (kein echtes Auth-System — bewusst nicht Teil des Produkts) ──
 router.post('/guest/login', async (req: OrgRequest, res) => {
   await req.db!.collection<GuestProfileDoc>('guestProfile').updateOne(
     { _id: 'default' }, { $set: { loggedIn: true } }, { upsert: true }
   );
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 });
 
 // ── Kellner: Alarm-Banner (Bewertung < 3 Sterne) als erledigt markieren ──
@@ -787,7 +859,7 @@ router.post('/alerts/:id/resolve', staffOrAdmin(async (req: OrgRequest, res) => 
     { _id: requireObjectId(req.params.id, 'Alarm-ID') },
     { $set: { resolved: true } }
   );
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Benutzer verwalten ──
@@ -836,7 +908,7 @@ router.post('/users', branchAdmin(async (req: OrgRequest, res) => {
     branchId,
     status: 'eingeladen',
   });
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 router.delete('/users/:id', branchAdmin(async (req: OrgRequest, res) => {
@@ -868,7 +940,7 @@ router.delete('/users/:id', branchAdmin(async (req: OrgRequest, res) => {
     }
   }
   await req.db!.collection('users').deleteOne({ _id: id });
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Admin: Branding-Einstellungen (inkl. Design-Studio: Logo, Schrift, Karten-Layout) ──
@@ -883,7 +955,7 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Admin: Gerichtsfoto ersetzen ──
@@ -896,7 +968,7 @@ router.patch('/dishes/:id/image', chainAdmin(async (req: OrgRequest, res) => {
   await req.db!.collection('dishes').updateOne(
     { _id: requireObjectId(req.params.id, 'Gericht-ID') }, { $set: { img } }
   );
-  res.json(await getFullState(req.db!, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Admin: Menüverwaltung (Stammkarte der Kette) ──
@@ -909,9 +981,11 @@ router.post('/dishes', chainAdmin(async (req: OrgRequest, res) => {
     price: requirePrice(req.body?.price),
     cat: requireCategory(req.body?.cat),
     img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
+    // Ohne Angabe führt es die ganze Kette.
+    branchIds: (await optionalBranchIds(db, req.body?.branchIds)) ?? null,
     ratingsByBranch: {},
   });
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 router.patch('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
@@ -921,6 +995,7 @@ router.patch('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
   if (req.body?.price !== undefined) update.price = requirePrice(req.body.price);
   if (req.body?.cat !== undefined) update.cat = requireCategory(req.body.cat);
   if (req.body?.img !== undefined) update.img = optionalImage(req.body.img) ?? IMAGE_PLACEHOLDER;
+  if (req.body?.branchIds !== undefined) update.branchIds = await optionalBranchIds(db, req.body.branchIds);
   if (Object.keys(update).length === 0) {
     res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
     return;
@@ -932,8 +1007,56 @@ router.patch('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Gericht wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
+
+/**
+ * ── Verfügbarkeit eines Gerichts in EINER Filiale ──
+ *
+ * Der Hebel der Filialleitung: Stammdaten (Name, Preis, Foto) gehören der
+ * Kette, ob die Filiale das Gericht führt, entscheidet sie selbst.
+ *
+ * `branchIds: null` heißt "überall". Wird ein Gericht in einer Filiale
+ * abgeschaltet, muss diese Kurzform erst in eine ausdrückliche Liste aller
+ * anderen Filialen aufgelöst werden — sonst ginge die Abwahl verloren.
+ */
+router.patch('/branches/:branchSlug/dishes/:dishId/availability',
+  branchAdmin(withBranch(async (req: OrgRequest, res) => {
+    const db = req.db!;
+    const branchId = String(req.branch!._id);
+    const active = req.body?.active;
+    if (typeof active !== 'boolean') {
+      throw new HttpError(400, 'active muss true oder false sein.');
+    }
+
+    const dish = await db.collection<DishDoc>('dishes')
+      .findOne({ _id: requireObjectId(req.params.dishId, 'Gericht-ID') });
+    if (!dish) {
+      res.status(404).json({ error: 'Gericht wurde nicht gefunden.' });
+      return;
+    }
+
+    const allBranchIds = (await db.collection('branches').find().project({ _id: 1 }).toArray())
+      .map(b => String(b._id));
+    const current = dish.branchIds ?? allBranchIds;
+
+    let next = active
+      ? [...new Set([...current, branchId])]
+      : current.filter(id => id !== branchId);
+
+    if (next.length === 0) {
+      res.status(400).json({
+        error: 'Das Gericht wäre dann in keiner Filiale mehr verfügbar. Lösche es stattdessen im Menü.',
+      });
+      return;
+    }
+
+    // Wieder alle: zurück auf die Kurzform, damit neue Filialen mitgelten.
+    const branchIds = next.length === allBranchIds.length ? null : next;
+    await db.collection('dishes').updateOne({ _id: dish._id }, { $set: { branchIds } });
+    res.json(await stateFor(req));
+  }))
+);
 
 /**
  * Ein gelöschtes Gericht verschwindet auch aus den laufenden Bestellungen —
@@ -950,7 +1073,7 @@ router.delete('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
     { status: 'offen', items: { $size: 0 } },
     { $set: { status: 'frei', orderId: null, openedAt: null } }
   );
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Admin: Gutscheinverwaltung ──
@@ -961,8 +1084,11 @@ router.post('/vouchers', chainAdmin(async (req: OrgRequest, res) => {
     points: requirePoints(req.body?.points),
     expiry: requireText(req.body?.expiry, 'Gültig bis', 40),
     img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
+    // Ohne Angabe in der ganzen Kette einlösbar — der Gast sammelt seine
+    // Punkte schließlich auch überall.
+    branchIds: (await optionalBranchIds(db, req.body?.branchIds)) ?? null,
   });
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 router.patch('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
@@ -972,6 +1098,7 @@ router.patch('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
   if (req.body?.points !== undefined) update.points = requirePoints(req.body.points);
   if (req.body?.expiry !== undefined) update.expiry = requireText(req.body.expiry, 'Gültig bis', 40);
   if (req.body?.img !== undefined) update.img = optionalImage(req.body.img) ?? IMAGE_PLACEHOLDER;
+  if (req.body?.branchIds !== undefined) update.branchIds = await optionalBranchIds(db, req.body.branchIds);
   if (Object.keys(update).length === 0) {
     res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
     return;
@@ -983,7 +1110,7 @@ router.patch('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 router.delete('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
@@ -994,7 +1121,7 @@ router.delete('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
   await db.collection<GuestProfileDoc>('guestProfile').updateOne(
     { _id: 'default' }, { $pull: { redeemed: String(id) } }
   );
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 // ── Admin: Filialverwaltung ──
@@ -1006,7 +1133,7 @@ router.post('/branches', chainAdmin(async (req: OrgRequest, res) => {
     name,
     address: requireText(req.body?.address, 'Adresse', 160),
   });
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 router.patch('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
@@ -1026,7 +1153,7 @@ router.patch('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Filiale wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 /**
@@ -1052,7 +1179,7 @@ router.delete('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
   await db.collection('branches').deleteOne({ _id: id });
   // Benutzer, die nur dieser Filiale zugeordnet waren, gelten wieder für alle.
   await db.collection('users').updateMany({ branchId: String(id) }, { $set: { branchId: null } });
-  res.json(await getFullState(db, scopeOf(req)));
+  res.json(await stateFor(req));
 }));
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

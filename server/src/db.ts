@@ -83,6 +83,15 @@ async function ensureOrgSchema(db: Db): Promise<void> {
   await renumberTablesPerBranch(db);
   await splitDishRatingsPerBranch(db);
 
+  // Gerichte und Gutscheine aus der Zeit vor der Filial-Verfügbarkeit gelten
+  // überall — null ist genau das und braucht keine Pflege.
+  for (const name of ['dishes', 'vouchers']) {
+    await db.collection(name).updateMany(
+      { branchIds: { $exists: false } },
+      { $set: { branchIds: null } }
+    );
+  }
+
   // Erst NACH der Umnummerierung: vorher trägt der Altbestand noch
   // organisationsweite Nummern, die den Index verletzen würden.
   await db.collection('tables').createIndex(

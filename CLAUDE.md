@@ -107,9 +107,17 @@ nicht, sie bekommt Fremdes gar nicht erst:
 - Im Frontend heißt „der Server soll entscheiden" `scope: 'self'` (siehe
   `BranchScope` in `store.tsx`). Das löst das Henne-Ei-Problem beim Seitenaufruf:
   ob jemand an eine Filiale gebunden ist, weiß nur der Server.
-- **Filialgetrennt:** Tische, Bewertungen, Alarme, Gerichtsschnitte.
-  **Kettenweit:** Branding, Stammkarte, Gutscheine, Punkte des Gasts,
+- **Filialgetrennt:** Tische, Bewertungen, Alarme, Gerichtsschnitte, welche
+  Gerichte geführt und welche Gutscheine eingelöst werden können.
+  **Kettenweit:** Branding, Stammdaten der Gerichte, Punkte des Gasts,
   Filialliste.
+- **`branchIds: null` heißt „überall"** — bewusst nicht dasselbe wie eine Liste
+  mit allen Filialen: nur so gilt eine später angelegte Filiale automatisch mit.
+  Der Verfügbarkeits-Schalter löst die Kurzform beim Abwählen in eine
+  ausdrückliche Liste auf und faltet sie beim Wiedereinschalten zurück.
+- Wer die Verfügbarkeit verwaltet (Admin/Manager), bekommt über `fullMenu` in
+  `getFullState` **alle** Gerichte — auch die abgeschalteten. Sonst könnte er
+  sie nie wieder einschalten. Gast und Kellner sehen nur die geführten.
 - **Gerichtsbewertungen liegen in `ratingsByBranch`**, weil sich die Qualität je
   Filiale unterscheidet. Am Draht heißt es weiterhin `ratingsSum`/`ratingsCount`
   — `serializeDish` rechnet sie auf die angefragte Filiale herunter oder
@@ -184,8 +192,11 @@ Drei Rollen, und der Manager ist **Filialleitung**, nicht kleiner Admin:
 |---|---|---|---|
 | | Admin | Admin, Manager | + Kellner |
 | Filialen, Branding, Stammkarte, Gutscheine | ✅ | ❌ | ❌ |
-| Tische/QR der eigenen Filiale, Benutzer | ✅ | ✅ | ❌ |
+| Tische/QR + Verfügbarkeit der eigenen Filiale, Benutzer | ✅ | ✅ | ❌ |
 | Bestellung buchen, Tisch schließen, Alarm | ✅ | ✅ | ✅ |
+
+Die Filialleitung sieht das Menü, ändert dort aber nur den
+Verfügbarkeits-Schalter — Name, Preis und Foto gehören der Kette.
 
 Der Manager darf nur **Kellner** und nur in der **eigenen** Filiale anlegen —
 sonst wäre die Rollentrennung mit einer Einladung ausgehebelt (`POST /users`).
@@ -205,6 +216,9 @@ Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
 `/auth/login`). Passwort-Vergabe für eingeladene Benutzer fehlt noch — bis dahin
 vergibt nur das Seed-Skript Passwörter.
 
-**Das Menü ist noch nicht filialgetrennt.** Alle Filialen führen dieselbe Karte;
-`dishes` hat kein `branchIds`. Die Bewertungen *sind* getrennt, die Karte selbst
-noch nicht.
+**Kein Filialpreis.** Eine Filiale kann ein Gericht führen oder nicht, aber
+nicht zu einem anderen Preis anbieten. Nachrüstbar, indem `branchIds` von einer
+Liste auf eine Zuordnung Filiale → Preis umgebaut wird.
+
+**Kein Passwort-Setzen für eingeladene Benutzer.** Wer eingeladen wird, hat
+`passwordHash: null` und kann sich nicht anmelden, bis das Seed-Skript läuft.

@@ -18,6 +18,7 @@ import {
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
   BRAND_FONTS, BRAND_CARD_STYLES,
+  availableIn,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
   type Branch, type BranchScope,
 } from './store';
@@ -340,7 +341,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
   const handleRedeem = async (voucherId: string) => {
     setRedeemError(null);
-    const result = await store.redeemVoucher(voucherId);
+    const result = await store.redeemVoucher(branch.slug, voucherId);
     if (!result.ok) setRedeemError(result.error ?? 'Einlösen fehlgeschlagen.');
   };
 
@@ -1227,6 +1228,49 @@ function DialogError({ message }: { message: string | null }) {
   );
 }
 
+/**
+ * In welchen Filialen etwas gilt. `null` heißt "überall" und ist bewusst nicht
+ * dasselbe wie "alle einzeln angehakt": nur so gilt eine später hinzukommende
+ * Filiale automatisch mit.
+ */
+function BranchScopeField({ label, hint, value, onChange }: {
+  label: string; hint: string; value: string[] | null; onChange: (v: string[] | null) => void;
+}) {
+  const store = useStore();
+  if (store.branches.length < 2) return null;
+
+  const everywhere = value == null;
+  const toggle = (id: string) => {
+    const current = value ?? store.branches.map(b => b.id);
+    const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    if (next.length === 0) return; // mindestens eine muss bleiben
+    onChange(next.length === store.branches.length ? null : next);
+  };
+
+  return (
+    <div>
+      <label className="text-[12px] text-gray-500 mb-1 block">{label}</label>
+      <div className="space-y-1.5">
+        <label className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300">
+          <input type="checkbox" checked={everywhere} onChange={() => onChange(everywhere ? [store.branches[0].id] : null)} />
+          In allen Filialen
+        </label>
+        {!everywhere && (
+          <div className="pl-5 space-y-1">
+            {store.branches.map(b => (
+              <label key={b.id} className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={value!.includes(b.id)} onChange={() => toggle(b.id)} />
+                {b.name}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1">{hint}</p>
+    </div>
+  );
+}
+
 /** Gemeinsame Speicher-Mechanik der drei Dialoge: sperren, Fehler behalten, schließen. */
 function useDialogSave(onClose: () => void) {
   const [saving, setSaving] = useState(false);
@@ -1255,13 +1299,17 @@ function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void 
     price: dish ? String(dish.price) : '',
     cat: (dish?.cat ?? 'Speisen') as Dish['cat'],
     img: dish?.img ?? null as string | null,
+    branchIds: dish?.branchIds ?? null as string[] | null,
   });
 
   const price = Number(form.price.replace(',', '.'));
   const valid = form.name.trim() !== '' && Number.isFinite(price) && price >= 0;
 
   const handleSave = () => save(async () => {
-    const payload = { name: form.name.trim(), price, cat: form.cat, img: form.img ?? undefined };
+    const payload = {
+      name: form.name.trim(), price, cat: form.cat, img: form.img ?? undefined,
+      branchIds: form.branchIds,
+    };
     if (dish) await store.updateDish(dish.id, payload);
     else await store.addDish(payload);
   });
@@ -1287,6 +1335,9 @@ function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void 
           </div>
         </div>
         <ImageField label="Foto" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} />
+        <BranchScopeField label="Wird geführt in" value={form.branchIds}
+          hint="Die Filialleitung kann das Gericht später für ihre Filiale zusätzlich ab- oder anschalten."
+          onChange={v => setForm(p => ({ ...p, branchIds: v }))} />
         <DialogError message={error} />
       </div>
     </AdminModal>
@@ -1301,13 +1352,17 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
     points: voucher ? String(voucher.points) : '100',
     expiry: voucher?.expiry ?? '',
     img: voucher?.img ?? null as string | null,
+    branchIds: voucher?.branchIds ?? null as string[] | null,
   });
 
   const points = Number(form.points);
   const valid = form.title.trim() !== '' && form.expiry.trim() !== '' && Number.isInteger(points) && points >= 0;
 
   const handleSave = () => save(async () => {
-    const payload = { title: form.title.trim(), points, expiry: form.expiry.trim(), img: form.img ?? undefined };
+    const payload = {
+      title: form.title.trim(), points, expiry: form.expiry.trim(),
+      img: form.img ?? undefined, branchIds: form.branchIds,
+    };
     if (voucher) await store.updateVoucher(voucher.id, payload);
     else await store.addVoucher(payload);
   });
@@ -1329,6 +1384,9 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
           </div>
         </div>
         <ImageField label="Bild" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} aspect="wide" />
+        <BranchScopeField label="Einlösbar in" value={form.branchIds}
+          hint="Punkte sammelt der Gast in der ganzen Kette — ein Gutschein nur für eine Filiale sollte die Ausnahme bleiben."
+          onChange={v => setForm(p => ({ ...p, branchIds: v }))} />
         <DialogError message={error} />
       </div>
     </AdminModal>
@@ -1443,11 +1501,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   // Die Filialleitung sieht nur, was ihre Filiale betrifft. Stammkarte,
   // Gutscheine und Einstellungen sind Sache der Kette — sie auszublenden ist
   // Bequemlichkeit, den Schutz macht der Server (chainAdmin in index.ts).
+  // Die Filialleitung bekommt das Menü, um Gerichte für ihre Filiale an- und
+  // abzuschalten — die Stammkarte selbst (anlegen, umbenennen, löschen) bleibt
+  // ihr auf der Seite verwehrt. Gutscheine sind reine Kettensache.
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
     { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
+    { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
     ...(isChainAdmin ? [
-      { id: 'menu' as const, label: 'Menü', Icon: UtensilsCrossed },
       { id: 'vouchers' as const, label: 'Gutscheine', Icon: Ticket },
       // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
       // Zum Zurückholen die folgende Zeile wieder einkommentieren:
@@ -2267,17 +2328,23 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Menü</p>
-                      <p className="text-[13px] text-gray-400 mt-0.5">{store.dishes.length} Gerichte · Performance und Verwaltung</p>
+                      <p className="text-[13px] text-gray-400 mt-0.5">
+                        {store.dishes.length} Gerichte · {isChainAdmin
+                          ? 'Stammkarte der Kette'
+                          : `Verfügbarkeit in ${branch?.name ?? 'deiner Filiale'}`}
+                      </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       <button onClick={exportDishesCsv}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
                         <Download size={13} strokeWidth={1.5} /> Export
                       </button>
-                      <button onClick={() => setDishDialog({ dish: null })}
-                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
-                        <Plus size={13} strokeWidth={2} /> Gericht
-                      </button>
+                      {isChainAdmin && (
+                        <button onClick={() => setDishDialog({ dish: null })}
+                          className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
+                          <Plus size={13} strokeWidth={2} /> Gericht
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -2367,7 +2434,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                          {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Rezensionen', 'Preis', 'Trend', ''].map((h, i) => (
+                          {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Rezensionen', 'Preis',
+                            branch ? `In ${branch.name}` : 'Filialen', 'Trend', ''].map((h, i) => (
                             <th key={i} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                           ))}
                         </tr>
@@ -2400,17 +2468,35 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                               </td>
                               <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{dish.ratingsCount}</td>
                               <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{dish.price.toFixed(2)} €</td>
+                              {/* Bei gewählter Filiale ein Schalter für genau
+                                  diese; im Ketten-Blick nur die Übersicht, wo
+                                  das Gericht geführt wird. */}
+                              <td className="px-5 py-3.5">
+                                {branch ? (
+                                  <DishAvailabilityToggle dish={dish} branch={branch} />
+                                ) : dish.branchIds == null ? (
+                                  <span className="text-[12px] text-gray-400">Alle</span>
+                                ) : (
+                                  <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                                    {dish.branchIds.length} von {store.branches.length}
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-5 py-3.5">
                                 {TrendIcon ? <TrendIcon size={16} className={trendColor} strokeWidth={2} /> : <span className="w-4 h-0.5 bg-gray-200 dark:bg-gray-700 inline-block rounded-full" />}
                               </td>
                               <td className="px-5 py-3.5">
-                                <div className="flex gap-1 justify-end">
-                                  <button onClick={() => setDishDialog({ dish })} title="Gericht bearbeiten"
-                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                                  <button title="Gericht löschen"
-                                    onClick={() => { if (confirm(`„${dish.name}" wirklich aus dem Menü löschen? Bereits abgegebene Bewertungen bleiben erhalten.`)) runAction(() => store.removeDish(dish.id)); }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
-                                </div>
+                                {/* Stammdaten ändern darf nur die Kette — die
+                                    Filialleitung hat den Schalter links. */}
+                                {isChainAdmin && (
+                                  <div className="flex gap-1 justify-end">
+                                    <button onClick={() => setDishDialog({ dish })} title="Gericht bearbeiten"
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
+                                    <button title="Gericht löschen"
+                                      onClick={() => { if (confirm(`„${dish.name}" wirklich aus dem Menü löschen? Bereits abgegebene Bewertungen bleiben erhalten.`)) runAction(() => store.removeDish(dish.id)); }}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2460,6 +2546,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                               <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
                                 <Clock size={11} strokeWidth={1.5} /> Gültig bis {v.expiry}
                                 {redeemed && <span className="text-emerald-600 dark:text-emerald-400 ml-1">· eingelöst</span>}
+                              </p>
+                              <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
+                                <Building2 size={11} strokeWidth={1.5} />
+                                {v.branchIds == null
+                                  ? 'In allen Filialen'
+                                  : v.branchIds.map(id => store.branches.find(b => b.id === id)?.name ?? '?').join(', ')}
                               </p>
                               <div className="flex gap-1 pt-1">
                                 <button onClick={() => setVoucherDialog({ voucher: v })} title="Gutschein bearbeiten"
@@ -2732,6 +2824,42 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
         <AdminApp orgSlug={orgSlug} branch={branch} canSwitchBranch={canSwitchBranch}
           onPick={onPick} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Führt diese Filiale das Gericht? Der Schalter der Filialleitung — die
+ * Stammdaten (Name, Preis, Foto) bleiben Sache der Kette.
+ */
+function DishAvailabilityToggle({ dish, branch }: { dish: Dish; branch: Branch }) {
+  const store = useStore();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const active = availableIn(dish, branch.id);
+
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await store.setDishAvailability(branch.slug, dish.id, !active);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Umschalten fehlgeschlagen.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={toggle} disabled={busy} role="switch" aria-checked={active}
+        title={active ? `In ${branch.name} nicht mehr führen` : `In ${branch.name} führen`}
+        className={`w-9 h-5 rounded-full relative transition-colors disabled:opacity-50 ${active ? '' : 'bg-gray-200 dark:bg-gray-700'}`}
+        style={active ? { backgroundColor: 'var(--ba, #16A34A)' } : undefined}>
+        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${active ? 'left-[18px]' : 'left-0.5'}`} />
+      </button>
+      {error && <p className="text-[11px] text-red-500 mt-1 max-w-[160px]">{error}</p>}
     </div>
   );
 }
