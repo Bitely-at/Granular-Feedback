@@ -90,6 +90,8 @@ export interface UserDoc {
   _id?: ObjectId;
   name: string;
   email: string;
+  // null = noch kein Passwort gesetzt (offene Einladung) -> kann sich nicht anmelden.
+  passwordHash: string | null;
   role: 'Admin' | 'Manager' | 'Kellner';
   branchId: string | null; // null = alle Filialen
   status: 'aktiv' | 'eingeladen' | 'inaktiv';

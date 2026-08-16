@@ -16,10 +16,16 @@
 const API_BASE = (process.env.API_BASE ?? 'http://localhost:4000').replace(/\/$/, '');
 const ORG_SLUG = process.env.ORG_SLUG ?? 'sakura-sushi';
 
+// Die Verwaltungsrouten sind seit T-1 angemeldet-pflichtig. Zugang aus dem
+// Seed-Skript; abweichende Zugänge über die Umgebung setzbar.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@sakura.at';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'bitely123';
+
 // Kennzeichnet die Testdatensätze, damit sie beim Aufräumen wiedererkannt
 // werden — auch wenn das Skript vorher abgebrochen ist.
 const MARK = 'ZZ-Prüflauf';
 
+let token = null;
 let passed = 0;
 let failed = 0;
 
@@ -33,10 +39,13 @@ function check(name, condition, detail = '') {
   }
 }
 
-async function req(method, path, body) {
+async function req(method, path, body, { auth = true } = {}) {
   const res = await fetch(`${API_BASE}/api/${ORG_SLUG}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   let json = null;
@@ -56,6 +65,45 @@ async function main() {
     console.error(`Server nicht erreichbar oder Organisation unbekannt (HTTP ${initial.status}).`);
     console.error(initial.json?.error ?? 'Läuft der Server? npm run server:dev');
     process.exit(1);
+  }
+
+  // ── 0) Rechteprüfung ──────────────────────────────────────────
+  // Zuerst OHNE Token: die Verwaltungsrouten müssen abweisen. Erst danach
+  // anmelden — sonst prüfte der Rest des Skripts nur den angemeldeten Fall.
+  console.log('0) Anmeldung und Rechteprüfung');
+  {
+    const anon = await req('POST', '/dishes', { name: `${MARK} Ohne Anmeldung`, price: 5, cat: 'Speisen' }, { auth: false });
+    check('Gericht anlegen ohne Anmeldung wird mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
+
+    const anonBranch = await req('DELETE', '/branches/000000000000000000000000', undefined, { auth: false });
+    check('Filiale löschen ohne Anmeldung wird mit 401 abgelehnt', anonBranch.status === 401, `HTTP ${anonBranch.status}`);
+
+    const badToken = await fetch(`${API_BASE}/api/${ORG_SLUG}/dishes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer erfunden.abcdef' },
+      body: JSON.stringify({ name: `${MARK} Falsches Token`, price: 5, cat: 'Speisen' }),
+    });
+    check('Erfundenes Token wird mit 401 abgelehnt', badToken.status === 401, `HTTP ${badToken.status}`);
+
+    const wrongPw = await req('POST', '/auth/login', { email: ADMIN_EMAIL, password: 'falsch' }, { auth: false });
+    check('Login mit falschem Passwort wird mit 401 abgelehnt', wrongPw.status === 401, `HTTP ${wrongPw.status}`);
+
+    const login = await req('POST', '/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
+    check('Login als Admin liefert 200', login.status === 200,
+      `HTTP ${login.status} — ${login.json?.error ?? ''} (Seed aktuell? npm run server:seed)`);
+    check('… mit Token', typeof login.json?.token === 'string' && login.json.token.length > 0);
+    check('… und ohne passwordHash in der Antwort', login.json?.user?.passwordHash === undefined);
+    token = login.json?.token ?? null;
+
+    if (!token) {
+      console.error('\nOhne Token können die Verwaltungsrouten nicht geprüft werden — Abbruch.');
+      console.error('Läuft "npm run server:seed" gegen dieselbe Datenbank?');
+      process.exit(1);
+    }
+
+    const state = await req('GET', '/state');
+    check('Gesamtzustand enthält keine Passwort-Hashes',
+      (state.json?.users ?? []).every(u => u.passwordHash === undefined));
   }
 
   const created = { dishId: null, voucherId: null, branchId: null, tableId: null };

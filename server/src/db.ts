@@ -71,6 +71,14 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { orderId: { $exists: false } },
     { $set: { orderId: null } }
   );
+
+  // Benutzer aus der Zeit vor dem Login (T-1) haben kein passwordHash-Feld.
+  // null heißt: kein Passwort gesetzt, kann sich nicht anmelden — bis ein
+  // Admin eines vergibt oder das Seed-Skript erneut läuft.
+  await db.collection('users').updateMany(
+    { passwordHash: { $exists: false } },
+    { $set: { passwordHash: null } }
+  );
 }
 
 export async function orgDbBySlug(slug: string): Promise<Db> {

@@ -18,6 +18,12 @@
 const API_BASE = (process.env.API_BASE ?? 'http://localhost:4000').replace(/\/$/, '');
 const ORG_SLUG = process.env.ORG_SLUG ?? 'sakura-sushi';
 
+// Tische anlegen/buchen/schließen ist seit T-1 angemeldet-pflichtig; das
+// Bewerten bleibt öffentlich (der Gast hat kein Konto).
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@sakura.at';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'bitely123';
+
+let token = null;
 let passed = 0;
 let failed = 0;
 
@@ -31,10 +37,13 @@ function check(name, condition, detail = '') {
   }
 }
 
-async function req(method, path, body) {
+async function req(method, path, body, { auth = true } = {}) {
   const res = await fetch(`${API_BASE}/api/${ORG_SLUG}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   let json = null;
@@ -59,6 +68,14 @@ async function main() {
     console.error('Keine Gerichte vorhanden — bitte zuerst seeden: npm run seed --prefix server');
     process.exit(1);
   }
+
+  const login = await req('POST', '/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
+  if (login.status !== 200) {
+    console.error(`Anmeldung fehlgeschlagen (HTTP ${login.status}): ${login.json?.error ?? ''}`);
+    console.error('Läuft "npm run server:seed" gegen dieselbe Datenbank?');
+    process.exit(1);
+  }
+  token = login.json.token;
 
   const created = await req('POST', '/tables', { count: 1 });
   if (created.status !== 200) {
@@ -140,6 +157,30 @@ async function main() {
       const codes = [a.status, b.status].sort();
       check('Zwei gleichzeitige Bewertungen: genau eine wird angenommen',
         codes[0] === 200 && codes[1] === 409, `Antworten: ${codes.join(' und ')}`);
+    }
+
+    // ── Fall 4: Rechte am Tisch ───────────────────────────────────
+    console.log('\n4) Kellner-Routen verlangen Anmeldung, Gast-Routen nicht');
+    {
+      const anonOrder = await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } }, { auth: false });
+      check('Bestellung buchen ohne Anmeldung wird mit 401 abgelehnt', anonOrder.status === 401,
+        `HTTP ${anonOrder.status}`);
+
+      const anonClose = await req('POST', `/tables/${n}/close`, undefined, { auth: false });
+      check('Tisch schließen ohne Anmeldung wird mit 401 abgelehnt', anonClose.status === 401,
+        `HTTP ${anonClose.status}`);
+
+      // Der Gast hat kein Konto — Nachtragen und Bewerten müssen offen bleiben,
+      // sonst funktioniert der QR-Code am Tisch nicht mehr.
+      await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } });
+      const anonItem = await req('POST', `/tables/${n}/items`, { dishId: dish.id, qty: 1 }, { auth: false });
+      check('Gast darf ohne Anmeldung nachtragen', anonItem.status === 200, `HTTP ${anonItem.status}`);
+
+      const anonReview = await req('POST', `/tables/${n}/review`, {
+        dishRatings: [{ dishId: dish.id, stars: 4 }],
+        overall: { service: 4, ambience: 4, speed: 4 },
+      }, { auth: false });
+      check('Gast darf ohne Anmeldung bewerten', anonReview.status === 200, `HTTP ${anonReview.status}`);
     }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────

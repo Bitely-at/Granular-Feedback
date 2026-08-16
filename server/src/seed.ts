@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { ObjectId } from 'mongodb';
 import { platformDb, orgDbBySlug, closeDb } from './db.js';
+import { hashPassword } from './auth.js';
 import type { Organization, Branch, DishDoc, TableDoc, VoucherDoc, UserDoc, BrandDoc, GuestProfileDoc } from './types.js';
 
 const ORG_SLUG = 'sakura-sushi';
@@ -107,18 +108,32 @@ async function main() {
     console.log('Gutscheine existieren bereits.');
   }
 
+  // Test-Zugänge. Das Passwort ist bewusst überall gleich und steht im Klartext
+  // im Quelltext — diese Zugänge sind für die lokale Demo gedacht, NICHT für
+  // eine echte Installation. Für die Produktion gehören sie nach dem ersten
+  // Login geändert oder gar nicht erst angelegt.
+  const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'bitely123';
+
   const usersCol = db.collection<UserDoc>('users');
-  if ((await usersCol.countDocuments()) === 0) {
-    await usersCol.insertMany([
-      { name: 'Hiroshi Tanaka', email: 'h.tanaka@sakura.at', role: 'Admin', branchId: null, status: 'aktiv' },
-      { name: 'Maria Gruber', email: 'm.gruber@sakura.at', role: 'Manager', branchId, status: 'aktiv' },
-      { name: 'Jakob Weber', email: 'j.weber@sakura.at', role: 'Kellner', branchId, status: 'aktiv' },
-      { name: 'Sina Koller', email: 's.koller@sakura.at', role: 'Kellner', branchId, status: 'eingeladen' },
-    ]);
-    console.log('Benutzer angelegt.');
-  } else {
-    console.log('Benutzer existieren bereits.');
+  const demoUsers: Omit<UserDoc, '_id' | 'passwordHash'>[] = [
+    { name: 'Hiroshi Tanaka', email: 'admin@sakura.at', role: 'Admin', branchId: null, status: 'aktiv' },
+    { name: 'Maria Gruber', email: 'manager@sakura.at', role: 'Manager', branchId, status: 'aktiv' },
+    { name: 'Jakob Weber', email: 'kellner@sakura.at', role: 'Kellner', branchId, status: 'aktiv' },
+    { name: 'Sina Koller', email: 's.koller@sakura.at', role: 'Kellner', branchId, status: 'eingeladen' },
+  ];
+  for (const u of demoUsers) {
+    // Eingeladene Benutzer bekommen kein Passwort — sie sollen sich (noch)
+    // nicht anmelden können, das ist genau der Zustand, den 'eingeladen' meint.
+    const passwordHash = u.status === 'aktiv' ? hashPassword(DEMO_PASSWORD) : null;
+    // Passwort auch bei bestehenden Benutzern nachziehen: nach dem Update aus
+    // der Zeit vor dem Login haben sie keins und kämen sonst nicht hinein.
+    await usersCol.updateOne(
+      { email: u.email },
+      { $set: { ...u, passwordHash } },
+      { upsert: true }
+    );
   }
+  console.log('Benutzer angelegt/aktualisiert.');
 
   const settingsCol = db.collection<BrandDoc>('settings');
   if ((await settingsCol.countDocuments({ _id: 'brand' })) === 0) {
@@ -139,6 +154,11 @@ async function main() {
   console.log(`\nFertig. Demo-Gast-URL fürs Handy/QR-Code: /${ORG_SLUG}/table/4`);
   console.log(`Kellner-URL: /${ORG_SLUG}/staff`);
   console.log(`Admin-URL: /${ORG_SLUG}/admin`);
+  console.log('\nTest-Zugänge (Passwort jeweils gleich):');
+  console.log(`  Admin         admin@sakura.at    / ${DEMO_PASSWORD}`);
+  console.log(`  Manager       manager@sakura.at  / ${DEMO_PASSWORD}`);
+  console.log(`  Servicekraft  kellner@sakura.at  / ${DEMO_PASSWORD}`);
+  console.log('  Gast          kein Konto nötig — über den QR-Link am Tisch');
   await closeDb();
 }
 

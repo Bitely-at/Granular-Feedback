@@ -9,17 +9,19 @@ import {
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
   Eye, Filter, Trash2, UserPlus, Lock, Building2, ImagePlus,
-  Smartphone, Tablet, Monitor, AlertOctagon, Loader2, MessageSquare, Ticket,
+  AlertOctagon, Loader2, MessageSquare, Ticket,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ScatterChart, Scatter, ZAxis, ReferenceLine, Cell,
 } from 'recharts';
 import {
-  StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, BRAND_FONTS, BRAND_CARD_STYLES,
+  StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
+  BRAND_FONTS, BRAND_CARD_STYLES,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
   type Branch,
 } from './store';
+import { LoginScreen } from './components/auth/LoginScreen';
 
 // ═══════════════════════════════════════════════════════════
 // DECORATIVE / REFERENCE DATA (kein Mandanten-Bezug)
@@ -2472,33 +2474,43 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
 
 type View = 'guest' | 'waiter' | 'admin';
 
-function TopBar({ orgSlug, view, defaultTableNumber, dark, setDark }: {
-  orgSlug: string; view: View; defaultTableNumber: number; dark: boolean; setDark: (fn: (p: boolean) => boolean) => void;
+/**
+ * Der frühere Rollenwechsler ist bewusst entfernt: welche Ansicht jemand sieht,
+ * ergibt sich jetzt aus der Anmeldung, nicht aus einem Umschalter. Übrig bleibt
+ * die Kennung des angemeldeten Mitarbeiters mit Abmelden-Schaltfläche.
+ */
+function TopBar({ dark, setDark }: {
+  dark: boolean; setDark: (fn: (p: boolean) => boolean) => void;
 }) {
-  const pills: [View, string, React.ElementType, string][] = [
-    ['guest', 'Gast', Smartphone, `/${orgSlug}/table/${defaultTableNumber}`],
-    ['waiter', 'Servicekraft', Tablet, `/${orgSlug}/staff`],
-    ['admin', 'Admin', Monitor, `/${orgSlug}/admin`],
-  ];
+  const { authUser, logout } = useStore();
   return (
     // Am Handy nur Symbole: mit ausgeschriebenen Beschriftungen war diese Zeile
     // breiter als der Bildschirm und hat die ganze Seite seitlich scrollbar gemacht.
     <div className="bg-gray-950 text-white px-3 sm:px-4 h-10 flex items-center gap-2 sm:gap-3 text-[12px] sticky top-0 z-50 overflow-hidden">
       <span className="font-semibold tracking-tight text-white flex-shrink-0">Bitely</span>
-      <span className="hidden sm:inline text-gray-700 mx-1">|</span>
-      <div className="flex gap-0.5 bg-gray-900 p-0.5 rounded-lg flex-shrink-0">
-        {pills.map(([id, label, Icon, href]) => (
-          <Link key={id} to={href} title={label} aria-label={label}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md transition-colors ${view === id ? 'bg-white text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-300'}`}>
-            <Icon size={11} /> <span className="hidden sm:inline">{label}</span>
-          </Link>
-        ))}
+      {authUser && (
+        <>
+          <span className="hidden sm:inline text-gray-700 mx-1">|</span>
+          <span className="text-gray-400 truncate">
+            {authUser.name}
+            <span className="hidden sm:inline text-gray-600"> · {authUser.role}</span>
+          </span>
+        </>
+      )}
+      <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+        <button onClick={() => setDark(p => !p)} title={dark ? 'Hell' : 'Dunkel'}
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-gray-400 hover:text-gray-200 bg-gray-900 transition-colors">
+          {dark ? <Sun size={12} /> : <Moon size={12} />}
+          <span className="hidden sm:inline">{dark ? 'Hell' : 'Dunkel'}</span>
+        </button>
+        {authUser && (
+          <button onClick={logout} title="Abmelden"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-gray-400 hover:text-gray-200 bg-gray-900 transition-colors">
+            <LogOut size={12} />
+            <span className="hidden sm:inline">Abmelden</span>
+          </button>
+        )}
       </div>
-      <button onClick={() => setDark(p => !p)} title={dark ? 'Hell' : 'Dunkel'}
-        className="ml-auto flex-shrink-0 flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-gray-400 hover:text-gray-200 bg-gray-900 transition-colors">
-        {dark ? <Sun size={12} /> : <Moon size={12} />}
-        <span className="hidden sm:inline">{dark ? 'Hell' : 'Dunkel'}</span>
-      </button>
     </div>
   );
 }
@@ -2538,9 +2550,45 @@ function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string
 
   const firstTableNumber = tableNumber ?? [...store.tables].sort((a, b) => a.number - b.number)[0]?.number ?? 1;
 
+  // Rollenprüfung in der Oberfläche. Sie ersetzt NICHT den Schutz auf dem Server
+  // (requireAuth in index.ts) — sie sorgt nur dafür, dass niemand eine Ansicht
+  // sieht, deren Schaltflächen ohnehin mit 401/403 abgewiesen würden.
+  const needsLogin = view === 'admin' || view === 'waiter';
+
+  if (needsLogin) {
+    if (store.authLoading) return <FullScreenMessage>Anmeldung wird geprüft…</FullScreenMessage>;
+    if (!store.authUser) {
+      return (
+        <div className={dark ? 'dark' : ''} style={{ '--ba': store.brand.accent } as React.CSSProperties}>
+          <TopBar dark={dark} setDark={setDark} />
+          <LoginScreen
+            title={view === 'admin' ? 'Admin-Bereich' : 'Servicekraft-Bereich'}
+            hint="Bitte mit deinem Mitarbeiterkonto anmelden."
+          />
+        </div>
+      );
+    }
+    // Nur der Admin-Bereich ist zusätzlich eingeschränkt; an den Tischen
+    // arbeiten alle drei Rollen.
+    if (view === 'admin' && !isAdminRole(store.authUser.role)) {
+      return (
+        <div className={dark ? 'dark' : ''}>
+          <TopBar dark={dark} setDark={setDark} />
+          <FullScreenMessage error action={
+            <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+              Zur Tischübersicht
+            </Link>
+          }>
+            Als {store.authUser.role} hast du auf den Admin-Bereich keinen Zugriff.
+          </FullScreenMessage>
+        </div>
+      );
+    }
+  }
+
   return (
     <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
-      <TopBar orgSlug={orgSlug} view={view} defaultTableNumber={firstTableNumber} dark={dark} setDark={setDark} />
+      <TopBar dark={dark} setDark={setDark} />
 
       {view === 'guest' && (
         // Mobil (der eigentliche Anwendungsfall über QR-Code): randlos, bildschirmfüllend,

@@ -76,6 +76,16 @@ export interface AdminUser {
   branchId: string | null; status: 'aktiv' | 'eingeladen' | 'inaktiv';
 }
 
+// Wer gerade angemeldet ist. null = niemand (Gastansicht oder ausgeloggt).
+export type AuthUser = AdminUser;
+
+// Manager zählt überall als Admin — dieselbe Aufteilung wie serverseitig
+// in index.ts (adminOnly / staffOrAdmin). Die Oberfläche darf davon nicht
+// abweichen, sonst zeigt sie Schaltflächen, die der Server dann ablehnt.
+export function isAdminRole(role: AuthUser['role'] | undefined): boolean {
+  return role === 'Admin' || role === 'Manager';
+}
+
 export interface DishRatingInput { dishId: string; stars: number; note?: string; }
 
 // Was der Admin beim Anlegen/Bearbeiten schickt — ohne die Felder, die
@@ -137,14 +147,38 @@ export function tableItemCount(t: TableRow): number {
 // der Server hat CORS bereits offen, ein Cross-Origin-Aufruf funktioniert also direkt.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
+// Das Sitzungs-Token liegt pro Organisation getrennt, damit ein Wechsel zwischen
+// zwei Mandanten im selben Browser nicht das jeweils andere Token überschreibt.
+const tokenKey = (orgSlug: string) => `bitely.token.${orgSlug}`;
+
+export function readToken(orgSlug: string): string | null {
+  try { return localStorage.getItem(tokenKey(orgSlug)); } catch { return null; }
+}
+
+function writeToken(orgSlug: string, token: string | null) {
+  try {
+    if (token) localStorage.setItem(tokenKey(orgSlug), token);
+    else localStorage.removeItem(tokenKey(orgSlug));
+  } catch { /* privater Modus o. Ä. — dann gilt die Sitzung nur bis zum Reload */ }
+}
+
+/** Abgelaufene/ungültige Sitzung, damit die Oberfläche zurück zum Login kann. */
+export class UnauthorizedError extends Error {}
+
 async function api<T>(orgSlug: string, path: string, init?: RequestInit): Promise<T> {
+  const token = readToken(orgSlug);
   const res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Anfrage fehlgeschlagen (${res.status})`);
+    const message = body.error ?? `Anfrage fehlgeschlagen (${res.status})`;
+    throw res.status === 401 ? new UnauthorizedError(message) : new Error(message);
   }
   return res.json() as Promise<T>;
 }
@@ -157,6 +191,13 @@ interface StoreApi extends OrgState {
   orgSlug: string;
   loading: boolean;
   error: string | null;
+  // Angemeldeter Mitarbeiter (Admin/Manager/Kellner) oder null.
+  // authLoading deckt das Nachprüfen eines gespeicherten Tokens beim Seitenaufruf
+  // ab — ohne das würde die Login-Maske kurz aufblitzen, obwohl die Sitzung gilt.
+  authUser: AuthUser | null;
+  authLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
   refresh: () => Promise<void>;
   saveTableOrder: (tableNumber: number, cart: Record<string, number>) => Promise<void>;
   closeTable: (tableNumber: number) => Promise<void>;
@@ -193,6 +234,36 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
   const [state, setState] = useState<OrgState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const logout = useCallback(() => {
+    writeToken(orgSlug, null);
+    setAuthUser(null);
+  }, [orgSlug]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    // Der Aufruf selbst braucht kein Token — ein altes, abgelaufenes im Header
+    // stört nicht, der Server ignoriert es auf dieser Route.
+    const data = await api<{ token: string; user: AuthUser }>(orgSlug, '/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password }),
+    });
+    writeToken(orgSlug, data.token);
+    setAuthUser(data.user);
+  }, [orgSlug]);
+
+  // Gespeichertes Token beim Seitenaufruf gegen den Server prüfen: nur er weiß,
+  // ob es abgelaufen ist oder das Konto inzwischen deaktiviert wurde.
+  useEffect(() => {
+    let cancelled = false;
+    if (!readToken(orgSlug)) { setAuthUser(null); setAuthLoading(false); return; }
+    setAuthLoading(true);
+    api<{ user: AuthUser }>(orgSlug, '/auth/me')
+      .then(({ user }) => { if (!cancelled) setAuthUser(user); })
+      .catch(() => { if (!cancelled) { writeToken(orgSlug, null); setAuthUser(null); } })
+      .finally(() => { if (!cancelled) setAuthLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgSlug]);
 
   const refresh = useCallback(async () => {
     try {
@@ -208,94 +279,93 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
 
   useEffect(() => { setLoading(true); refresh(); }, [refresh]);
 
+  // Jeder Aufruf außer /state und /auth/*. Läuft die Sitzung ab, während jemand
+  // arbeitet, antwortet der Server mit 401 — dann wird das tote Token verworfen
+  // und die Oberfläche fällt zurück auf die Anmeldung, statt stumm zu scheitern.
+  const call = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
+    try {
+      return await api<T>(orgSlug, path, init);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) logout();
+      throw err;
+    }
+  }, [orgSlug, logout]);
+
   const saveTableOrder = useCallback(async (tableNumber: number, cart: Record<string, number>) => {
-    const data = await api<OrgState>(orgSlug, `/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) }));
+  }, [call]);
 
   // Der Server antwortet mit dem vollständigen neuen Zustand — die Oberfläche
   // übernimmt ihn direkt, statt lokal zu raten.
   const closeTable = useCallback(async (tableNumber: number) => {
-    const data = await api<OrgState>(orgSlug, `/tables/${tableNumber}/close`, { method: 'POST' });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/tables/${tableNumber}/close`, { method: 'POST' }));
+  }, [call]);
 
   const addItemToTable = useCallback(async (tableNumber: number, dishId: string, qty = 1) => {
-    const data = await api<OrgState>(orgSlug, `/tables/${tableNumber}/items`, { method: 'POST', body: JSON.stringify({ dishId, qty }) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/tables/${tableNumber}/items`, { method: 'POST', body: JSON.stringify({ dishId, qty }) }));
+  }, [call]);
 
   const submitReview = useCallback(async (
     tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
   ) => {
-    const data = await api<OrgState & { pointsEarned: number }>(orgSlug, `/tables/${tableNumber}/review`, {
+    const data = await call<OrgState & { pointsEarned: number }>(`/tables/${tableNumber}/review`, {
       method: 'POST', body: JSON.stringify({ dishRatings, overall }),
     });
     const { pointsEarned, ...rest } = data;
     setState(rest);
     return pointsEarned;
-  }, [orgSlug]);
+  }, [call]);
 
   const redeemVoucher = useCallback(async (voucherId: string) => {
     try {
-      const data = await api<OrgState>(orgSlug, `/vouchers/${voucherId}/redeem`, { method: 'POST' });
-      setState(data);
+      setState(await call<OrgState>(`/vouchers/${voucherId}/redeem`, { method: 'POST' }));
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Einlösen fehlgeschlagen.' };
     }
-  }, [orgSlug]);
+  }, [call]);
 
   const loginGuest = useCallback(async () => {
-    const data = await api<OrgState>(orgSlug, '/guest/login', { method: 'POST' });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>('/guest/login', { method: 'POST' }));
+  }, [call]);
 
   const resolveAlert = useCallback(async (alertId: string) => {
-    const data = await api<OrgState>(orgSlug, `/alerts/${alertId}/resolve`, { method: 'POST' });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/alerts/${alertId}/resolve`, { method: 'POST' }));
+  }, [call]);
 
   const addUser = useCallback(async (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => {
-    const data = await api<OrgState>(orgSlug, '/users', { method: 'POST', body: JSON.stringify(u) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>('/users', { method: 'POST', body: JSON.stringify(u) }));
+  }, [call]);
 
   const removeUser = useCallback(async (id: string) => {
-    const data = await api<OrgState>(orgSlug, `/users/${id}`, { method: 'DELETE' });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/users/${id}`, { method: 'DELETE' }));
+  }, [call]);
 
   const updateBrand = useCallback(async (partial: Partial<Brand>) => {
-    const data = await api<OrgState>(orgSlug, '/settings/brand', { method: 'PATCH', body: JSON.stringify(partial) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>('/settings/brand', { method: 'PATCH', body: JSON.stringify(partial) }));
+  }, [call]);
 
   const updateDishImage = useCallback(async (dishId: string, img: string) => {
-    const data = await api<OrgState>(orgSlug, `/dishes/${dishId}/image`, { method: 'PATCH', body: JSON.stringify({ img }) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/dishes/${dishId}/image`, { method: 'PATCH', body: JSON.stringify({ img }) }));
+  }, [call]);
 
   const addTables = useCallback(async (count: number, branchId?: string | null) => {
-    const data = await api<OrgState>(orgSlug, '/tables', { method: 'POST', body: JSON.stringify({ count, branchId }) });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>('/tables', { method: 'POST', body: JSON.stringify({ count, branchId }) }));
+  }, [call]);
 
   const removeTable = useCallback(async (id: string) => {
-    const data = await api<OrgState>(orgSlug, `/tables/${id}`, { method: 'DELETE' });
-    setState(data);
-  }, [orgSlug]);
+    setState(await call<OrgState>(`/tables/${id}`, { method: 'DELETE' }));
+  }, [call]);
 
   // Menü-, Gutschein- und Filialverwaltung: alle nach demselben Muster —
   // der Server antwortet mit dem vollständigen Zustand, der ihn hier ersetzt.
   // Fehler (z. B. eine Filiale mit Tischen) werden geworfen und von der
   // Oberfläche angezeigt.
   const write = useCallback(async (path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown) => {
-    const data = await api<OrgState>(orgSlug, path, {
+    setState(await call<OrgState>(path, {
       method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    setState(data);
-  }, [orgSlug]);
+    }));
+  }, [call]);
 
   const addDish = useCallback((d: DishInput) => write('/dishes', 'POST', d), [write]);
   const updateDish = useCallback((id: string, d: Partial<DishInput>) => write(`/dishes/${id}`, 'PATCH', d), [write]);
@@ -310,12 +380,12 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
   const removeBranch = useCallback((id: string) => write(`/branches/${id}`, 'DELETE'), [write]);
 
   const value = useMemo<StoreApi>(() => ({
-    ...state, orgSlug, loading, error,
+    ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher,
     loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
-  }), [state, orgSlug, loading, error, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

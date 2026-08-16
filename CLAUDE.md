@@ -110,11 +110,38 @@ der normale `mongodb+srv`-String.
 Code-Kommentare, Oberfläche und Fehlermeldungen auf Deutsch. Commit-Nachrichten
 auf Englisch.
 
+## Anmeldung und Rollen
+
+`/admin` und `/staff` verlangen ein Mitarbeiterkonto. Die Gastansicht bleibt
+offen — der Gast hat bewusst kein Konto, sonst funktioniert der QR-Code am
+Tisch nicht.
+
+- **Token**: signiert in `auth.ts` (HMAC-SHA256, 12 Stunden gültig), liegt im
+  `localStorage` unter `bitely.token.<orgSlug>` und geht als
+  `Authorization: Bearer` mit. Pro Mandant getrennt, und das Token trägt den
+  `orgSlug` — eines aus Organisation A greift in B nicht.
+- **Passwörter**: `crypto.scrypt` mit Salt pro Passwort, keine externe
+  Abhängigkeit. `passwordHash: null` heißt *eingeladen, kann sich nicht
+  anmelden*.
+- **Rechte liegen auf dem Server**, nicht in der Oberfläche: `requireAuth(...)`
+  in `index.ts` umschließt jeden geschützten Handler. `adminOnly` = Admin +
+  Manager, `staffOrAdmin` = zusätzlich Kellner. Die Prüfung in `OrgChrome`
+  versteckt nur, sie schützt nicht.
+- `requireAuth` umschließt den Handler, statt eigene Middleware zu sein — der
+  zentrale Promise-Patch unten in `index.ts` gilt nur für **einen** Handler
+  pro Route, ein zweites Argument fiele weg.
+- `passwordHash` darf nie in eine Antwort geraten: dafür `serializeUser()`
+  statt `serialize()`. `users` steckt im Gesamtzustand, den auch der Gast lädt.
+
+`JWT_SECRET` muss in `server/.env` stehen (und in Render), sonst startet der
+Server nicht. Test-Zugänge legt `npm run server:seed` an und gibt sie aus.
+
 ## Bekannte Lücken
 
-Keine Authentifizierung (`/admin` und `/staff` sind öffentlich), ein geteiltes
-Gastprofil für alle Gäste (`guestProfile._id: 'default'`), kein Auto-Close nach
-30 Minuten, CORS offen, keine Ratenbegrenzung.
+Ein geteiltes Gastprofil für alle Gäste (`guestProfile._id: 'default'`), kein
+Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
+`/auth/login`). Passwort-Vergabe für eingeladene Benutzer fehlt noch — bis dahin
+vergibt nur das Seed-Skript Passwörter.
 
 Die Filiale ist zwar verwaltbar, aber noch nicht *wirksam*: der Umschalter oben
 im Admin filtert nichts, und Kellner- wie Gastansicht kennen alle Tische
