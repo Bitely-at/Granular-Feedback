@@ -51,7 +51,10 @@ async function req(method, path, body, { auth = true } = {}) {
   return { status: res.status, json };
 }
 
-const tableIn = (state, number) => state?.tables?.find(t => t.number === number);
+// Nummer + Filiale: seit T-2 gibt es jede Nummer in jeder Filiale einmal.
+let branchId = null;
+const tableIn = (state, number) =>
+  state?.tables?.find(t => t.number === number && t.branchId === branchId);
 
 async function main() {
   console.log(`\nZiel: ${API_BASE}/api/${ORG_SLUG}\n`);
@@ -77,25 +80,42 @@ async function main() {
   }
   token = login.json.token;
 
-  const created = await req('POST', '/tables', { count: 1 });
+  // Tischnummern sind seit T-2 nur PRO Filiale eindeutig — jeder Aufruf braucht
+  // die Filiale dazu.
+  const branch = initial.json.branches[0];
+  if (!branch) {
+    console.error('Keine Filiale vorhanden — bitte zuerst seeden: npm run seed --prefix server');
+    process.exit(1);
+  }
+  const B = branch.slug;
+  branchId = branch.id;
+
+  const before = new Set(initial.json.tables.filter(t => t.branchId === branch.id).map(t => t.id));
+  const created = await req('POST', '/tables', { count: 1, branchId: branch.id });
   if (created.status !== 200) {
     console.error(`Testtisch konnte nicht angelegt werden (HTTP ${created.status}).`);
     process.exit(1);
   }
-  const testTable = [...created.json.tables].sort((a, b) => b.number - a.number)[0];
+  // Den neuen Tisch über seine ID finden, nicht über die höchste Nummer: die
+  // höchste Nummer kann seit der filialweisen Zählung in einer anderen Filiale liegen.
+  const testTable = created.json.tables.find(t => t.branchId === branch.id && !before.has(t.id));
+  if (!testTable) {
+    console.error('Angelegter Testtisch nicht wiedergefunden.');
+    process.exit(1);
+  }
   const n = testTable.number;
-  console.log(`Testtisch: Nr. ${n} (wird am Ende gelöscht)\n`);
+  console.log(`Testtisch: ${branch.name} Nr. ${n} (wird am Ende gelöscht)\n`);
 
   try {
     // ── Fall 1: Schließen persistiert ─────────────────────────────
     console.log('1) Tisch schließen persistiert');
     {
-      const afterOrder = await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 2 } });
+      const afterOrder = await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 2 } });
       check('Bestellung buchen liefert 200', afterOrder.status === 200, `HTTP ${afterOrder.status}`);
       check('Tisch steht danach auf "offen"', tableIn(afterOrder.json, n)?.status === 'offen',
         `ist: ${tableIn(afterOrder.json, n)?.status}`);
 
-      const afterClose = await req('POST', `/tables/${n}/close`);
+      const afterClose = await req('POST', `/branches/${B}/tables/${n}/close`);
       check('Schließen liefert 200', afterClose.status === 200, `HTTP ${afterClose.status}`);
       check('Tisch steht danach auf "frei"', tableIn(afterClose.json, n)?.status === 'frei',
         `ist: ${tableIn(afterClose.json, n)?.status}`);
@@ -111,13 +131,13 @@ async function main() {
     // ── Fall 2: Antwort trägt den neuen Zustand ───────────────────
     console.log('\n2) Server-Antwort enthält den neuen Zustand (Oberfläche muss nicht raten)');
     {
-      const afterOrder = await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } });
+      const afterOrder = await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 1 } });
       const t = tableIn(afterOrder.json, n);
       check('Antwort auf "Bestellung buchen" enthält den Tisch', Boolean(t));
       check('… mit aktualisiertem Status', t?.status === 'offen', `ist: ${t?.status}`);
       check('… mit der gebuchten Position', t?.items?.some(i => i.dishId === dish.id) === true);
 
-      const afterClose = await req('POST', `/tables/${n}/close`);
+      const afterClose = await req('POST', `/branches/${B}/tables/${n}/close`);
       const t2 = tableIn(afterClose.json, n);
       check('Antwort auf "Tisch schließen" enthält den neuen Status', t2?.status === 'frei',
         `ist: ${t2?.status}`);
@@ -127,32 +147,32 @@ async function main() {
     // ── Fall 3: Bewertete Bestellung taucht nicht wieder auf ──────
     console.log('\n3) Bewertete Bestellung verschwindet und ist nicht doppelt bewertbar');
     {
-      await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } });
+      await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 1 } });
 
       const review = {
         dishRatings: [{ dishId: dish.id, stars: 5 }],
         overall: { service: 5, ambience: 4, speed: 5 },
       };
-      const first = await req('POST', `/tables/${n}/review`, review);
+      const first = await req('POST', `/branches/${B}/tables/${n}/review`, review);
       check('Erste Bewertung liefert 200', first.status === 200,
         `HTTP ${first.status} — ${first.json?.error ?? ''}`);
       check('… und meldet Punkte zurück', typeof first.json?.pointsEarned === 'number');
 
-      const table = await req('GET', `/tables/${n}`);
+      const table = await req('GET', `/branches/${B}/tables/${n}`);
       check('Tisch hat danach keine Positionen mehr', table.json?.items?.length === 0,
         `ist: ${table.json?.items?.length} Positionen`);
       check('Tisch ist als "abgeschlossen" markiert', table.json?.status === 'abgeschlossen',
         `ist: ${table.json?.status}`);
 
-      const second = await req('POST', `/tables/${n}/review`, review);
+      const second = await req('POST', `/branches/${B}/tables/${n}/review`, review);
       check('Zweite Bewertung wird mit 409 abgelehnt', second.status === 409,
         `HTTP ${second.status}`);
 
       // Der eigentliche Härtefall: zwei Handys gleichzeitig auf demselben Tisch.
-      await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } });
+      await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 1 } });
       const [a, b] = await Promise.all([
-        req('POST', `/tables/${n}/review`, review),
-        req('POST', `/tables/${n}/review`, review),
+        req('POST', `/branches/${B}/tables/${n}/review`, review),
+        req('POST', `/branches/${B}/tables/${n}/review`, review),
       ]);
       const codes = [a.status, b.status].sort();
       check('Zwei gleichzeitige Bewertungen: genau eine wird angenommen',
@@ -162,25 +182,65 @@ async function main() {
     // ── Fall 4: Rechte am Tisch ───────────────────────────────────
     console.log('\n4) Kellner-Routen verlangen Anmeldung, Gast-Routen nicht');
     {
-      const anonOrder = await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } }, { auth: false });
+      const anonOrder = await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 1 } }, { auth: false });
       check('Bestellung buchen ohne Anmeldung wird mit 401 abgelehnt', anonOrder.status === 401,
         `HTTP ${anonOrder.status}`);
 
-      const anonClose = await req('POST', `/tables/${n}/close`, undefined, { auth: false });
+      const anonClose = await req('POST', `/branches/${B}/tables/${n}/close`, undefined, { auth: false });
       check('Tisch schließen ohne Anmeldung wird mit 401 abgelehnt', anonClose.status === 401,
         `HTTP ${anonClose.status}`);
 
       // Der Gast hat kein Konto — Nachtragen und Bewerten müssen offen bleiben,
       // sonst funktioniert der QR-Code am Tisch nicht mehr.
-      await req('POST', `/tables/${n}/order`, { cart: { [dish.id]: 1 } });
-      const anonItem = await req('POST', `/tables/${n}/items`, { dishId: dish.id, qty: 1 }, { auth: false });
+      await req('POST', `/branches/${B}/tables/${n}/order`, { cart: { [dish.id]: 1 } });
+      const anonItem = await req('POST', `/branches/${B}/tables/${n}/items`, { dishId: dish.id, qty: 1 }, { auth: false });
       check('Gast darf ohne Anmeldung nachtragen', anonItem.status === 200, `HTTP ${anonItem.status}`);
 
-      const anonReview = await req('POST', `/tables/${n}/review`, {
+      const anonReview = await req('POST', `/branches/${B}/tables/${n}/review`, {
         dishRatings: [{ dishId: dish.id, stars: 4 }],
         overall: { service: 4, ambience: 4, speed: 4 },
       }, { auth: false });
       check('Gast darf ohne Anmeldung bewerten', anonReview.status === 200, `HTTP ${anonReview.status}`);
+    }
+
+    // ── Fall 5: Filialen trennen die Tischnummern ─────────────────
+    // Der Kern von T-2. Mit nur einer Filiale nicht prüfbar — dann übersprungen.
+    console.log('\n5) Tisch N in Filiale A ist ein anderer Tisch als Tisch N in Filiale B');
+    {
+      const state = await req('GET', '/state');
+      const other = state.json.branches.find(b => b.id !== branch.id);
+      if (!other) {
+        console.log('  \x1b[33mSKIP\x1b[0m  nur eine Filiale vorhanden (npm run server:seed legt zwei an)');
+      } else {
+        const mine = state.json.tables.filter(t => t.branchId === branch.id).map(t => t.number);
+        const theirs = state.json.tables.filter(t => t.branchId === other.id).map(t => t.number);
+        const shared = mine.filter(nr => theirs.includes(nr));
+        check('Beide Filialen vergeben dieselben Nummern (fangen bei 1 an)', shared.length > 0,
+          `gemeinsame Nummern: ${shared.length}`);
+
+        if (shared.length > 0) {
+          const nr = shared[0];
+          const a = await req('GET', `/branches/${B}/tables/${nr}`);
+          const b = await req('GET', `/branches/${other.slug}/tables/${nr}`);
+          check(`Tisch ${nr} ist in beiden Filialen abrufbar`, a.status === 200 && b.status === 200,
+            `HTTP ${a.status} / ${b.status}`);
+          check('… und es sind zwei verschiedene Tische', a.json?.id !== b.json?.id,
+            `IDs: ${a.json?.id} / ${b.json?.id}`);
+          check('… jeder in seiner eigenen Filiale',
+            a.json?.branchId === branch.id && b.json?.branchId === other.id);
+        }
+
+        // Eine Nummer, die es nur in EINER Filiale gibt, darf in der anderen 404 sein.
+        const onlyMine = mine.find(nr => !theirs.includes(nr));
+        if (onlyMine !== undefined) {
+          const miss = await req('GET', `/branches/${other.slug}/tables/${onlyMine}`);
+          check(`Tisch ${onlyMine} gibt es in "${other.name}" nicht (404)`, miss.status === 404,
+            `HTTP ${miss.status}`);
+        }
+
+        const badBranch = await req('GET', '/branches/gibt-es-nicht/tables/1');
+        check('Unbekannte Filiale wird mit 404 abgewiesen', badBranch.status === 404, `HTTP ${badBranch.status}`);
+      }
     }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────

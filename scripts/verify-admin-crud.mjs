@@ -135,10 +135,14 @@ async function main() {
       check('Leerer Name wird mit 400 abgelehnt', noName.status === 400, `HTTP ${noName.status}`);
 
       // Ein gelöschtes Gericht darf nicht auf einem Tisch zurückbleiben.
-      const table = await req('POST', '/tables', { count: 1 });
-      const testTable = [...table.json.tables].sort((a, b) => b.number - a.number)[0];
+      const mainBranch = initial.json.branches[0];
+      const beforeIds = new Set(initial.json.tables.map(t => t.id));
+      const table = await req('POST', '/tables', { count: 1, branchId: mainBranch.id });
+      // Über die ID finden, nicht über die höchste Nummer: die kann seit der
+      // filialweisen Zählung in einer anderen Filiale liegen.
+      const testTable = table.json.tables.find(t => !beforeIds.has(t.id));
       created.tableId = testTable.id;
-      await req('POST', `/tables/${testTable.number}/order`, { cart: { [created.dishId]: 2 } });
+      await req('POST', `/branches/${mainBranch.slug}/tables/${testTable.number}/order`, { cart: { [created.dishId]: 2 } });
 
       const del = await req('DELETE', `/dishes/${created.dishId}`);
       check('Gericht löschen liefert 200', del.status === 200, `HTTP ${del.status}`);
@@ -195,9 +199,13 @@ async function main() {
 
       // Eine Filiale mit Tischen zu löschen würde gedruckte QR-Codes ins Leere zeigen lassen.
       const withTable = await req('POST', '/tables', { count: 1, branchId: created.branchId });
-      const branchTable = [...withTable.json.tables].sort((a, b) => b.number - a.number)[0];
+      const branchTable = withTable.json.tables.find(t => t.branchId === created.branchId);
       check('Neuer Tisch landet in der gewählten Filiale', branchTable?.branchId === created.branchId,
         `ist: ${branchTable?.branchId}`);
+      // Eine frische Filiale fängt bei 1 an, unabhängig davon, wie weit die
+      // Nummern in den anderen Filialen schon gelaufen sind.
+      check('… und trägt die Nummer 1 (Zählung beginnt pro Filiale neu)', branchTable?.number === 1,
+        `ist: ${branchTable?.number}`);
 
       const blocked = await req('DELETE', `/branches/${created.branchId}`);
       check('Filiale mit Tischen wird mit 409 abgelehnt', blocked.status === 409, `HTTP ${blocked.status}`);

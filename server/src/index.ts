@@ -5,7 +5,7 @@ import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import { verifyPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
 import type {
-  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc,
+  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch,
 } from './types.js';
 
 const app = express();
@@ -23,6 +23,7 @@ interface OrgRequest extends Request {
   org?: Organization;
   db?: Db;
   user?: TokenPayload;
+  branch?: WithId<Branch>;
 }
 
 async function resolveOrg(req: OrgRequest, res: Response, next: NextFunction) {
@@ -89,6 +90,37 @@ function requireAuth(...roles: UserDoc['role'][]) {
     req.user = payload;
     return handler(req, res, next);
   };
+}
+
+/**
+ * Löst :branchSlug auf die Filiale auf. Jede Route, die einen Tisch per NUMMER
+ * anspricht, läuft darunter — die Nummer allein ist seit T-2 mehrdeutig
+ * (Tisch 5 gibt es in jeder Filiale einmal).
+ *
+ * Setzt zugleich die Filialbindung der Servicekraft durch: wer in seinem Konto
+ * eine feste Filiale hat, kommt über eine andere URL nicht in eine fremde.
+ * Gastrouten haben kein req.user und sind davon nicht betroffen — dort steckt
+ * die Filiale ohnehin im QR-Link.
+ */
+function withBranch(handler: RouteHandler): RouteHandler {
+  return async (req, res, next) => {
+    const branch = await req.db!.collection<Branch>('branches').findOne({ slug: req.params.branchSlug });
+    if (!branch) {
+      res.status(404).json({ error: `Filiale '${req.params.branchSlug}' wurde nicht gefunden.` });
+      return;
+    }
+    if (req.user?.branchId && req.user.branchId !== String(branch._id)) {
+      res.status(403).json({ error: 'Diese Filiale gehört nicht zu deinem Konto.' });
+      return;
+    }
+    req.branch = branch;
+    return handler(req, res, next);
+  };
+}
+
+/** Tisch innerhalb der aufgelösten Filiale. Nie ohne withBranch verwenden. */
+async function findTableInBranch(req: OrgRequest, number: number) {
+  return req.db!.collection('tables').findOne({ branchId: String(req.branch!._id), number });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -365,15 +397,15 @@ router.get('/state', async (req: OrgRequest, res) => {
   res.json(await getFullState(req.db!));
 });
 
-// ── Tisch per Nummer holen (für QR-Route /:orgSlug/table/:number) ──
-router.get('/tables/:number', async (req: OrgRequest, res) => {
-  const table = await req.db!.collection('tables').findOne({ number: Number(req.params.number) });
+// ── Tisch per Nummer holen (für QR-Route /:orgSlug/:branchSlug/table/:number) ──
+router.get('/branches/:branchSlug/tables/:number', withBranch(async (req: OrgRequest, res) => {
+  const table = await findTableInBranch(req, requireTableNumber(req.params.number));
   if (!table) {
-    res.status(404).json({ error: `Tisch ${req.params.number} wurde nicht gefunden.` });
+    res.status(404).json({ error: `Tisch ${req.params.number} gibt es in dieser Filiale nicht.` });
     return;
   }
   res.json(serialize(table));
-});
+}));
 
 // Wer darf was. Manager gilt überall als Admin; für die Tischarbeit sind
 // zusätzlich Kellner zugelassen.
@@ -393,11 +425,14 @@ router.post('/tables', adminOnly(async (req: OrgRequest, res) => {
     res.status(400).json({ error: 'Es existiert noch keine Filiale für diese Organisation.' });
     return;
   }
-  const existing = await db.collection('tables').find().sort({ number: -1 }).limit(1).toArray();
+  // Innerhalb DIESER Filiale weiterzählen: Nummern sind pro Filiale eindeutig,
+  // jede Filiale fängt bei 1 an.
+  const existing = await db.collection('tables')
+    .find({ branchId: String(branch._id) }).sort({ number: -1 }).limit(1).toArray();
   const nextNumber = (existing[0]?.number ?? 0) + 1;
   const newTables = Array.from({ length: count }, (_, i) => ({
     branchId: String(branch._id), number: nextNumber + i,
-    status: 'frei' as const, items: [], openedAt: null,
+    status: 'frei' as const, items: [], openedAt: null, orderId: null,
   }));
   await db.collection('tables').insertMany(newTables);
   res.json(await getFullState(db));
@@ -410,7 +445,7 @@ router.delete('/tables/:id', adminOnly(async (req: OrgRequest, res) => {
 }));
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
-router.post('/tables/:number/order', staffOrAdmin(async (req: OrgRequest, res, next) => {
+router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranch(async (req: OrgRequest, res, next) => {
   try {
     const number = requireTableNumber(req.params.number);
     const cartRaw = (req.body?.cart ?? {}) as Record<string, unknown>;
@@ -419,9 +454,9 @@ router.post('/tables/:number/order', staffOrAdmin(async (req: OrgRequest, res, n
       requireObjectId(dishId, 'dishId');
       cart[dishId] = requireQty(qty);
     }
-    const table = await req.db!.collection('tables').findOne({ number });
+    const table = await findTableInBranch(req, number);
     if (!table) {
-      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
     const items = [...(table.items as { dishId: string; qty: number }[])];
@@ -446,17 +481,17 @@ router.post('/tables/:number/order', staffOrAdmin(async (req: OrgRequest, res, n
   } catch (err) {
     next(err);
   }
-}));
+})));
 
 // ── Kellner: Tisch schließen und wieder freigeben ──
 // Gegenstück zum Buchen: räumt die laufende Bestellung ab und stellt den Tisch
 // auf 'frei'. Bewusst idempotent — ein zweiter Aufruf ist kein Fehler.
-router.post('/tables/:number/close', staffOrAdmin(async (req: OrgRequest, res, next) => {
+router.post('/branches/:branchSlug/tables/:number/close', staffOrAdmin(withBranch(async (req: OrgRequest, res, next) => {
   try {
-    const number = Number(req.params.number);
-    const table = await req.db!.collection('tables').findOne({ number });
+    const number = requireTableNumber(req.params.number);
+    const table = await findTableInBranch(req, number);
     if (!table) {
-      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
     await req.db!.collection('tables').updateOne(
@@ -467,18 +502,18 @@ router.post('/tables/:number/close', staffOrAdmin(async (req: OrgRequest, res, n
   } catch (err) {
     next(err);
   }
-}));
+})));
 
 // ── Gast: einzelnes Gericht nachträglich zum Tisch hinzufügen ("Etwas vergessen?") ──
-router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
+router.post('/branches/:branchSlug/tables/:number/items', withBranch(async (req: OrgRequest, res, next) => {
   try {
     const number = requireTableNumber(req.params.number);
     requireObjectId(req.body?.dishId, 'dishId');
     const dishId = String(req.body.dishId);
     const qty = requireQty(req.body?.qty);
-    const table = await req.db!.collection('tables').findOne({ number });
+    const table = await findTableInBranch(req, number);
     if (!table) {
-      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
     const items = [...(table.items as { dishId: string; qty: number }[])];
@@ -501,19 +536,19 @@ router.post('/tables/:number/items', async (req: OrgRequest, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+}));
 
 // ── Gast: Bewertung für einen Tisch abschicken ──
-router.post('/tables/:number/review', async (req: OrgRequest, res, next) => {
+router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req: OrgRequest, res, next) => {
   try {
     const number = requireTableNumber(req.params.number);
     const dishRatings = sanitizeDishRatings(req.body?.dishRatings ?? []);
     const overall = sanitizeOverall(req.body?.overall);
     const db = req.db!;
 
-    const table = await db.collection('tables').findOne({ number });
+    const table = await findTableInBranch(req, number);
     if (!table) {
-      res.status(404).json({ error: `Tisch ${number} wurde nicht gefunden.` });
+      res.status(404).json({ error: `Tisch ${number} gibt es in dieser Filiale nicht.` });
       return;
     }
 
@@ -586,7 +621,7 @@ router.post('/tables/:number/review', async (req: OrgRequest, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+}));
 
 // ── Gast: Gutschein einlösen ──
 router.post('/vouchers/:id/redeem', async (req: OrgRequest, res) => {

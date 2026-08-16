@@ -64,6 +64,32 @@ frei ──(Kellner bucht)──> offen ──(Gast bewertet)──> abgeschloss
   Punkte). Umgekehrt würde eine abgelehnte Doppelabgabe die Statistik
   verfälschen.
 
+## Filialen und Tischnummern
+
+**Eine Tischnummer ist nur innerhalb ihrer Filiale eindeutig.** Tisch 5 in
+Filiale A und Tisch 5 in Filiale B sind verschiedene Tische mit verschiedenen
+QR-Codes. Jede Filiale zählt ab 1.
+
+- Getragen von einem eindeutigen Index `{ branchId, number }` (`db.ts`) — wie
+  beim Doppelbewertungs-Schutz liegt die Regel in der Datenbank, nicht im
+  Handler.
+- **Eine Nummer allein adressiert nichts.** Jede Route, die einen Tisch per
+  Nummer anspricht, liegt unter `/branches/:branchSlug/tables/:number` und
+  läuft durch `withBranch`. Wer eine neue baut, hält sich daran; `findTableInBranch`
+  statt `findOne({ number })`.
+- `withBranch` setzt zugleich die Filialbindung der Servicekraft durch: ein
+  Konto mit `branchId` kommt über eine fremde URL nicht in eine andere Filiale.
+- QR-Route: `/<org>/<filiale>/table/<nummer>`. Die alte filiallose Form ist
+  abgeschaltet und zeigt eine eigene Meldung — **kein Redirect**, weil ohne
+  Filiale nicht entscheidbar ist, welcher Tisch 5 gemeint ist.
+- Die Migration in `renumberTablesPerBranch` nummeriert Altbestand pro Filiale
+  auf 1…n. Sie läuft in **zwei** Durchgängen über negative Zwischennummern:
+  direkt zugewiesen (Tisch 7 → 5, während 5 noch belegt ist) würde sie
+  unterwegs am eindeutigen Index scheitern.
+
+Woher die Filiale kommt: Gast aus der URL, Servicekraft aus dem Konto
+(`branchId`), Admin/Manager ohne feste Filiale aus dem Umschalter oben.
+
 ## Fallstricke
 
 **Express 4 fängt keine abgelehnten Promises.** Die Verb-Methoden des Routers
@@ -143,6 +169,14 @@ Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
 `/auth/login`). Passwort-Vergabe für eingeladene Benutzer fehlt noch — bis dahin
 vergibt nur das Seed-Skript Passwörter.
 
-Die Filiale ist zwar verwaltbar, aber noch nicht *wirksam*: der Umschalter oben
-im Admin filtert nichts, und Kellner- wie Gastansicht kennen alle Tische
-unabhängig von der Filiale. Neue Tische landen ohne Angabe in der ersten.
+**Filial-Scoping ist nur bei den Tischen fertig.** Tischliste, Zähler, Anlage,
+QR-Codes und die Kellneransicht hängen an der Filiale. Dashboard, Bewertungen
+und Menü sind weiterhin organisationsweit — deshalb steht auf dem Dashboard
+bewusst „alle Filialen" statt eines Filialnamens, der eine Filterung behaupten
+würde, die es nicht gibt.
+
+`getFullState` liefert weiterhin **alle** Tische aller Filialen; gefiltert wird
+in der Oberfläche. Für die Mandantentrennung ist das ohne Belang (jede
+Organisation hat ihre eigene Datenbank), innerhalb einer Organisation sieht eine
+Servicekraft aber die Tischdaten fremder Filialen, wenn sie die Antwort direkt
+ausliest. Schreiben kann sie dort nichts — das verhindert `withBranch`.

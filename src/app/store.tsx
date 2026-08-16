@@ -95,7 +95,7 @@ export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?
 export type BranchInput = Pick<Branch, 'name' | 'address'>;
 
 export interface Alert {
-  id: string; tableId: string; tableNumber: number; dishName: string;
+  id: string; branchId: string; tableId: string; tableNumber: number; dishName: string;
   stars: number; note?: string; createdAt: number; resolved: boolean;
 }
 
@@ -199,10 +199,12 @@ interface StoreApi extends OrgState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
-  saveTableOrder: (tableNumber: number, cart: Record<string, number>) => Promise<void>;
-  closeTable: (tableNumber: number) => Promise<void>;
-  addItemToTable: (tableNumber: number, dishId: string, qty?: number) => Promise<void>;
-  submitReview: (tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
+  // Alle Tisch-Aufrufe tragen die Filiale: die Nummer allein ist mehrdeutig,
+  // Tisch 5 gibt es in jeder Filiale einmal.
+  saveTableOrder: (branchSlug: string, tableNumber: number, cart: Record<string, number>) => Promise<void>;
+  closeTable: (branchSlug: string, tableNumber: number) => Promise<void>;
+  addItemToTable: (branchSlug: string, tableNumber: number, dishId: string, qty?: number) => Promise<void>;
+  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
   redeemVoucher: (voucherId: string) => Promise<{ ok: boolean; error?: string }>;
   loginGuest: () => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
@@ -291,24 +293,24 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     }
   }, [orgSlug, logout]);
 
-  const saveTableOrder = useCallback(async (tableNumber: number, cart: Record<string, number>) => {
-    setState(await call<OrgState>(`/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) }));
+  const saveTableOrder = useCallback(async (branchSlug: string, tableNumber: number, cart: Record<string, number>) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) }));
   }, [call]);
 
   // Der Server antwortet mit dem vollständigen neuen Zustand — die Oberfläche
   // übernimmt ihn direkt, statt lokal zu raten.
-  const closeTable = useCallback(async (tableNumber: number) => {
-    setState(await call<OrgState>(`/tables/${tableNumber}/close`, { method: 'POST' }));
+  const closeTable = useCallback(async (branchSlug: string, tableNumber: number) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/close`, { method: 'POST' }));
   }, [call]);
 
-  const addItemToTable = useCallback(async (tableNumber: number, dishId: string, qty = 1) => {
-    setState(await call<OrgState>(`/tables/${tableNumber}/items`, { method: 'POST', body: JSON.stringify({ dishId, qty }) }));
+  const addItemToTable = useCallback(async (branchSlug: string, tableNumber: number, dishId: string, qty = 1) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/items`, { method: 'POST', body: JSON.stringify({ dishId, qty }) }));
   }, [call]);
 
   const submitReview = useCallback(async (
-    tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
+    branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
   ) => {
-    const data = await call<OrgState & { pointsEarned: number }>(`/tables/${tableNumber}/review`, {
+    const data = await call<OrgState & { pointsEarned: number }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
       method: 'POST', body: JSON.stringify({ dishRatings, overall }),
     });
     const { pointsEarned, ...rest } = data;

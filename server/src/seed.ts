@@ -29,16 +29,27 @@ async function main() {
 
   const db = await orgDbBySlug(ORG_SLUG);
 
+  // Zwei Filialen, damit das Filial-Scoping überhaupt prüfbar ist: mit nur
+  // einer sieht eine kaputte Filterung genauso aus wie eine funktionierende.
   const branchesCol = db.collection<Branch>('branches');
-  let branch = await branchesCol.findOne({ slug: 'herrengasse' });
-  if (!branch) {
-    const res = await branchesCol.insertOne({ slug: 'herrengasse', name: 'Herrengasse', address: 'Herrengasse 12, 8010 Graz' });
-    branch = { _id: res.insertedId, slug: 'herrengasse', name: 'Herrengasse', address: 'Herrengasse 12, 8010 Graz' };
-    console.log('Filiale "Graz · Herrengasse" angelegt.');
-  } else {
-    console.log('Filiale existiert bereits.');
+  const branchSeeds = [
+    { slug: 'herrengasse', name: 'Herrengasse', address: 'Herrengasse 12, 8010 Graz' },
+    { slug: 'hauptplatz', name: 'Hauptplatz', address: 'Hauptplatz 4, 8010 Graz' },
+  ];
+  const branches: Branch[] = [];
+  for (const b of branchSeeds) {
+    const existing = await branchesCol.findOne({ slug: b.slug });
+    if (existing) {
+      branches.push(existing);
+      console.log(`Filiale "${b.name}" existiert bereits.`);
+    } else {
+      const res = await branchesCol.insertOne({ ...b });
+      branches.push({ _id: res.insertedId, ...b });
+      console.log(`Filiale "${b.name}" angelegt.`);
+    }
   }
-  const branchId = branch._id!.toString();
+  const [mainBranch, secondBranch] = branches;
+  const branchId = mainBranch._id!.toString();
 
   const dishesCol = db.collection<DishDoc>('dishes');
   if ((await dishesCol.countDocuments()) === 0) {
@@ -60,39 +71,60 @@ async function main() {
   const dishIds = (await dishesCol.find().toArray()).map(d => d._id!.toString());
 
   const tablesCol = db.collection<TableDoc>('tables');
-  if ((await tablesCol.countDocuments()) === 0) {
-    const mk = (
-      number: number,
-      status: TableDoc['status'],
-      itemIdxQty: [number, number][],
-      minutesAgo: number | null
-    ): Omit<TableDoc, '_id'> => ({
-      branchId,
-      number,
-      status,
-      items: itemIdxQty.map(([idx, qty]) => ({ dishId: dishIds[idx], qty })),
-      openedAt: minutesAgo == null ? null : Date.now() - minutesAgo * 60000,
-      // Ein Tisch mit Gerichten trägt eine offene Bestellung; leere Tische nicht.
-      orderId: itemIdxQty.length > 0 ? new ObjectId() : null,
-    });
+  // Tischnummern zählen PRO Filiale — beide Filialen fangen bei 1 an, Tisch 4
+  // gibt es also zweimal, und die beiden sind verschiedene Tische.
+  const mk = (forBranchId: string) => (
+    number: number,
+    status: TableDoc['status'],
+    itemIdxQty: [number, number][],
+    minutesAgo: number | null
+  ): Omit<TableDoc, '_id'> => ({
+    branchId: forBranchId,
+    number,
+    status,
+    items: itemIdxQty.map(([idx, qty]) => ({ dishId: dishIds[idx], qty })),
+    openedAt: minutesAgo == null ? null : Date.now() - minutesAgo * 60000,
+    // Ein Tisch mit Gerichten trägt eine offene Bestellung; leere Tische nicht.
+    orderId: itemIdxQty.length > 0 ? new ObjectId() : null,
+  });
+
+  if ((await tablesCol.countDocuments({ branchId })) === 0) {
+    const t = mk(branchId);
     await tablesCol.insertMany([
-      mk(1, 'frei', [], null),
-      mk(2, 'offen', [[0, 2], [6, 2]], 22),
+      t(1, 'frei', [], null),
+      t(2, 'offen', [[0, 2], [6, 2]], 22),
       // 'abgeschlossen' heißt: bewertet und abgeräumt — deshalb ohne Gerichte.
-      mk(3, 'abgeschlossen', [], 60),
-      mk(4, 'offen', [[0, 1], [1, 1], [2, 1]], 8), // Tisch 4 = Demo-Gasttisch, siehe README
-      mk(5, 'frei', [], null),
-      mk(6, 'offen', [[1, 3], [7, 2], [3, 2]], 45),
-      mk(7, 'frei', [], null),
-      mk(8, 'abgeschlossen', [], 120),
-      mk(9, 'offen', [[2, 2], [5, 3]], 15),
-      mk(10, 'frei', [], null),
-      mk(11, 'offen', [[6, 3]], 33),
-      mk(12, 'frei', [], null),
+      t(3, 'abgeschlossen', [], 60),
+      t(4, 'offen', [[0, 1], [1, 1], [2, 1]], 8), // Tisch 4 = Demo-Gasttisch, siehe README
+      t(5, 'frei', [], null),
+      t(6, 'offen', [[1, 3], [7, 2], [3, 2]], 45),
+      t(7, 'frei', [], null),
+      t(8, 'abgeschlossen', [], 120),
+      t(9, 'offen', [[2, 2], [5, 3]], 15),
+      t(10, 'frei', [], null),
+      t(11, 'offen', [[6, 3]], 33),
+      t(12, 'frei', [], null),
     ]);
-    console.log('Tische angelegt.');
+    console.log(`Tische 1–12 für "${mainBranch.name}" angelegt.`);
   } else {
-    console.log('Tische existieren bereits.');
+    console.log(`Tische für "${mainBranch.name}" existieren bereits.`);
+  }
+
+  const secondBranchId = secondBranch._id!.toString();
+  if ((await tablesCol.countDocuments({ branchId: secondBranchId })) === 0) {
+    const t = mk(secondBranchId);
+    await tablesCol.insertMany([
+      t(1, 'frei', [], null),
+      t(2, 'offen', [[4, 2], [8, 2]], 12),
+      t(3, 'frei', [], null),
+      // Absichtlich belegt: Tisch 4 gibt es in beiden Filialen, mit anderem Inhalt.
+      t(4, 'offen', [[5, 1], [7, 1]], 30),
+      t(5, 'frei', [], null),
+      t(6, 'abgeschlossen', [], 90),
+    ]);
+    console.log(`Tische 1–6 für "${secondBranch.name}" angelegt.`);
+  } else {
+    console.log(`Tische für "${secondBranch.name}" existieren bereits.`);
   }
 
   const vouchersCol = db.collection<VoucherDoc>('vouchers');
@@ -151,8 +183,11 @@ async function main() {
     console.log('Gast-Profil existiert bereits.');
   }
 
-  console.log(`\nFertig. Demo-Gast-URL fürs Handy/QR-Code: /${ORG_SLUG}/table/4`);
-  console.log(`Kellner-URL: /${ORG_SLUG}/staff`);
+  console.log('\nFertig. QR-Ziele pro Filiale (Tisch 4 gibt es in beiden — verschiedene Tische):');
+  for (const b of branches) {
+    console.log(`  ${b.name.padEnd(13)} /${ORG_SLUG}/${b.slug}/table/4`);
+  }
+  console.log(`\nKellner-URL: /${ORG_SLUG}/staff`);
   console.log(`Admin-URL: /${ORG_SLUG}/admin`);
   console.log('\nTest-Zugänge (Passwort jeweils gleich):');
   console.log(`  Admin         admin@sakura.at    / ${DEMO_PASSWORD}`);

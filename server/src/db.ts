@@ -79,6 +79,54 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { passwordHash: { $exists: false } },
     { $set: { passwordHash: null } }
   );
+
+  await renumberTablesPerBranch(db);
+
+  // Erst NACH der Umnummerierung: vorher trägt der Altbestand noch
+  // organisationsweite Nummern, die den Index verletzen würden.
+  await db.collection('tables').createIndex(
+    { branchId: 1, number: 1 },
+    { unique: true, name: 'uniq_branch_number' }
+  );
+}
+
+/**
+ * Tischnummern waren organisationsweit vergeben — Tisch 5 gab es genau einmal
+ * pro Organisation. Sie gehören aber pro Filiale eindeutig, damit Tisch 5 in
+ * Filiale A ein anderer Tisch ist als Tisch 5 in Filiale B (jede Filiale hat
+ * ihre eigenen QR-Codes).
+ *
+ * Nummeriert je Filiale auf 1…n durch, in der bisherigen Reihenfolge. Läuft
+ * idempotent: passt alles schon, wird nichts geschrieben.
+ */
+export async function renumberTablesPerBranch(db: Db): Promise<void> {
+  const tables = await db.collection('tables').find().sort({ number: 1 }).toArray();
+
+  const perBranch = new Map<string, { _id: ObjectId; number: number }[]>();
+  for (const t of tables) {
+    const key = String(t.branchId);
+    if (!perBranch.has(key)) perBranch.set(key, []);
+    perBranch.get(key)!.push({ _id: t._id as ObjectId, number: t.number as number });
+  }
+
+  const changes: { _id: ObjectId; number: number }[] = [];
+  for (const list of perBranch.values()) {
+    list.forEach((t, i) => {
+      if (t.number !== i + 1) changes.push({ _id: t._id, number: i + 1 });
+    });
+  }
+  if (changes.length === 0) return;
+
+  // Zwei Durchgänge über negative Zwischennummern: eine direkte Zuweisung
+  // würde unterwegs Nummern doppelt vergeben und am eindeutigen Index
+  // scheitern (Tisch 7 -> 5, solange 5 noch belegt ist).
+  for (const [i, c] of changes.entries()) {
+    await db.collection('tables').updateOne({ _id: c._id }, { $set: { number: -(i + 1) } });
+  }
+  for (const c of changes) {
+    await db.collection('tables').updateOne({ _id: c._id }, { $set: { number: c.number } });
+  }
+  console.log(`Tischnummern pro Filiale vereinheitlicht (${changes.length} Tische umnummeriert).`);
 }
 
 export async function orgDbBySlug(slug: string): Promise<Db> {

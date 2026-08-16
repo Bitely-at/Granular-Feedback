@@ -277,7 +277,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
 
 type GuestScreen = 'welcome' | 'review' | 'overall' | 'thanks' | 'vouchers';
 
-function GuestApp({ tableNumber }: { tableNumber: number }) {
+function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
   const store = useStore();
   const [screen, setScreen] = useState<GuestScreen>('welcome');
   const [ratings, setRatings] = useState<Record<string, number>>({});
@@ -294,7 +294,9 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
-  const table = store.tables.find(t => t.number === tableNumber);
+  // Nur Tische DIESER Filiale: die Nummer allein trifft seit T-2 in jeder
+  // Filiale einen anderen Tisch.
+  const table = store.tables.find(t => t.branchId === branch.id && t.number === tableNumber);
   const tableDishes = (table?.items ?? [])
     .map(i => store.dishes.find(d => d.id === i.dishId))
     .filter((d): d is Dish => Boolean(d));
@@ -325,7 +327,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
       const dishRatings: DishRatingInput[] = tableDishes.map(d => ({
         dishId: d.id, stars: ratings[d.id] ?? 0, note: notes[d.id]?.trim() || undefined,
       }));
-      const earned = await store.submitReview(tableNumber, dishRatings, overall);
+      const earned = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
       setEarnedPts(earned);
       setPts(0);
       go('thanks');
@@ -352,7 +354,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
   if (!table) {
     return (
       <FullScreenMessage error>
-        Tisch {tableNumber} wurde nicht gefunden. Bitte scanne den QR-Code am Tisch erneut.
+        Tisch {tableNumber} gibt es in der Filiale {branch.name} nicht. Bitte scanne den QR-Code am Tisch erneut.
       </FullScreenMessage>
     );
   }
@@ -389,7 +391,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                       bereits am Tisch und muss sie nur kurz gegenprüfen, falls
                       er den falschen QR-Code erwischt hat. */}
                   <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-1">
-                    {store.branches[0]?.name} · Tisch {tableNumber}
+                    {branch.name} · Tisch {tableNumber}
                   </p>
                   <p className="text-[16px] text-gray-600 dark:text-gray-300 max-w-[280px] mt-5 leading-relaxed">
                     {welcomeText}
@@ -599,7 +601,7 @@ function GuestApp({ tableNumber }: { tableNumber: number }) {
                       <p className="text-[14px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
                       <p className="text-[12px] text-gray-400">{dish.price.toFixed(2)} €</p>
                     </div>
-                    <button onClick={async () => { await store.addItemToTable(tableNumber, dish.id, 1); setShowSheet(false); }}
+                    <button onClick={async () => { await store.addItemToTable(branch.slug, tableNumber, dish.id, 1); setShowSheet(false); }}
                       className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
                       <Plus size={14} strokeWidth={2.5} />
                     </button>
@@ -645,7 +647,7 @@ function VoucherCard({ v, state, onAction, pointsMissing }: {
 
 type WaiterScreen = 'tables' | 'detail' | 'photo';
 
-function WaiterApp() {
+function WaiterApp({ branch }: { branch: Branch }) {
   const store = useStore();
   const [screen, setScreen] = useState<WaiterScreen>('tables');
   // Nur die Nummer festhalten, nicht den Tisch selbst: der Tisch wird bei jedem
@@ -663,9 +665,13 @@ function WaiterApp() {
   const [chips, setChips] = useState(['Spicy Tuna Roll', 'Miso Suppe', 'Asahi Bier']);
   const cartTotal = Object.values(cart).reduce((a, b) => a + b, 0);
 
+  // Alles in dieser Ansicht bezieht sich auf GENAU eine Filiale — sonst träfe
+  // eine Tischnummer mehrere Tische.
+  const branchTables = store.tables.filter(t => t.branchId === branch.id);
+
   const activeTable = activeTableNumber == null
     ? null
-    : store.tables.find(t => t.number === activeTableNumber) ?? null;
+    : branchTables.find(t => t.number === activeTableNumber) ?? null;
 
   // Die drei Zustände müssen auf einen Blick unterscheidbar sein — vorher waren
   // 'frei' und 'offen' beide grau und unterschieden sich nur in der Rahmenstufe.
@@ -675,10 +681,10 @@ function WaiterApp() {
     abgeschlossen: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300',
   };
 
-  const openAlerts = store.alerts.filter(a => !a.resolved);
+  const openAlerts = store.alerts.filter(a => !a.resolved && a.branchId === branch.id);
 
   const openTableByNumber = (number: number) => {
-    const t = store.tables.find(x => x.number === number);
+    const t = branchTables.find(x => x.number === number);
     if (t) { setActiveTableNumber(t.number); setScreen('detail'); }
   };
 
@@ -688,7 +694,7 @@ function WaiterApp() {
     setSaving(true);
     setActionError(null);
     try {
-      await store.saveTableOrder(activeTable.number, cart);
+      await store.saveTableOrder(branch.slug, activeTable.number, cart);
       setConfirm(null);
       setCart({});
       setScreen('tables');
@@ -705,7 +711,7 @@ function WaiterApp() {
     setSaving(true);
     setActionError(null);
     try {
-      await store.closeTable(activeTable.number);
+      await store.closeTable(branch.slug, activeTable.number);
       setConfirm(null);
       setCart({});
       setScreen('tables');
@@ -722,7 +728,7 @@ function WaiterApp() {
         .map(name => store.dishes.find(d => d.name === name)?.id)
         .filter((id): id is string => Boolean(id));
       try {
-        for (const id of matches) await store.addItemToTable(activeTable.number, id, 1);
+        for (const id of matches) await store.addItemToTable(branch.slug, activeTable.number, id, 1);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Erkannte Gerichte konnten nicht gespeichert werden.');
         return;
@@ -766,6 +772,7 @@ function WaiterApp() {
             <BrandLogo brand={store.brand} size={22} textSize={16} rounded="rounded-md" />
             <span className="truncate">{store.brand?.name}</span>
           </span>
+          <span className="hidden md:inline text-[14px] text-gray-400 flex-shrink-0">· {branch.name}</span>
           {activeTable && screen === 'detail' && <span className="hidden sm:inline text-[15px] text-gray-400 flex-shrink-0">· Tisch {activeTable.number}</span>}
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <button onClick={() => setOnline(p => !p)}
@@ -784,15 +791,24 @@ function WaiterApp() {
       {screen === 'tables' && (
         <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
           <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-            <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Tischübersicht</p>
+            <div>
+              <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Tischübersicht</p>
+              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
+                {branch.name} · {branchTables.length} {branchTables.length === 1 ? 'Tisch' : 'Tische'}
+              </p>
+            </div>
             <div className="flex items-center gap-3 sm:gap-4 text-[12px] sm:text-[13px] text-gray-500">
               {([['bg-gray-300', 'Frei'], ['bg-amber-400', 'Offen'], ['bg-emerald-500', 'Fertig']] as const).map(([cls, l]) => (
                 <span key={l} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${cls}`} />{l}</span>
               ))}
             </div>
           </div>
+          {branchTables.length === 0 && (
+            <EmptyState icon={LayoutDashboard} title="Noch keine Tische"
+              desc={`Für ${branch.name} ist noch kein Tisch angelegt. Das macht der Admin unter "Tische & QR-Codes".`} />
+          )}
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3">
-            {[...store.tables].sort((a, b) => a.number - b.number).map(t => (
+            {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
               <button key={t.id} onClick={() => { setActiveTableNumber(t.number); setScreen('detail'); }}
                 className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-3 transition-all hover:scale-105 active:scale-95 relative ${statusCls[t.status]}`}>
                 {openAlerts.some(a => a.tableNumber === t.number) && (
@@ -1026,13 +1042,15 @@ function WaiterApp() {
 // mit funktionierendem PNG-Download.
 // ═══════════════════════════════════════════════════════════
 
-function tableUrl(orgSlug: string, tableNumber: number): string {
-  return `${window.location.origin}/${orgSlug}/table/${tableNumber}`;
+// Die Filiale steht mit in der Adresse: Tisch 5 in Filiale A und Tisch 5 in
+// Filiale B sind verschiedene Tische und brauchen verschiedene QR-Codes.
+function tableUrl(orgSlug: string, branchSlug: string, tableNumber: number): string {
+  return `${window.location.origin}/${orgSlug}/${branchSlug}/table/${tableNumber}`;
 }
 
-function TableQRCode({ orgSlug, tableNumber }: { orgSlug: string; tableNumber: number }) {
+function TableQRCode({ orgSlug, branchSlug, tableNumber }: { orgSlug: string; branchSlug: string; tableNumber: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const url = tableUrl(orgSlug, tableNumber);
+  const url = tableUrl(orgSlug, branchSlug, tableNumber);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -1047,7 +1065,9 @@ function TableQRCode({ orgSlug, tableNumber }: { orgSlug: string; tableNumber: n
       const href = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = href;
-      a.download = `tisch-${tableNumber}-qr.png`;
+      // Filiale im Dateinamen: sonst sind die Downloads zweier Filialen
+      // im Ordner nicht auseinanderzuhalten (beide "tisch-5-qr.png").
+      a.download = `${branchSlug}-tisch-${tableNumber}-qr.png`;
       a.click();
       URL.revokeObjectURL(href);
     }, 'image/png');
@@ -1057,7 +1077,7 @@ function TableQRCode({ orgSlug, tableNumber }: { orgSlug: string; tableNumber: n
     <>
       <canvas ref={canvasRef} className="w-24 h-24 rounded-lg" />
       <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {tableNumber}</p>
-      <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/table/{tableNumber}</p>
+      <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/{branchSlug}/table/{tableNumber}</p>
       <button onClick={download} className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
         <Download size={11} strokeWidth={1.5} /> PNG laden
       </button>
@@ -1348,7 +1368,9 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
 
 type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'vouchers' | 'design' | 'users' | 'settings';
 
-function AdminApp({ orgSlug }: { orgSlug: string }) {
+function AdminApp({ orgSlug, branch, onBranchChange }: {
+  orgSlug: string; branch: Branch; onBranchChange: (b: Branch) => void;
+}) {
   const store = useStore();
   const [page, setPage] = useState<AdminPage>('dashboard');
   const [editMode, setEditMode] = useState(false);
@@ -1371,8 +1393,9 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [addTableCount, setAddTableCount] = useState(1);
-  const [addTableBranch, setAddTableBranch] = useState('');
   const [addingTables, setAddingTables] = useState(false);
+  // Tische der gewählten Filiale — Grundlage für Liste, Zähler und Anlage.
+  const branchTables = store.tables.filter(t => t.branchId === branch.id);
   // Offener Dialog: { dish: null } heißt "neu anlegen", { dish } heißt "bearbeiten".
   const [dishDialog, setDishDialog] = useState<{ dish: Dish | null } | null>(null);
   const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
@@ -1495,11 +1518,13 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
     }
   };
 
+  // Neue Tische landen immer in der oben gewählten Filiale — ein zweiter
+  // Filial-Wähler direkt am Formular wäre eine zweite Wahrheit daneben.
   const handleAddTables = async () => {
     if (addingTables) return;
     setAddingTables(true);
     try {
-      await store.addTables(addTableCount, addTableBranch || null);
+      await store.addTables(addTableCount, branch.id);
       setAddTableCount(1);
     } finally {
       setAddingTables(false);
@@ -1555,7 +1580,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                 <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
                 <span className="font-medium truncate">{store.brand?.name}</span>
                 <span className="hidden sm:inline text-gray-400 mx-0.5">›</span>
-                <span className="hidden sm:inline text-gray-500 dark:text-gray-400 truncate">{store.branches[0]?.name}</span>
+                <span className="hidden sm:inline text-gray-500 dark:text-gray-400 truncate">{branch.name}</span>
                 <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
               </button>
               <AnimatePresence>
@@ -1563,14 +1588,18 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
                     className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden min-w-[280px] z-50">
                     {store.branches.map(b => (
-                      <button key={b.id} onClick={() => setBranchDrop(false)}
+                      // Der Umschalter wählt jetzt tatsächlich aus: Tischliste,
+                      // Zähler und Anlage-Formular hängen an dieser Filiale.
+                      <button key={b.id} onClick={() => { onBranchChange(b); setBranchDrop(false); }}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <span className="text-xl">🏠</span>
                         <div className="flex-1">
-                          <p className="text-[14px] font-medium text-gray-900 dark:text-white">{store.brand?.name}</p>
-                          <p className="text-[12px] text-gray-400">{b.name}</p>
+                          <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
+                          <p className="text-[12px] text-gray-400">
+                            {store.tables.filter(t => t.branchId === b.id).length} Tische · {b.address}
+                          </p>
                         </div>
-                        {b.id === store.branches[0]?.id && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
+                        {b.id === branch.id && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
                       </button>
                     ))}
                   </motion.div>
@@ -1615,7 +1644,10 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</p>
-                      <p className="text-[13px] text-gray-400 mt-0.5">Alle bisherigen Bewertungen · {store.branches[0]?.name}</p>
+                      {/* Bewusst "alle Filialen": die Kennzahlen sind noch nicht
+                          filialgetrennt. Hier den Namen der gewählten Filiale zu
+                          zeigen, würde eine Filterung behaupten, die es nicht gibt. */}
+                      <p className="text-[13px] text-gray-400 mt-0.5">Alle bisherigen Bewertungen · alle Filialen</p>
                     </div>
                     <div className="flex gap-2">
                       {hidden.size > 0 && (
@@ -1906,7 +1938,7 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                             </div>
                             <p className={`text-[15px] font-semibold text-center ${brandForm.coverImage ? 'text-white' : 'text-gray-900 dark:text-white'}`}
                               style={brandForm.coverImage ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{brandForm.name || 'Dein Restaurant'}</p>
-                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{store.branches[0]?.name}</p>
+                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{branch.name}</p>
                             {previewDish ? (
                               <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
                                 onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
@@ -2062,40 +2094,35 @@ function AdminApp({ orgSlug }: { orgSlug: string }) {
                           onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
                           className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
                       </div>
-                      {store.branches.length > 1 && (
-                        <div>
-                          <p className="text-[12px] text-gray-400 mb-1.5">Filiale</p>
-                          <select value={addTableBranch} onChange={e => setAddTableBranch(e.target.value)}
-                            className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
-                            <option value="">{store.branches[0].name}</option>
-                            {store.branches.slice(1).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                          </select>
-                        </div>
-                      )}
                       <button onClick={handleAddTables} disabled={addingTables}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
                         style={{ backgroundColor: 'var(--ba)' }}>
                         <Plus size={14} strokeWidth={2} /> {addingTables ? 'Wird angelegt…' : 'Tisch(e) anlegen'}
                       </button>
-                      <p className="text-[11px] text-gray-400">{store.tables.length} Tische insgesamt</p>
+                      {/* Zähler und Anlage beziehen sich auf die oben gewählte
+                          Filiale — vorher zeigte eine Filiale ohne Tische
+                          trotzdem die Gesamtzahl aller Filialen an. */}
+                      <p className="text-[11px] text-gray-400">
+                        {branchTables.length} {branchTables.length === 1 ? 'Tisch' : 'Tische'} in {branch.name}
+                      </p>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
-                      {[...store.tables].sort((a, b) => a.number - b.number).map(t => (
-                        <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
-                          <button onClick={() => { if (confirm(`Tisch ${t.number} und seinen QR-Code wirklich löschen?`)) store.removeTable(t.id); }}
-                            title="Tisch löschen"
-                            className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                            <Trash2 size={12} strokeWidth={1.5} />
-                          </button>
-                          <TableQRCode orgSlug={orgSlug} tableNumber={t.number} />
-                          {store.branches.length > 1 && (
-                            <p className="text-[10px] text-gray-400 -mt-1 text-center leading-tight">
-                              {store.branches.find(b => b.id === t.branchId)?.name ?? 'Ohne Filiale'}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    {branchTables.length === 0 ? (
+                      <EmptyState icon={QrCode} title={`Noch keine Tische in ${branch.name}`}
+                        desc="Lege oben Tische an — jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
+                        {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
+                          <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
+                            <button onClick={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(t.id); }}
+                              title="Tisch löschen"
+                              className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                              <Trash2 size={12} strokeWidth={1.5} />
+                            </button>
+                            <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2516,18 +2543,24 @@ function TopBar({ dark, setDark }: {
 }
 
 function OrgShell({ view }: { view: View }) {
-  const { orgSlug, tableNumber } = useParams<{ orgSlug: string; tableNumber?: string }>();
+  const { orgSlug, branchSlug, tableNumber } = useParams<{ orgSlug: string; branchSlug?: string; tableNumber?: string }>();
   if (!orgSlug) return <FullScreenMessage error>Keine Organisation angegeben.</FullScreenMessage>;
   return (
     <StoreProvider orgSlug={orgSlug}>
-      <OrgChrome view={view} orgSlug={orgSlug} tableNumber={tableNumber ? Number(tableNumber) : null} />
+      <OrgChrome view={view} orgSlug={orgSlug} branchSlug={branchSlug ?? null}
+        tableNumber={tableNumber ? Number(tableNumber) : null} />
     </StoreProvider>
   );
 }
 
-function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string; tableNumber: number | null }) {
+function OrgChrome({ view, orgSlug, branchSlug, tableNumber }: {
+  view: View; orgSlug: string; branchSlug: string | null; tableNumber: number | null;
+}) {
   const store = useStore();
   const [dark, setDark] = useState(false);
+  // Welche Filiale der Admin gerade betrachtet. Der Gast bekommt sie aus der
+  // URL, die Servicekraft aus ihrem Konto — nur der Admin wählt frei.
+  const [adminBranchId, setAdminBranchId] = useState<string | null>(null);
   useGoogleFont(store.brand?.font);
 
   if (store.loading) return <FullScreenMessage>Lädt Restaurantdaten…</FullScreenMessage>;
@@ -2547,8 +2580,6 @@ function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string
       </FullScreenMessage>
     );
   }
-
-  const firstTableNumber = tableNumber ?? [...store.tables].sort((a, b) => a.number - b.number)[0]?.number ?? 1;
 
   // Rollenprüfung in der Oberfläche. Sie ersetzt NICHT den Schutz auf dem Server
   // (requireAuth in index.ts) — sie sorgt nur dafür, dass niemand eine Ansicht
@@ -2586,6 +2617,29 @@ function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string
     }
   }
 
+  // ── Welche Filiale gilt in dieser Ansicht? ──
+  // Gast: aus dem QR-Link. Servicekraft: aus dem Konto (branchId), sonst wählbar.
+  // Admin/Manager ohne feste Filiale: der Umschalter oben entscheidet.
+  const boundBranch = store.authUser?.branchId
+    ? store.branches.find(b => b.id === store.authUser!.branchId) ?? null
+    : null;
+  const branch = view === 'guest'
+    ? store.branches.find(b => b.slug === branchSlug) ?? null
+    : boundBranch ?? store.branches.find(b => b.id === adminBranchId) ?? store.branches[0] ?? null;
+
+  if (!branch) {
+    return (
+      <div className={dark ? 'dark' : ''}>
+        <TopBar dark={dark} setDark={setDark} />
+        <FullScreenMessage error>
+          {view === 'guest'
+            ? `Die Filiale "${branchSlug}" gibt es nicht. Bitte scanne den QR-Code am Tisch erneut.`
+            : 'Für diese Organisation ist noch keine Filiale angelegt.'}
+        </FullScreenMessage>
+      </div>
+    );
+  }
+
   return (
     <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
       <TopBar dark={dark} setDark={setDark} />
@@ -2595,13 +2649,15 @@ function OrgChrome({ view, orgSlug, tableNumber }: { view: View; orgSlug: string
         // kein Geräte-Mockup. Ab sm-Breakpoint (Desktop-Vorschau): zentrierte Karte.
         <div className="h-[calc(100dvh-40px)] overflow-hidden sm:h-auto sm:min-h-[calc(100dvh-40px)] sm:overflow-visible bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
           <div className="w-full h-full flex flex-col overflow-hidden sm:w-full sm:max-w-[420px] sm:h-[calc(100dvh-64px)] sm:rounded-[28px] sm:shadow-xl sm:border sm:border-gray-200 dark:sm:border-gray-800 bg-[#F7F8FA] dark:bg-[#0D1117]">
-            <GuestApp tableNumber={tableNumber ?? firstTableNumber} />
+            <GuestApp branch={branch} tableNumber={tableNumber ?? 1} />
           </div>
         </div>
       )}
 
-      {view === 'waiter' && <WaiterApp />}
-      {view === 'admin' && <AdminApp orgSlug={orgSlug} />}
+      {view === 'waiter' && <WaiterApp branch={branch} />}
+      {view === 'admin' && (
+        <AdminApp orgSlug={orgSlug} branch={branch} onBranchChange={b => setAdminBranchId(b.id)} />
+      )}
     </div>
   );
 }
@@ -2610,10 +2666,18 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/sakura-sushi/table/4" replace />} />
-        <Route path="/:orgSlug/table/:tableNumber" element={<OrgShell view="guest" />} />
+        <Route path="/" element={<Navigate to="/sakura-sushi/herrengasse/table/4" replace />} />
+        <Route path="/:orgSlug/:branchSlug/table/:tableNumber" element={<OrgShell view="guest" />} />
         <Route path="/:orgSlug/staff" element={<OrgShell view="waiter" />} />
         <Route path="/:orgSlug/admin" element={<OrgShell view="admin" />} />
+        {/* Die alte, filiallose QR-Route. Kein Redirect: ohne Filiale ist nicht
+            entscheidbar, welcher Tisch 5 gemeint ist. Eine eigene Meldung, damit
+            ein alter Ausdruck nicht wie ein kaputter Server aussieht. */}
+        <Route path="/:orgSlug/table/:tableNumber" element={
+          <FullScreenMessage error>
+            Dieser QR-Code ist veraltet — er nennt keine Filiale. Bitte verwende den neuen Code am Tisch.
+          </FullScreenMessage>
+        } />
         <Route path="*" element={<FullScreenMessage error>Seite nicht gefunden.</FullScreenMessage>} />
       </Routes>
     </BrowserRouter>
