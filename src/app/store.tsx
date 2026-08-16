@@ -123,6 +123,27 @@ export interface Review {
   createdAt: number;
 }
 
+/**
+ * Eine Gutschein-Einlösung am Tisch. `offen` heißt: der Countdown läuft, die
+ * Servicekraft muss quittieren. Die Punkte sind ab dem Eröffnen abgebucht und
+ * kommen bei `verfallen`/`abgebrochen` zurück.
+ */
+export interface Redemption {
+  id: string;
+  voucherId: string;
+  voucherTitle: string;
+  branchId: string;
+  tableId: string | null;
+  tableNumber: number | null;
+  code: string;
+  points: number;
+  status: 'offen' | 'eingelöst' | 'verfallen' | 'abgebrochen';
+  createdAt: number;
+  expiresAt: number;
+  redeemedAt: number | null;
+  confirmedByName: string | null;
+}
+
 export interface GuestProfile { loggedIn: boolean; points: number; redeemed: string[]; }
 
 interface OrgState {
@@ -134,6 +155,7 @@ interface OrgState {
   users: AdminUser[];
   alerts: Alert[];
   reviews: Review[];
+  redemptions: Redemption[];
   guest: GuestProfile;
 }
 
@@ -219,7 +241,12 @@ interface StoreApi extends OrgState {
   closeTable: (branchSlug: string, tableNumber: number) => Promise<void>;
   addItemToTable: (branchSlug: string, tableNumber: number, dishId: string, qty?: number) => Promise<void>;
   submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
-  redeemVoucher: (branchSlug: string, voucherId: string) => Promise<{ ok: boolean; error?: string }>;
+  // Einlösung eröffnen — gibt den kurzlebigen Code zurück, den die
+  // Servicekraft in ihrer eigenen App gegenprüft.
+  startRedemption: (branchSlug: string, voucherId: string, tableNumber?: number)
+    => Promise<{ ok: true; redemption: Redemption } | { ok: false; error: string }>;
+  confirmRedemption: (branchSlug: string, redemptionId: string) => Promise<void>;
+  cancelRedemption: (branchSlug: string, redemptionId: string, code: string) => Promise<void>;
   // Gericht in EINER Filiale führen oder nicht — der Hebel der Filialleitung.
   setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
   loginGuest: () => Promise<void>;
@@ -245,6 +272,7 @@ const StoreContext = createContext<StoreApi | null>(null);
 
 const EMPTY_STATE: OrgState = {
   brand: null, branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [], reviews: [],
+  redemptions: [],
   guest: { loggedIn: false, points: 0, redeemed: [] },
 };
 
@@ -363,13 +391,28 @@ export function StoreProvider({ orgSlug, scope, children }: {
     return pointsEarned;
   }, [call]);
 
-  const redeemVoucher = useCallback(async (branchSlug: string, voucherId: string) => {
+  const startRedemption = useCallback(async (branchSlug: string, voucherId: string, tableNumber?: number) => {
     try {
-      setState(await call<OrgState>(`/branches/${branchSlug}/vouchers/${voucherId}/redeem`, { method: 'POST' }));
-      return { ok: true };
+      const data = await call<OrgState & { redemption: Redemption }>(
+        `/branches/${branchSlug}/vouchers/${voucherId}/redeem`,
+        { method: 'POST', body: JSON.stringify({ tableNumber }) }
+      );
+      const { redemption, ...rest } = data;
+      setState(rest);
+      return { ok: true as const, redemption };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Einlösen fehlgeschlagen.' };
+      return { ok: false as const, error: err instanceof Error ? err.message : 'Einlösen fehlgeschlagen.' };
     }
+  }, [call]);
+
+  const confirmRedemption = useCallback(async (branchSlug: string, redemptionId: string) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/redemptions/${redemptionId}/confirm`, { method: 'POST' }));
+  }, [call]);
+
+  const cancelRedemption = useCallback(async (branchSlug: string, redemptionId: string, code: string) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/redemptions/${redemptionId}/cancel`, {
+      method: 'POST', body: JSON.stringify({ code }),
+    }));
   }, [call]);
 
   const setDishAvailability = useCallback(async (branchSlug: string, dishId: string, active: boolean) => {
@@ -434,12 +477,14 @@ export function StoreProvider({ orgSlug, scope, children }: {
 
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
-    refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher,
+    refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
+    startRedemption, confirmRedemption, cancelRedemption,
     setDishAvailability,
     loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
-  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview, redeemVoucher, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
+    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

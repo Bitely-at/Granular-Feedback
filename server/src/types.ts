@@ -127,6 +127,37 @@ export interface BrandDoc {
   cardStyle?: 'standard' | 'kompakt' | 'editorial';
 }
 
+/**
+ * Eine Gutschein-Einlösung am Tisch.
+ *
+ * Der Gast eröffnet sie, die Servicekraft quittiert sie in IHRER App — nicht
+ * auf dem Display des Gastes. Genau das macht einen Screenshot wertlos: er
+ * erzeugt keinen Eintrag beim Personal. Der `code` dient nur dem Abgleich mit
+ * bloßem Auge, er ist kein Nachweis.
+ *
+ * Die Punkte sind ab dem Eröffnen abgebucht (reserviert) und werden bei
+ * `verfallen`/`abgebrochen` zurückgeschrieben — sonst könnten zwei Tische
+ * denselben Punktestand gleichzeitig ausgeben, weil sich alle Gäste (noch)
+ * ein Profil teilen.
+ */
+export interface RedemptionDoc {
+  _id?: ObjectId;
+  voucherId: string;
+  voucherTitle: string; // Kopie: der Gutschein kann später umbenannt/gelöscht werden
+  branchId: string;
+  tableId: string | null;
+  tableNumber: number | null;
+  guestId: string; // vorerst konstant 'default', bis es echte Gastkonten gibt
+  code: string; // serverseitig erzeugt, niemals vom Client
+  points: number; // Preis zum Zeitpunkt der Einlösung
+  status: 'offen' | 'eingelöst' | 'verfallen' | 'abgebrochen';
+  createdAt: number;
+  expiresAt: number;
+  redeemedAt: number | null;
+  confirmedBy: string | null; // Benutzer-ID der Servicekraft
+  confirmedByName: string | null;
+}
+
 export interface GuestProfileDoc {
   _id?: string; // konstant 'default' (kein echter Login vorgesehen)
   points: number;

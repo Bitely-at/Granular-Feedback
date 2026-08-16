@@ -97,6 +97,17 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { branchId: 1, number: 1 },
     { unique: true, name: 'uniq_branch_number' }
   );
+
+  // Einlösungen: die Kellner-App fragt laufend die offenen ihrer Filiale ab,
+  // das Admin-Reporting die jüngsten.
+  await db.collection('redemptions').createIndex(
+    { branchId: 1, status: 1, expiresAt: 1 },
+    { name: 'branch_status_expiry' }
+  );
+  await db.collection('redemptions').createIndex(
+    { createdAt: -1 },
+    { name: 'newest_first' }
+  );
 }
 
 /**

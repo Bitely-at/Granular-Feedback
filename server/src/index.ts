@@ -1,11 +1,12 @@
 import 'dotenv/config';
+import { randomInt } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import { verifyPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
 import type {
-  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch, DishDoc,
+  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch, DishDoc, RedemptionDoc,
 } from './types.js';
 
 const app = express();
@@ -45,6 +46,26 @@ async function resolveOrg(req: OrgRequest, res: Response, next: NextFunction) {
 
 // Wie viele Rezensionen der Gesamtzustand mitliefert (neueste zuerst).
 const REVIEW_PAGE_SIZE = 100;
+
+// Wie lange eine eröffnete Einlösung gilt. Kurz genug, dass ein Screenshot
+// nichts nützt, lang genug, dass die Servicekraft in Ruhe an den Tisch kommt.
+const REDEMPTION_TTL_MS = 60_000;
+
+// Wie viele vergangene Einlösungen das Admin-Reporting mitliefert.
+const REDEMPTION_PAGE_SIZE = 100;
+
+/**
+ * Vierstelliger Code zum Abgleich mit bloßem Auge — die Servicekraft sieht
+ * dieselbe Zahl in ihrer eigenen App und vergleicht.
+ *
+ * Er ist ausdrücklich KEIN Nachweis: quittiert wird in der Kellner-App, nicht
+ * auf dem Display des Gastes. Deshalb genügen vier Stellen, und deshalb schadet
+ * es auch nicht, wenn zwei Tische zufällig denselben Code haben.
+ * randomInt statt Math.random, weil ein ratbarer Code hier nichts zu suchen hat.
+ */
+function redemptionCode(): string {
+  return String(randomInt(1000, 10000));
+}
 
 function serialize<T extends WithId<Document>>(doc: T) {
   const { _id, ...rest } = doc;
@@ -376,6 +397,35 @@ function sanitizeOverall(raw: unknown): { service: number; ambience: number; spe
  * Filialübergreifend bleiben: Branding (gehört der Marke), Gutscheine und
  * Punkte des Gasts (er sammelt in der ganzen Kette) sowie die Filialliste.
  */
+/**
+ * Räumt abgelaufene Einlösungen ab und schreibt die reservierten Punkte zurück.
+ *
+ * Läuft ohne Hintergrundjob: wer als Erster den Zustand lädt, räumt auf. Das
+ * `status: 'offen'` in der Bedingung ist der Kern — es kann nur EINE Anfrage
+ * gewinnen, und nur die schreibt die Punkte gut. Sonst bekäme der Gast bei zwei
+ * gleichzeitigen Aufrufen seine Punkte doppelt zurück.
+ */
+async function expireStaleRedemptions(db: Db): Promise<void> {
+  const now = Date.now();
+  const stale = await db.collection<RedemptionDoc>('redemptions')
+    .find({ status: 'offen', expiresAt: { $lte: now } })
+    .toArray();
+
+  for (const r of stale) {
+    const claimed = await db.collection<RedemptionDoc>('redemptions').findOneAndUpdate(
+      { _id: r._id, status: 'offen' },
+      { $set: { status: 'verfallen' } }
+    );
+    // Null heißt: eine andere Anfrage war schneller und hat die Punkte bereits
+    // zurückgeschrieben. Dann hier nichts tun.
+    if (!claimed) continue;
+    await db.collection<GuestProfileDoc>('guestProfile').updateOne(
+      { _id: r.guestId },
+      { $inc: { points: r.points }, $pull: { redeemed: r.voucherId } }
+    );
+  }
+}
+
 async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
   const branchFilter = branchId ? { branchId } : {};
   // Was in DIESER Filiale geführt wird: entweder überall gültig (null) oder
@@ -387,7 +437,12 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
   const availableHere = branchId && !fullMenu
     ? { $or: [{ branchIds: null }, { branchIds: branchId }] }
     : {};
-  const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, guestDoc] = await Promise.all([
+
+  // Vor dem Lesen aufräumen, damit niemand eine längst abgelaufene Einlösung
+  // als "offen" angezeigt bekommt.
+  await expireStaleRedemptions(db);
+
+  const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, redemptions, guestDoc] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection('branches').find().toArray(),
     db.collection('dishes').find(availableHere).toArray(),
@@ -398,6 +453,7 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
     db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
+    db.collection('redemptions').find(branchFilter).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
     db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' }),
   ]);
 
@@ -418,6 +474,7 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
     users: (users as WithId<UserDoc>[]).map(serializeUser),
     alerts: alerts.map(serialize),
     reviews: reviews.map(serialize),
+    redemptions: redemptions.map(serialize),
     guest,
   };
 }
@@ -811,36 +868,163 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
   }
 }));
 
-// ── Gast: Gutschein einlösen ──
-// Liegt unter der Filiale, weil eingelöst wird, wo der Gast sitzt — nur so
-// lässt sich prüfen, ob der Gutschein hier überhaupt gilt.
+// ═══════════════════════════════════════════════════════════
+// GUTSCHEIN-EINLÖSUNG
+//
+// Der Gast eröffnet, die Servicekraft quittiert — in IHRER App, nicht auf dem
+// Display des Gastes. Ein Screenshot ist damit wertlos: er erzeugt keinen
+// Eintrag beim Personal. Der Code dient nur dem Abgleich mit bloßem Auge.
+//
+// Die Punkte sind ab dem Eröffnen reserviert (abgebucht) und kommen bei
+// Verfall oder Abbruch zurück — siehe expireStaleRedemptions.
+// ═══════════════════════════════════════════════════════════
+
+/** Gast: Einlösung eröffnen. Liegt unter der Filiale, denn dort wird eingelöst. */
 router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: OrgRequest, res) => {
   const db = req.db!;
-  const voucher = await db.collection('vouchers').findOne({ _id: requireObjectId(req.params.id, 'Gutschein-ID') });
-  const guest = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' });
+  const branchId = String(req.branch!._id);
+  const voucherId = requireObjectId(req.params.id, 'Gutschein-ID');
+
+  const voucher = await db.collection('vouchers').findOne({ _id: voucherId });
   if (!voucher) {
     res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
     return;
   }
-  const branchId = String(req.branch!._id);
   if (voucher.branchIds != null && !(voucher.branchIds as string[]).includes(branchId)) {
     res.status(400).json({ error: `Dieser Gutschein gilt nicht in der Filiale ${req.branch!.name}.` });
     return;
   }
-  const points = guest?.points ?? 0;
-  const redeemed = guest?.redeemed ?? [];
-  if (redeemed.includes(req.params.id)) {
+
+  // Abgelaufenes erst abräumen — sonst blockiert ein verwaister Versuch.
+  await expireStaleRedemptions(db);
+
+  const guestId = 'default';
+  const guest = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: guestId });
+  if ((guest?.redeemed ?? []).includes(String(voucherId))) {
     res.status(409).json({ error: 'Dieser Gutschein wurde bereits eingelöst.' });
     return;
   }
-  if (points < voucher.points) {
+
+  // Zwei offene Einlösungen desselben Gutscheins wären für die Servicekraft
+  // nicht auseinanderzuhalten.
+  const running = await db.collection<RedemptionDoc>('redemptions')
+    .findOne({ voucherId: String(voucherId), guestId, status: 'offen' });
+  if (running) {
+    res.status(409).json({ error: 'Für diesen Gutschein läuft bereits eine Einlösung.' });
+    return;
+  }
+
+  // Optionaler Tisch: nur fürs Reporting ("wo wurde eingelöst").
+  let table: { _id: unknown; number: number } | null = null;
+  if (req.body?.tableNumber != null) {
+    const found = await findTableInBranch(req, requireTableNumber(req.body.tableNumber));
+    if (found) table = found as { _id: unknown; number: number };
+  }
+
+  // Punkte reservieren: die Bedingung `points >= Preis` steckt IM Update, damit
+  // zwei gleichzeitige Einlösungen nicht denselben Punktestand ausgeben. Alle
+  // Gäste teilen sich (noch) ein Profil — der Fall ist real, nicht theoretisch.
+  const reserved = await db.collection<GuestProfileDoc>('guestProfile').updateOne(
+    { _id: guestId, points: { $gte: voucher.points } },
+    { $inc: { points: -voucher.points }, $push: { redeemed: String(voucherId) } }
+  );
+  if (reserved.modifiedCount === 0) {
     res.status(400).json({ error: 'Nicht genug Punkte für diesen Gutschein.' });
     return;
   }
+
+  const now = Date.now();
+  const doc: Omit<RedemptionDoc, '_id'> = {
+    voucherId: String(voucherId),
+    voucherTitle: String(voucher.title),
+    branchId,
+    tableId: table ? String(table._id) : null,
+    tableNumber: table ? table.number : null,
+    guestId,
+    code: redemptionCode(),
+    points: Number(voucher.points),
+    status: 'offen',
+    createdAt: now,
+    expiresAt: now + REDEMPTION_TTL_MS,
+    redeemedAt: null,
+    confirmedBy: null,
+    confirmedByName: null,
+  };
+  const inserted = await db.collection<RedemptionDoc>('redemptions').insertOne(doc as RedemptionDoc);
+
+  const state = await stateFor(req);
+  res.json({ ...state, redemption: { id: String(inserted.insertedId), ...doc } });
+}));
+
+/**
+ * Servicekraft: Einlösung quittieren.
+ *
+ * Die Einmaligkeit steckt in der Bedingung des Updates, nicht in einer
+ * vorgelagerten Prüfung: nur eine von zwei gleichzeitigen Quittungen findet den
+ * Datensatz noch mit status 'offen'. Ein abgelaufener Code fällt durch dieselbe
+ * Bedingung — deshalb nützt ein Screenshot nichts.
+ */
+router.post('/branches/:branchSlug/redemptions/:id/confirm',
+  staffOrAdmin(withBranch(async (req: OrgRequest, res) => {
+    const db = req.db!;
+    const now = Date.now();
+    // Namen vorher holen: im Token steht nur die ID, und der Datensatz soll
+    // nach dem Quittieren sofort vollständig sein.
+    const staff = await db.collection<UserDoc>('users')
+      .findOne({ _id: requireObjectId(req.user!.sub, 'Benutzer-ID') });
+
+    const claimed = await db.collection<RedemptionDoc>('redemptions').findOneAndUpdate(
+      {
+        _id: requireObjectId(req.params.id, 'Einlösungs-ID'),
+        branchId: String(req.branch!._id),
+        status: 'offen',
+        expiresAt: { $gt: now },
+      },
+      {
+        $set: {
+          status: 'eingelöst',
+          redeemedAt: now,
+          confirmedBy: req.user!.sub,
+          confirmedByName: staff?.name ?? null,
+        },
+      }
+    );
+
+    if (!claimed) {
+      res.status(409).json({
+        error: 'Diese Einlösung ist abgelaufen oder wurde bereits quittiert.',
+      });
+      return;
+    }
+    res.json(await stateFor(req));
+  }))
+);
+
+/**
+ * Gast: eine laufende Einlösung abbrechen (Fehltipp). Der Code muss mit —
+ * die ID allein könnte man raten und damit fremde Einlösungen abräumen.
+ */
+router.post('/branches/:branchSlug/redemptions/:id/cancel', withBranch(async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const code = typeof req.body?.code === 'string' ? req.body.code : '';
+  const claimed = await db.collection<RedemptionDoc>('redemptions').findOneAndUpdate(
+    {
+      _id: requireObjectId(req.params.id, 'Einlösungs-ID'),
+      branchId: String(req.branch!._id),
+      code,
+      status: 'offen',
+    },
+    { $set: { status: 'abgebrochen' } }
+  );
+
+  if (!claimed) {
+    res.status(409).json({ error: 'Diese Einlösung läuft nicht mehr.' });
+    return;
+  }
+  // Nur wer den Datensatz tatsächlich umgestellt hat, bucht zurück.
   await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: 'default' },
-    { $inc: { points: -voucher.points }, $push: { redeemed: req.params.id } },
-    { upsert: true }
+    { _id: claimed.guestId },
+    { $inc: { points: claimed.points }, $pull: { redeemed: claimed.voucherId } }
   );
   res.json(await stateFor(req));
 }));
