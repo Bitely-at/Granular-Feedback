@@ -83,10 +83,12 @@ QR-Codes. Jede Filiale zählt ab 1.
 - QR-Route: `/<org>/<filiale>/table/<nummer>`. Die alte filiallose Form ist
   abgeschaltet und zeigt eine eigene Meldung — **kein Redirect**, weil ohne
   Filiale nicht entscheidbar ist, welcher Tisch 5 gemeint ist.
-- Die Migration in `renumberTablesPerBranch` nummeriert Altbestand pro Filiale
-  auf 1…n. Sie läuft in **zwei** Durchgängen über negative Zwischennummern:
-  direkt zugewiesen (Tisch 7 → 5, während 5 noch belegt ist) würde sie
-  unterwegs am eindeutigen Index scheitern.
+- `resolveTableNumberConflicts` fasst **bestehende Nummern nicht an** — auch
+  Lücken (1–13, 16–25) bleiben. Vorher waren die Nummern organisationsweit
+  eindeutig, also je Filiale erst recht; für den Index ist nichts zu tun. Aus
+  Tisch 25 kommentarlos Tisch 23 zu machen, würde nur App und beschriftete
+  Tische auseinanderlaufen lassen. Angefasst wird ausschließlich dieselbe
+  Nummer zweimal in derselben Filiale.
 
 Woher die Filiale kommt: Gast aus der URL, Servicekraft und Filialleitung aus
 dem Konto (`branchId`), Ketten-Admin aus dem Umschalter oben.

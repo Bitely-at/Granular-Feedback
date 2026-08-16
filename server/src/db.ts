@@ -80,7 +80,7 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { $set: { passwordHash: null } }
   );
 
-  await renumberTablesPerBranch(db);
+  await resolveTableNumberConflicts(db);
   await splitDishRatingsPerBranch(db);
 
   // Gerichte und Gutscheine aus der Zeit vor der Filial-Verfügbarkeit gelten
@@ -92,23 +92,13 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     );
   }
 
-  // Erst NACH der Umnummerierung: vorher trägt der Altbestand noch
-  // organisationsweite Nummern, die den Index verletzen würden.
+  // Erst NACH dem Auflösen etwaiger Dubletten — sonst scheitert die Anlage.
   await db.collection('tables').createIndex(
     { branchId: 1, number: 1 },
     { unique: true, name: 'uniq_branch_number' }
   );
 }
 
-/**
- * Tischnummern waren organisationsweit vergeben — Tisch 5 gab es genau einmal
- * pro Organisation. Sie gehören aber pro Filiale eindeutig, damit Tisch 5 in
- * Filiale A ein anderer Tisch ist als Tisch 5 in Filiale B (jede Filiale hat
- * ihre eigenen QR-Codes).
- *
- * Nummeriert je Filiale auf 1…n durch, in der bisherigen Reihenfolge. Läuft
- * idempotent: passt alles schon, wird nichts geschrieben.
- */
 /**
  * Bewertungen am Gericht waren kettenweit aufsummiert (ratingsSum/ratingsCount).
  * Die Qualität unterscheidet sich aber je Filiale — deshalb wandern die Zähler
@@ -140,8 +130,22 @@ export async function splitDishRatingsPerBranch(db: Db): Promise<void> {
   console.log(`Gerichtsbewertungen auf Filialen aufgeteilt (${legacy.length} Gerichte).`);
 }
 
-export async function renumberTablesPerBranch(db: Db): Promise<void> {
-  const tables = await db.collection('tables').find().sort({ number: 1 }).toArray();
+/**
+ * Bereitet die Tischnummern auf den eindeutigen Index {branchId, number} vor.
+ *
+ * **Bestehende Nummern bleiben, wie sie sind.** Vorher waren sie
+ * organisationsweit eindeutig — damit sind sie je Filiale erst recht eindeutig,
+ * eine Umnummerierung ist für den Index also gar nicht nötig. Sie wäre sogar
+ * schädlich: an den Tischen im Lokal klebt eine Nummer, und aus Tisch 25
+ * kommentarlos Tisch 23 zu machen, lässt App und Wirklichkeit auseinanderlaufen.
+ * Lücken (1–13, 16–25) sind unbedenklich und bleiben erhalten.
+ *
+ * Angefasst wird nur, was den Index tatsächlich verletzen würde: dieselbe
+ * Nummer zweimal in derselben Filiale. Der jüngere Tisch bekommt dann die
+ * nächste freie Nummer.
+ */
+export async function resolveTableNumberConflicts(db: Db): Promise<void> {
+  const tables = await db.collection('tables').find().sort({ _id: 1 }).toArray();
 
   const perBranch = new Map<string, { _id: ObjectId; number: number }[]>();
   for (const t of tables) {
@@ -152,22 +156,26 @@ export async function renumberTablesPerBranch(db: Db): Promise<void> {
 
   const changes: { _id: ObjectId; number: number }[] = [];
   for (const list of perBranch.values()) {
-    list.forEach((t, i) => {
-      if (t.number !== i + 1) changes.push({ _id: t._id, number: i + 1 });
-    });
+    const used = new Set(list.map(t => t.number));
+    const seen = new Set<number>();
+    for (const t of list) {
+      if (!seen.has(t.number)) { seen.add(t.number); continue; }
+      // Dublette: nächste freie Nummer dieser Filiale suchen.
+      let free = 1;
+      while (used.has(free)) free++;
+      used.add(free);
+      seen.add(free);
+      changes.push({ _id: t._id, number: free });
+    }
   }
   if (changes.length === 0) return;
 
-  // Zwei Durchgänge über negative Zwischennummern: eine direkte Zuweisung
-  // würde unterwegs Nummern doppelt vergeben und am eindeutigen Index
-  // scheitern (Tisch 7 -> 5, solange 5 noch belegt ist).
-  for (const [i, c] of changes.entries()) {
-    await db.collection('tables').updateOne({ _id: c._id }, { $set: { number: -(i + 1) } });
-  }
+  // Nur freie Nummern werden vergeben, also kann unterwegs keine Kollision
+  // entstehen — ein Durchgang genügt.
   for (const c of changes) {
     await db.collection('tables').updateOne({ _id: c._id }, { $set: { number: c.number } });
   }
-  console.log(`Tischnummern pro Filiale vereinheitlicht (${changes.length} Tische umnummeriert).`);
+  console.log(`Doppelte Tischnummern aufgelöst (${changes.length} Tische).`);
 }
 
 export async function orgDbBySlug(slug: string): Promise<Db> {

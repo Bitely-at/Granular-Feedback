@@ -107,10 +107,13 @@ Fehlt er, **startet der Dienst nicht** — das ist Absicht, ein geratenes Geheim
 wäre schlimmer als ein Startfehler.
 
 Nach einem Deploy laufen beim ersten Aufruf automatisch die Migrationen
-(`ensureOrgSchema` in `db.ts`): Tischnummern werden pro Filiale neu vergeben,
-Gerichtsbewertungen auf Filialen aufgeteilt. **Bereits gedruckte QR-Codes aus
-der Zeit ohne Filiale im Pfad funktionieren danach nicht mehr** und müssen neu
-erzeugt werden (Admin → Einstellungen → QR-Codes).
+(`ensureOrgSchema` in `db.ts`): Index für Tischnummern je Filiale,
+Gerichtsbewertungen nach Filialen aufgeteilt, `branchIds` nachgetragen.
+**Tischnummern bleiben unverändert.**
+
+**Bereits gedruckte QR-Codes aus der Zeit ohne Filiale im Pfad funktionieren
+nicht mehr** — die Nummer allein ist nicht mehr eindeutig. Neue erzeugen unter
+Admin → Einstellungen → QR-Codes.
 
 Beide hängen am selben Repository und bauen bei einem Push unabhängig
 voneinander. `VITE_API_BASE_URL` wird **zur Buildzeit** ins Bundle geschrieben —
