@@ -81,6 +81,7 @@ async function ensureOrgSchema(db: Db): Promise<void> {
   );
 
   await renumberTablesPerBranch(db);
+  await splitDishRatingsPerBranch(db);
 
   // Erst NACH der Umnummerierung: vorher trägt der Altbestand noch
   // organisationsweite Nummern, die den Index verletzen würden.
@@ -99,6 +100,37 @@ async function ensureOrgSchema(db: Db): Promise<void> {
  * Nummeriert je Filiale auf 1…n durch, in der bisherigen Reihenfolge. Läuft
  * idempotent: passt alles schon, wird nichts geschrieben.
  */
+/**
+ * Bewertungen am Gericht waren kettenweit aufsummiert (ratingsSum/ratingsCount).
+ * Die Qualität unterscheidet sich aber je Filiale — deshalb wandern die Zähler
+ * nach ratingsByBranch.
+ *
+ * Der Altbestand kann nicht rückwirkend aufgeteilt werden: vor der Trennung
+ * stand nirgends, aus welcher Filiale eine Bewertung stammt. Er wird deshalb
+ * der ältesten Filiale zugeschlagen — dort standen bis dahin alle Tische.
+ */
+export async function splitDishRatingsPerBranch(db: Db): Promise<void> {
+  const legacy = await db.collection('dishes')
+    .find({ ratingsByBranch: { $exists: false } })
+    .toArray();
+  if (legacy.length === 0) return;
+
+  const firstBranch = await db.collection('branches').find().sort({ _id: 1 }).limit(1).next();
+  const key = firstBranch ? String(firstBranch._id) : null;
+
+  for (const dish of legacy) {
+    const sum = Number(dish.ratingsSum ?? 0);
+    const count = Number(dish.ratingsCount ?? 0);
+    // Ohne Filiale (frische Organisation) oder ohne Bewertungen: leer starten.
+    const byBranch = key && count > 0 ? { [key]: { sum, count } } : {};
+    await db.collection('dishes').updateOne(
+      { _id: dish._id },
+      { $set: { ratingsByBranch: byBranch }, $unset: { ratingsSum: '', ratingsCount: '' } }
+    );
+  }
+  console.log(`Gerichtsbewertungen auf Filialen aufgeteilt (${legacy.length} Gerichte).`);
+}
+
 export async function renumberTablesPerBranch(db: Db): Promise<void> {
   const tables = await db.collection('tables').find().sort({ number: 1 }).toArray();
 

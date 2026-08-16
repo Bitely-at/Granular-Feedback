@@ -43,8 +43,15 @@ export interface DishDoc {
   img: string;
   price: number;
   cat: 'Speisen' | 'Getränke';
-  ratingsSum: number;
-  ratingsCount: number;
+  /**
+   * Bewertungen getrennt nach Filiale — die Küche der einen sagt nichts über
+   * die der anderen. Schlüssel ist die Filial-ID als Zeichenkette.
+   *
+   * Am Draht bleibt es bei ratingsSum/ratingsCount: der Server rechnet sie
+   * passend zur angefragten Filiale aus (oder summiert für den Ketten-Blick
+   * des Admins). Die Oberfläche muss davon nichts wissen.
+   */
+  ratingsByBranch: Record<string, { sum: number; count: number }>;
 }
 
 export interface DishRatingInput {

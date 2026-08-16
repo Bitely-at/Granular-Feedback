@@ -20,6 +20,8 @@ const ORG_SLUG = process.env.ORG_SLUG ?? 'sakura-sushi';
 // Seed-Skript; abweichende Zugänge über die Umgebung setzbar.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@sakura.at';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'bitely123';
+// Filialleitung — darf nur ihre eigene Filiale, nichts Kettenweites.
+const MANAGER_EMAIL = process.env.MANAGER_EMAIL ?? 'manager@sakura.at';
 
 // Kennzeichnet die Testdatensätze, damit sie beim Aufräumen wiedererkannt
 // werden — auch wenn das Skript vorher abgebrochen ist.
@@ -60,13 +62,6 @@ const findBranch = (state, name) => state?.branches?.find(b => b.name === name);
 async function main() {
   console.log(`\nZiel: ${API_BASE}/api/${ORG_SLUG}\n`);
 
-  const initial = await req('GET', '/state');
-  if (initial.status !== 200) {
-    console.error(`Server nicht erreichbar oder Organisation unbekannt (HTTP ${initial.status}).`);
-    console.error(initial.json?.error ?? 'Läuft der Server? npm run server:dev');
-    process.exit(1);
-  }
-
   // ── 0) Rechteprüfung ──────────────────────────────────────────
   // Zuerst OHNE Token: die Verwaltungsrouten müssen abweisen. Erst danach
   // anmelden — sonst prüfte der Rest des Skripts nur den angemeldeten Fall.
@@ -106,6 +101,15 @@ async function main() {
       (state.json?.users ?? []).every(u => u.passwordHash === undefined));
   }
 
+  // Als Ketten-Admin (ohne feste Filiale) liefert /state ohne Parameter den
+  // Blick über alle Filialen.
+  const initial = await req('GET', '/state');
+  if (initial.status !== 200) {
+    console.error(`Zustand konnte nicht geladen werden (HTTP ${initial.status}).`);
+    console.error(initial.json?.error ?? 'Läuft der Server? npm run server:dev');
+    process.exit(1);
+  }
+
   const created = { dishId: null, voucherId: null, branchId: null, tableId: null };
 
   try {
@@ -137,7 +141,7 @@ async function main() {
       // Ein gelöschtes Gericht darf nicht auf einem Tisch zurückbleiben.
       const mainBranch = initial.json.branches[0];
       const beforeIds = new Set(initial.json.tables.map(t => t.id));
-      const table = await req('POST', '/tables', { count: 1, branchId: mainBranch.id });
+      const table = await req('POST', `/branches/${mainBranch.slug}/tables`, { count: 1 });
       // Über die ID finden, nicht über die höchste Nummer: die kann seit der
       // filialweisen Zählung in einer anderen Filiale liegen.
       const testTable = table.json.tables.find(t => !beforeIds.has(t.id));
@@ -198,7 +202,8 @@ async function main() {
       check('Fehlende Adresse wird mit 400 abgelehnt', noAddress.status === 400, `HTTP ${noAddress.status}`);
 
       // Eine Filiale mit Tischen zu löschen würde gedruckte QR-Codes ins Leere zeigen lassen.
-      const withTable = await req('POST', '/tables', { count: 1, branchId: created.branchId });
+      const newBranchSlug = branch.slug;
+      const withTable = await req('POST', `/branches/${newBranchSlug}/tables`, { count: 1 });
       const branchTable = withTable.json.tables.find(t => t.branchId === created.branchId);
       check('Neuer Tisch landet in der gewählten Filiale', branchTable?.branchId === created.branchId,
         `ist: ${branchTable?.branchId}`);
@@ -210,16 +215,62 @@ async function main() {
       const blocked = await req('DELETE', `/branches/${created.branchId}`);
       check('Filiale mit Tischen wird mit 409 abgelehnt', blocked.status === 409, `HTTP ${blocked.status}`);
 
-      await req('DELETE', `/tables/${branchTable.id}`);
+      await req('DELETE', `/branches/${newBranchSlug}/tables/${branchTable.id}`);
       const del = await req('DELETE', `/branches/${created.branchId}`);
       check('Nach Löschen der Tische geht die Filiale weg', del.status === 200, `HTTP ${del.status}`);
       check('… und sie ist verschwunden', !findBranch(del.json, `${MARK} Filiale`));
       created.branchId = null;
     }
+
+    // ── 4) Filialleitung darf nichts Kettenweites ────────────────
+    console.log('\n4) Rechte der Filialleitung');
+    {
+      const mgr = await req('POST', '/auth/login',
+        { email: MANAGER_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
+      if (mgr.status !== 200) {
+        console.log(`  \x1b[33mSKIP\x1b[0m  kein Filialleitungs-Konto (${MANAGER_EMAIL}) — Seed aktuell?`);
+      } else {
+        const adminToken = token;
+        token = mgr.json.token;
+
+        const dish = await req('POST', '/dishes', { name: `${MARK} Von Manager`, price: 5, cat: 'Speisen' });
+        check('Gericht anlegen: 403', dish.status === 403, `HTTP ${dish.status}`);
+
+        const voucher = await req('POST', '/vouchers', { title: `${MARK} Von Manager`, points: 10, expiry: '31.12.2026' });
+        check('Gutschein anlegen: 403', voucher.status === 403, `HTTP ${voucher.status}`);
+
+        const newBranch = await req('POST', '/branches', { name: `${MARK} Von Manager`, address: 'Teststraße 9' });
+        check('Filiale anlegen: 403', newBranch.status === 403, `HTTP ${newBranch.status}`);
+
+        const brand = await req('PATCH', '/settings/brand', { name: 'Umbenannt' });
+        check('Branding ändern: 403', brand.status === 403, `HTTP ${brand.status}`);
+
+        // Erlaubt: Servicekraft in der eigenen Filiale einladen.
+        const ownBranch = mgr.json.user.branchId;
+        const invite = await req('POST', '/users', {
+          name: `${MARK} Servicekraft`, email: `zz-pruef-kellner@example.com`, role: 'Kellner',
+        });
+        check('Servicekraft einladen: 200', invite.status === 200,
+          `HTTP ${invite.status} — ${invite.json?.error ?? ''}`);
+        const invited = invite.json?.users?.find(u => u.email === 'zz-pruef-kellner@example.com');
+        check('… landet in der eigenen Filiale', invited?.branchId === ownBranch,
+          `ist: ${invited?.branchId}, erwartet: ${ownBranch}`);
+
+        // Verboten: jemanden mit mehr Rechten anlegen.
+        const escalate = await req('POST', '/users', {
+          name: `${MARK} Zweitadmin`, email: 'zz-pruef-admin@example.com', role: 'Admin',
+        });
+        check('Admin anlegen: 403 (keine Rechteausweitung)', escalate.status === 403,
+          `HTTP ${escalate.status}`);
+
+        token = adminToken;
+        if (invited) await req('DELETE', `/users/${invited.id}`);
+      }
+    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
     // Läuft auch nach einem Abbruch mitten im Test, damit nichts liegenbleibt.
-    if (created.tableId) await req('DELETE', `/tables/${created.tableId}`);
+    if (created.tableId) await req('DELETE', `/branches/${initial.json.branches[0].slug}/tables/${created.tableId}`);
     if (created.dishId) await req('DELETE', `/dishes/${created.dishId}`);
     if (created.voucherId) await req('DELETE', `/vouchers/${created.voucherId}`);
     if (created.branchId) await req('DELETE', `/branches/${created.branchId}`);

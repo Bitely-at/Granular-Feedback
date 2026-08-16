@@ -19,10 +19,11 @@ scripts/             Verifikationsskripte
 (`bitely_org_<slug>`); die Registry liegt in `bitely_platform.organizations`.
 Alle Routen laufen unter `/api/:orgSlug/*`, aufgelöst von `resolveOrg`.
 
-**Ein Zustandsobjekt:** Fast jede schreibende Route antwortet mit
-`getFullState(db)` — dem kompletten Zustand der Organisation. Die Oberfläche
-ersetzt ihren Zustand damit vollständig und rät nie lokal. Wer eine neue Route
-baut, hält sich daran.
+**Ein Zustandsobjekt, eingegrenzt auf eine Filiale:** Fast jede schreibende
+Route antwortet mit `getFullState(db, branchId)`. Die Oberfläche ersetzt ihren
+Zustand damit vollständig und rät nie lokal. Die Reichweite bestimmt `scopeOf(req)`
+— Filiale aus dem Pfad, sonst die Bindung des Kontos, `null` = ganze Kette (nur
+Ketten-Admin). Wer eine neue Route baut, hält sich daran.
 
 ## Befehle
 
@@ -87,8 +88,32 @@ QR-Codes. Jede Filiale zählt ab 1.
   direkt zugewiesen (Tisch 7 → 5, während 5 noch belegt ist) würde sie
   unterwegs am eindeutigen Index scheitern.
 
-Woher die Filiale kommt: Gast aus der URL, Servicekraft aus dem Konto
-(`branchId`), Admin/Manager ohne feste Filiale aus dem Umschalter oben.
+Woher die Filiale kommt: Gast aus der URL, Servicekraft und Filialleitung aus
+dem Konto (`branchId`), Ketten-Admin aus dem Umschalter oben.
+
+## Was der Zustand zeigt
+
+`GET /state` liefert **nur die angefragte Filiale** — die Oberfläche filtert
+nicht, sie bekommt Fremdes gar nicht erst:
+
+```
+/state?branch=<slug>   diese Filiale
+/state?branch=all      alle (nur Konten OHNE feste Filiale)
+/state                 der Server entscheidet anhand des Kontos
+```
+
+- **Anonym ohne `?branch` gibt 400.** Ein stiller Rückfall auf „alles" würde die
+  Filialtrennung mit einem weggelassenen Parameter aushebeln.
+- Im Frontend heißt „der Server soll entscheiden" `scope: 'self'` (siehe
+  `BranchScope` in `store.tsx`). Das löst das Henne-Ei-Problem beim Seitenaufruf:
+  ob jemand an eine Filiale gebunden ist, weiß nur der Server.
+- **Filialgetrennt:** Tische, Bewertungen, Alarme, Gerichtsschnitte.
+  **Kettenweit:** Branding, Stammkarte, Gutscheine, Punkte des Gasts,
+  Filialliste.
+- **Gerichtsbewertungen liegen in `ratingsByBranch`**, weil sich die Qualität je
+  Filiale unterscheidet. Am Draht heißt es weiterhin `ratingsSum`/`ratingsCount`
+  — `serializeDish` rechnet sie auf die angefragte Filiale herunter oder
+  summiert für den Ketten-Blick. Die Oberfläche merkt davon nichts.
 
 ## Fallstricke
 
@@ -150,9 +175,20 @@ Tisch nicht.
   Abhängigkeit. `passwordHash: null` heißt *eingeladen, kann sich nicht
   anmelden*.
 - **Rechte liegen auf dem Server**, nicht in der Oberfläche: `requireAuth(...)`
-  in `index.ts` umschließt jeden geschützten Handler. `adminOnly` = Admin +
-  Manager, `staffOrAdmin` = zusätzlich Kellner. Die Prüfung in `OrgChrome`
+  in `index.ts` umschließt jeden geschützten Handler. Die Prüfung in `OrgChrome`
   versteckt nur, sie schützt nicht.
+
+Drei Rollen, und der Manager ist **Filialleitung**, nicht kleiner Admin:
+
+| | `chainAdmin` | `branchAdmin` | `staffOrAdmin` |
+|---|---|---|---|
+| | Admin | Admin, Manager | + Kellner |
+| Filialen, Branding, Stammkarte, Gutscheine | ✅ | ❌ | ❌ |
+| Tische/QR der eigenen Filiale, Benutzer | ✅ | ✅ | ❌ |
+| Bestellung buchen, Tisch schließen, Alarm | ✅ | ✅ | ✅ |
+
+Der Manager darf nur **Kellner** und nur in der **eigenen** Filiale anlegen —
+sonst wäre die Rollentrennung mit einer Einladung ausgehebelt (`POST /users`).
 - `requireAuth` umschließt den Handler, statt eigene Middleware zu sein — der
   zentrale Promise-Patch unten in `index.ts` gilt nur für **einen** Handler
   pro Route, ein zweites Argument fiele weg.
@@ -169,14 +205,6 @@ Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
 `/auth/login`). Passwort-Vergabe für eingeladene Benutzer fehlt noch — bis dahin
 vergibt nur das Seed-Skript Passwörter.
 
-**Filial-Scoping ist nur bei den Tischen fertig.** Tischliste, Zähler, Anlage,
-QR-Codes und die Kellneransicht hängen an der Filiale. Dashboard, Bewertungen
-und Menü sind weiterhin organisationsweit — deshalb steht auf dem Dashboard
-bewusst „alle Filialen" statt eines Filialnamens, der eine Filterung behaupten
-würde, die es nicht gibt.
-
-`getFullState` liefert weiterhin **alle** Tische aller Filialen; gefiltert wird
-in der Oberfläche. Für die Mandantentrennung ist das ohne Belang (jede
-Organisation hat ihre eigene Datenbank), innerhalb einer Organisation sieht eine
-Servicekraft aber die Tischdaten fremder Filialen, wenn sie die Antwort direkt
-ausliest. Schreiben kann sie dort nichts — das verhindert `withBranch`.
+**Das Menü ist noch nicht filialgetrennt.** Alle Filialen führen dieselbe Karte;
+`dishes` hat kein `branchIds`. Die Bewertungen *sind* getrennt, die Karte selbst
+noch nicht.

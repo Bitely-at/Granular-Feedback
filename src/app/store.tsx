@@ -212,8 +212,8 @@ interface StoreApi extends OrgState {
   removeUser: (id: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
   updateDishImage: (dishId: string, img: string) => Promise<void>;
-  addTables: (count: number, branchId?: string | null) => Promise<void>;
-  removeTable: (id: string) => Promise<void>;
+  addTables: (branchSlug: string, count: number) => Promise<void>;
+  removeTable: (branchSlug: string, id: string) => Promise<void>;
   addDish: (d: DishInput) => Promise<void>;
   updateDish: (id: string, d: Partial<DishInput>) => Promise<void>;
   removeDish: (id: string) => Promise<void>;
@@ -232,16 +232,54 @@ const EMPTY_STATE: OrgState = {
   guest: { loggedIn: false, points: 0, redeemed: [] },
 };
 
-export function StoreProvider({ orgSlug, children }: { orgSlug: string; children: ReactNode }) {
+/**
+ * Welche Filiale der Zustand abbildet:
+ *
+ *   '<slug>'  genau diese Filiale
+ *   'all'     alle Filialen (nur für Konten ohne feste Filiale)
+ *   'self'    der Server entscheidet anhand des angemeldeten Kontos
+ *   null      noch unbekannt — es wird gar nicht geladen
+ *
+ * 'self' löst das Henne-Ei-Problem beim Seitenaufruf: ob jemand an eine Filiale
+ * gebunden ist, weiß nur der Server. Die Servicekraft bekommt so ihre Filiale,
+ * der Ketten-Admin den Blick über alles — ohne dass die Oberfläche vorher
+ * wissen muss, wer geladen hat.
+ */
+export type BranchScope = string | 'all' | 'self' | null;
+
+export function StoreProvider({ orgSlug, scope, children }: {
+  orgSlug: string; scope: BranchScope; children: ReactNode;
+}) {
   const [state, setState] = useState<OrgState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Der Server liefert nur die Daten der angefragten Filiale — die Oberfläche
+  // filtert nicht selbst. Ohne bekannte Filiale wird gar nicht erst geladen.
+  const refresh = useCallback(async () => {
+    if (!scope) return;
+    try {
+      setError(null);
+      // 'self' lässt den Parameter weg — dann leitet der Server die Filiale aus
+      // dem Token ab.
+      const query = scope === 'self' ? '' : `?branch=${encodeURIComponent(scope)}`;
+      const data = await api<OrgState>(orgSlug, `/state${query}`);
+      setState(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verbindung zum Server fehlgeschlagen.');
+    } finally {
+      setLoading(false);
+    }
+  }, [orgSlug, scope]);
+
+  useEffect(() => { if (scope) setLoading(true); refresh(); }, [refresh, scope]);
+
   const logout = useCallback(() => {
     writeToken(orgSlug, null);
     setAuthUser(null);
+    setState(EMPTY_STATE);
   }, [orgSlug]);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -252,7 +290,12 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     });
     writeToken(orgSlug, data.token);
     setAuthUser(data.user);
-  }, [orgSlug]);
+    // Der bisherige Zustand galt für einen anonymen Aufruf und ist meist leer
+    // (ohne Anmeldung lehnt /state ohne Filiale ab). Jetzt neu laden, damit die
+    // Reichweite des frisch angemeldeten Kontos gilt.
+    setLoading(true);
+    await refresh();
+  }, [orgSlug, refresh]);
 
   // Gespeichertes Token beim Seitenaufruf gegen den Server prüfen: nur er weiß,
   // ob es abgelaufen ist oder das Konto inzwischen deaktiviert wurde.
@@ -266,20 +309,6 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
       .finally(() => { if (!cancelled) setAuthLoading(false); });
     return () => { cancelled = true; };
   }, [orgSlug]);
-
-  const refresh = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await api<OrgState>(orgSlug, '/state');
-      setState(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verbindung zum Server fehlgeschlagen.');
-    } finally {
-      setLoading(false);
-    }
-  }, [orgSlug]);
-
-  useEffect(() => { setLoading(true); refresh(); }, [refresh]);
 
   // Jeder Aufruf außer /state und /auth/*. Läuft die Sitzung ab, während jemand
   // arbeitet, antwortet der Server mit 401 — dann wird das tote Token verworfen
@@ -351,12 +380,12 @@ export function StoreProvider({ orgSlug, children }: { orgSlug: string; children
     setState(await call<OrgState>(`/dishes/${dishId}/image`, { method: 'PATCH', body: JSON.stringify({ img }) }));
   }, [call]);
 
-  const addTables = useCallback(async (count: number, branchId?: string | null) => {
-    setState(await call<OrgState>('/tables', { method: 'POST', body: JSON.stringify({ count, branchId }) }));
+  const addTables = useCallback(async (branchSlug: string, count: number) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables`, { method: 'POST', body: JSON.stringify({ count }) }));
   }, [call]);
 
-  const removeTable = useCallback(async (id: string) => {
-    setState(await call<OrgState>(`/tables/${id}`, { method: 'DELETE' }));
+  const removeTable = useCallback(async (branchSlug: string, id: string) => {
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${id}`, { method: 'DELETE' }));
   }, [call]);
 
   // Menü-, Gutschein- und Filialverwaltung: alle nach demselben Muster —

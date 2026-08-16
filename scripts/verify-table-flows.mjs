@@ -22,6 +22,8 @@ const ORG_SLUG = process.env.ORG_SLUG ?? 'sakura-sushi';
 // Bewerten bleibt öffentlich (der Gast hat kein Konto).
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@sakura.at';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'bitely123';
+// Filialleitung — gebunden an eine Filiale, für die Prüfung der Filialtrennung.
+const MANAGER_EMAIL = process.env.MANAGER_EMAIL ?? 'manager@sakura.at';
 
 let token = null;
 let passed = 0;
@@ -60,29 +62,32 @@ async function main() {
   console.log(`\nZiel: ${API_BASE}/api/${ORG_SLUG}\n`);
 
   // ── Vorbereitung ────────────────────────────────────────────────
-  const initial = await req('GET', '/state');
-  if (initial.status !== 200) {
-    console.error(`Server nicht erreichbar oder Organisation unbekannt (HTTP ${initial.status}).`);
-    console.error(initial.json?.error ?? 'Läuft der Server? npm run server:dev');
+  // Zuerst anmelden: /state verlangt eine Filiale, und welche es gibt, steht
+  // erst in der Antwort. Als Ketten-Admin (ohne feste Filiale) liefert /state
+  // ohne Parameter den Blick über alles — daraus wählen wir die Testfiliale.
+  const login = await req('POST', '/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
+  if (login.status !== 200) {
+    console.error(`Anmeldung fehlgeschlagen (HTTP ${login.status}): ${login.json?.error ?? ''}`);
+    console.error('Läuft der Server (npm run server:dev) und wurde geseedet (npm run server:seed)?');
     process.exit(1);
   }
-  const dish = initial.json.dishes[0];
+  token = login.json.token;
+
+  const all = await req('GET', '/state');
+  if (all.status !== 200) {
+    console.error(`Server nicht erreichbar oder Organisation unbekannt (HTTP ${all.status}).`);
+    console.error(all.json?.error ?? 'Läuft der Server? npm run server:dev');
+    process.exit(1);
+  }
+  const dish = all.json.dishes[0];
   if (!dish) {
     console.error('Keine Gerichte vorhanden — bitte zuerst seeden: npm run seed --prefix server');
     process.exit(1);
   }
 
-  const login = await req('POST', '/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
-  if (login.status !== 200) {
-    console.error(`Anmeldung fehlgeschlagen (HTTP ${login.status}): ${login.json?.error ?? ''}`);
-    console.error('Läuft "npm run server:seed" gegen dieselbe Datenbank?');
-    process.exit(1);
-  }
-  token = login.json.token;
-
   // Tischnummern sind seit T-2 nur PRO Filiale eindeutig — jeder Aufruf braucht
   // die Filiale dazu.
-  const branch = initial.json.branches[0];
+  const branch = all.json.branches[0];
   if (!branch) {
     console.error('Keine Filiale vorhanden — bitte zuerst seeden: npm run seed --prefix server');
     process.exit(1);
@@ -90,8 +95,9 @@ async function main() {
   const B = branch.slug;
   branchId = branch.id;
 
-  const before = new Set(initial.json.tables.filter(t => t.branchId === branch.id).map(t => t.id));
-  const created = await req('POST', '/tables', { count: 1, branchId: branch.id });
+  const initial = await req('GET', `/state?branch=${B}`);
+  const before = new Set(initial.json.tables.map(t => t.id));
+  const created = await req('POST', `/branches/${B}/tables`, { count: 1 });
   if (created.status !== 200) {
     console.error(`Testtisch konnte nicht angelegt werden (HTTP ${created.status}).`);
     process.exit(1);
@@ -121,7 +127,7 @@ async function main() {
         `ist: ${tableIn(afterClose.json, n)?.status}`);
 
       // Der entscheidende Teil: frisch aus der Datenbank nachlesen.
-      const reread = await req('GET', '/state');
+      const reread = await req('GET', `/state?branch=${B}`);
       const t = tableIn(reread.json, n);
       check('Nach erneutem Laden weiterhin "frei"', t?.status === 'frei', `ist: ${t?.status}`);
       check('Nach erneutem Laden keine Positionen mehr', t?.items?.length === 0,
@@ -207,7 +213,8 @@ async function main() {
     // Der Kern von T-2. Mit nur einer Filiale nicht prüfbar — dann übersprungen.
     console.log('\n5) Tisch N in Filiale A ist ein anderer Tisch als Tisch N in Filiale B');
     {
-      const state = await req('GET', '/state');
+      // Ketten-Blick: nur der zeigt die Tische beider Filialen nebeneinander.
+      const state = await req('GET', '/state?branch=all');
       const other = state.json.branches.find(b => b.id !== branch.id);
       if (!other) {
         console.log('  \x1b[33mSKIP\x1b[0m  nur eine Filiale vorhanden (npm run server:seed legt zwei an)');
@@ -242,9 +249,67 @@ async function main() {
         check('Unbekannte Filiale wird mit 404 abgewiesen', badBranch.status === 404, `HTTP ${badBranch.status}`);
       }
     }
+
+    // ── Fall 6: Der Zustand selbst ist filialgetrennt ─────────────
+    // Nicht die Oberfläche blendet aus — der Server liefert erst gar nichts
+    // Fremdes. Geprüft mit dem Konto der Filialleitung.
+    console.log('\n6) Filialleitung bekommt ausschließlich die eigene Filiale');
+    {
+      const mgr = await req('POST', '/auth/login',
+        { email: MANAGER_EMAIL, password: ADMIN_PASSWORD }, { auth: false });
+      if (mgr.status !== 200) {
+        console.log(`  \x1b[33mSKIP\x1b[0m  kein Filialleitungs-Konto (${MANAGER_EMAIL}) — Seed aktuell?`);
+      } else {
+        const adminToken = token;
+        token = mgr.json.token;
+        const own = mgr.json.user.branchId;
+        check('Konto der Filialleitung ist an eine Filiale gebunden', Boolean(own), `branchId: ${own}`);
+
+        const scoped = await req('GET', '/state');
+        check('Zustand ohne Parameter liefert 200', scoped.status === 200, `HTTP ${scoped.status}`);
+        check('… und enthält NUR Tische der eigenen Filiale',
+          (scoped.json?.tables ?? []).every(t => t.branchId === own),
+          `fremde Tische: ${(scoped.json?.tables ?? []).filter(t => t.branchId !== own).length}`);
+        check('… und NUR Bewertungen der eigenen Filiale',
+          (scoped.json?.reviews ?? []).every(r => r.branchId === own));
+        check('… und NUR Alarme der eigenen Filiale',
+          (scoped.json?.alerts ?? []).every(a => a.branchId === own));
+
+        const foreign = all.json.branches.find(b => b.id !== own);
+        if (foreign) {
+          const peek = await req('GET', `/state?branch=${foreign.slug}`);
+          check('Fremde Filiale anzufragen wird mit 403 abgelehnt', peek.status === 403,
+            `HTTP ${peek.status}`);
+        }
+        const chain = await req('GET', '/state?branch=all');
+        check('Ketten-Blick wird der Filialleitung mit 403 verwehrt', chain.status === 403,
+          `HTTP ${chain.status}`);
+
+        const chainAction = await req('POST', '/dishes', { name: 'ZZ-Verboten', price: 5, cat: 'Speisen' });
+        check('Stammkarte ändern wird mit 403 verwehrt', chainAction.status === 403,
+          `HTTP ${chainAction.status}`);
+
+        token = adminToken;
+      }
+    }
+
+    // ── Fall 7: Anonym ohne Filiale ──────────────────────────────
+    console.log('\n7) Anonymer Aufruf muss eine Filiale nennen');
+    {
+      const noBranch = await req('GET', '/state', undefined, { auth: false });
+      check('Ohne Anmeldung und ohne Filiale: 400', noBranch.status === 400, `HTTP ${noBranch.status}`);
+
+      const allAnon = await req('GET', '/state?branch=all', undefined, { auth: false });
+      check('Ketten-Blick ohne Anmeldung: 401', allAnon.status === 401, `HTTP ${allAnon.status}`);
+
+      const okAnon = await req('GET', `/state?branch=${B}`, undefined, { auth: false });
+      check('Mit Filiale darf der Gast laden', okAnon.status === 200, `HTTP ${okAnon.status}`);
+      check('… und sieht nur diese Filiale',
+        (okAnon.json?.tables ?? []).every(t => t.branchId === branchId));
+    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
-    const del = await req('DELETE', `/tables/${testTable.id}`);
+    const del = await req('DELETE', `/branches/${B}/tables/${testTable.id}`);
     console.log(`\nTesttisch ${n} gelöscht (HTTP ${del.status}).`);
   }
 

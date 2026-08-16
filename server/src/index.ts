@@ -5,7 +5,7 @@ import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import { verifyPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
 import type {
-  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch,
+  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch, DishDoc,
 } from './types.js';
 
 const app = express();
@@ -59,7 +59,40 @@ function serializeUser(doc: WithId<UserDoc>) {
   return { id: String(_id), ...rest };
 }
 
+/**
+ * Rechnet die filialweise gespeicherten Bewertungen auf die eine Filiale
+ * herunter, die gerade betrachtet wird — oder summiert sie über alle für den
+ * Ketten-Blick des Admins (branchId === null).
+ *
+ * Nach außen heißt das weiterhin ratingsSum/ratingsCount: die Oberfläche
+ * rechnet unverändert damit und bekommt automatisch die richtigen Zahlen.
+ */
+function serializeDish(doc: WithId<DishDoc>, branchId: string | null) {
+  const { _id, ratingsByBranch, ...rest } = doc;
+  const buckets = branchId ? [ratingsByBranch?.[branchId]] : Object.values(ratingsByBranch ?? {});
+  let sum = 0;
+  let count = 0;
+  for (const b of buckets) {
+    if (!b) continue;
+    sum += b.sum;
+    count += b.count;
+  }
+  return { id: String(_id), ...rest, ratingsSum: sum, ratingsCount: count };
+}
+
 type RouteHandler = (req: OrgRequest, res: Response, next: NextFunction) => unknown;
+
+/**
+ * Liest das Token aus dem Authorization-Header, sofern eines mitkam und es zu
+ * DIESER Organisation gehört. Gibt null zurück, statt zu antworten — die
+ * Aufrufer gehen unterschiedlich damit um (Gastrouten dürfen ohne).
+ */
+function readUser(req: OrgRequest): TokenPayload | null {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const payload = token ? verifyToken(token) : null;
+  return payload && payload.orgSlug === req.params.orgSlug ? payload : null;
+}
 
 /**
  * Erzwingt Anmeldung + Rolle serverseitig. Verpackt einen bestehenden
@@ -67,19 +100,17 @@ type RouteHandler = (req: OrgRequest, res: Response, next: NextFunction) => unkn
  * zentrale Promise-Fehlerbehandlung unten patcht router.METHOD auf genau
  * EINEN Handler pro Route, ein zweites Argument würde also verworfen.
  *
- * Bindet das Token zusätzlich an :orgSlug — ein Token aus Organisation A
- * darf Organisation B nicht ansprechen können.
+ * Das Token ist an :orgSlug gebunden (readUser) — eines aus Organisation A
+ * kann Organisation B nicht ansprechen.
  */
 function requireAuth(...roles: UserDoc['role'][]) {
   return (handler: RouteHandler): RouteHandler => (req, res, next) => {
-    const header = req.headers.authorization;
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-    if (!token) {
+    if (!req.headers.authorization) {
       res.status(401).json({ error: 'Anmeldung erforderlich.' });
       return;
     }
-    const payload = verifyToken(token);
-    if (!payload || payload.orgSlug !== req.params.orgSlug) {
+    const payload = readUser(req);
+    if (!payload) {
       res.status(401).json({ error: 'Sitzung ungültig oder abgelaufen. Bitte erneut anmelden.' });
       return;
     }
@@ -121,6 +152,19 @@ function withBranch(handler: RouteHandler): RouteHandler {
 /** Tisch innerhalb der aufgelösten Filiale. Nie ohne withBranch verwenden. */
 async function findTableInBranch(req: OrgRequest, number: number) {
   return req.db!.collection('tables').findOne({ branchId: String(req.branch!._id), number });
+}
+
+/**
+ * Auf welche Filiale die Antwort eingegrenzt wird. Steht eine Filiale im Pfad,
+ * gilt sie; sonst entscheidet die Bindung des angemeldeten Kontos. null heißt
+ * Ketten-Blick und kommt nur für Konten ohne feste Filiale zustande (Admin).
+ *
+ * Damit trägt JEDE Antwort automatisch die richtige Reichweite — auch die auf
+ * eine schreibende Route, die ja den neuen Gesamtzustand zurückgibt.
+ */
+function scopeOf(req: OrgRequest): string | null {
+  if (req.branch) return String(req.branch._id);
+  return req.user?.branchId ?? null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -270,18 +314,30 @@ function sanitizeOverall(raw: unknown): { service: number; ambience: number; spe
   };
 }
 
-async function getFullState(db: Db) {
+/**
+ * Zustand EINER Organisation, eingegrenzt auf eine Filiale.
+ *
+ * `branchId === null` heißt Ketten-Blick (nur für den Admin): alle Filialen,
+ * Gerichtsschnitte über alles summiert. Sonst sieht der Aufrufer ausschließlich
+ * Tische, Bewertungen und Alarme SEINER Filiale — eine Servicekraft bekommt
+ * fremde Filialdaten damit gar nicht erst ins Haus, statt sie nur auszublenden.
+ *
+ * Filialübergreifend bleiben: Branding (gehört der Marke), Gutscheine und
+ * Punkte des Gasts (er sammelt in der ganzen Kette) sowie die Filialliste.
+ */
+async function getFullState(db: Db, branchId: string | null) {
+  const branchFilter = branchId ? { branchId } : {};
   const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, guestDoc] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection('branches').find().toArray(),
     db.collection('dishes').find().toArray(),
-    db.collection('tables').find().toArray(),
+    db.collection('tables').find(branchFilter).toArray(),
     db.collection('vouchers').find().toArray(),
     db.collection('users').find().toArray(),
-    db.collection('alerts').find().sort({ createdAt: -1 }).toArray(),
+    db.collection('alerts').find(branchFilter).sort({ createdAt: -1 }).toArray(),
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
-    db.collection('reviews').find().sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
+    db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
     db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' }),
   ]);
 
@@ -296,7 +352,7 @@ async function getFullState(db: Db) {
       font: brandDoc.font ?? 'Inter', cardStyle: brandDoc.cardStyle ?? 'standard',
     } : null,
     branches: branches.map(serialize),
-    dishes: dishes.map(serialize),
+    dishes: (dishes as WithId<DishDoc>[]).map(d => serializeDish(d, branchId)),
     tables: tables.map(serialize),
     vouchers: vouchers.map(serialize),
     users: (users as WithId<UserDoc>[]).map(serializeUser),
@@ -377,10 +433,8 @@ router.post('/auth/login', async (req: OrgRequest, res) => {
 
 // ── Anmeldung prüfen (z. B. nach Seiten-Reload, bevor der gespeicherte Token verworfen wird) ──
 router.get('/auth/me', async (req: OrgRequest, res) => {
-  const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-  const payload = token ? verifyToken(token) : null;
-  if (!payload || payload.orgSlug !== req.params.orgSlug) {
+  const payload = readUser(req);
+  if (!payload) {
     res.status(401).json({ error: 'Sitzung ungültig oder abgelaufen.' });
     return;
   }
@@ -392,9 +446,53 @@ router.get('/auth/me', async (req: OrgRequest, res) => {
   res.json({ user: serializeUser(user) });
 });
 
-// ── Gesamtzustand einer Organisation (ein Aufruf pro Seitenladung) ──
+/**
+ * ── Zustand einer Filiale (ein Aufruf pro Seitenladung) ──
+ *
+ *   /state?branch=<slug>   Daten dieser Filiale
+ *   /state?branch=all      alle Filialen — nur für Konten OHNE feste Filiale
+ *
+ * Ohne Angabe entscheidet die Bindung des Kontos. Ein anonymer Aufruf (der
+ * Gast am QR-Code) MUSS eine Filiale nennen: gäbe es hier einen stillen
+ * Rückfall auf "alles", wäre die Filialtrennung mit einem weggelassenen
+ * Parameter ausgehebelt.
+ */
 router.get('/state', async (req: OrgRequest, res) => {
-  res.json(await getFullState(req.db!));
+  const wanted = typeof req.query.branch === 'string' ? req.query.branch : null;
+  const user = readUser(req);
+
+  if (wanted === 'all') {
+    if (!user) {
+      res.status(401).json({ error: 'Für den Blick über alle Filialen ist eine Anmeldung nötig.' });
+      return;
+    }
+    if (user.branchId) {
+      res.status(403).json({ error: 'Dein Konto ist an eine Filiale gebunden.' });
+      return;
+    }
+    res.json(await getFullState(req.db!, null));
+    return;
+  }
+
+  if (wanted) {
+    const branch = await req.db!.collection<Branch>('branches').findOne({ slug: wanted });
+    if (!branch) {
+      res.status(404).json({ error: `Filiale '${wanted}' wurde nicht gefunden.` });
+      return;
+    }
+    if (user?.branchId && user.branchId !== String(branch._id)) {
+      res.status(403).json({ error: 'Diese Filiale gehört nicht zu deinem Konto.' });
+      return;
+    }
+    res.json(await getFullState(req.db!, String(branch._id)));
+    return;
+  }
+
+  if (!user) {
+    res.status(400).json({ error: 'Es muss eine Filiale angegeben werden (?branch=<slug>).' });
+    return;
+  }
+  res.json(await getFullState(req.db!, user.branchId ?? null));
 });
 
 // ── Tisch per Nummer holen (für QR-Route /:orgSlug/:branchSlug/table/:number) ──
@@ -407,42 +505,58 @@ router.get('/branches/:branchSlug/tables/:number', withBranch(async (req: OrgReq
   res.json(serialize(table));
 }));
 
-// Wer darf was. Manager gilt überall als Admin; für die Tischarbeit sind
-// zusätzlich Kellner zugelassen.
-const adminOnly = requireAuth('Admin', 'Manager');
+// ═══════════════════════════════════════════════════════════
+// WER DARF WAS
+//
+// Admin   — die ganze Kette: Filialen, Branding, Stammkarte, Benutzer.
+// Manager — Filialleitung: alles rund um SEINE Filiale, nichts kettenweites.
+//           Die Filialbindung erzwingt withBranch bzw. scopeOf; hier steht nur,
+//           welche Art von Aktion die Rolle überhaupt ausführen darf.
+// Kellner — nur die Tischarbeit in seiner Filiale.
+// ═══════════════════════════════════════════════════════════
+
+/** Kettenweite Verwaltung: Filialen, Branding, Stammkarte, Gutscheine, Benutzer. */
+const chainAdmin = requireAuth('Admin');
+/** Filialverwaltung: Tische, QR-Codes, Verfügbarkeiten der eigenen Filiale. */
+const branchAdmin = requireAuth('Admin', 'Manager');
+/** Tischarbeit. */
 const staffOrAdmin = requireAuth('Admin', 'Manager', 'Kellner');
 
-// ── Admin: neue Tische anlegen (damit eigene QR-Codes generiert werden können) ──
-router.post('/tables', adminOnly(async (req: OrgRequest, res) => {
+// ── Tische anlegen (und damit QR-Codes) — Filialleitung genügt ──
+// Liegt unter der Filiale, damit withBranch die Bindung des Managers
+// durchsetzt: er kann keine Tische in einer fremden Filiale anlegen.
+router.post('/branches/:branchSlug/tables', branchAdmin(withBranch(async (req: OrgRequest, res) => {
   const db = req.db!;
+  const branchId = String(req.branch!._id);
   const count = Math.max(1, Math.min(50, Number(req.body?.count) || 1));
-  // Ohne Angabe landen neue Tische in der ersten Filiale — so verhält sich die
-  // Route wie vor der Filialverwaltung.
-  const branch = req.body?.branchId
-    ? await db.collection('branches').findOne({ _id: requireObjectId(req.body.branchId, 'Filial-ID') })
-    : await db.collection('branches').findOne({});
-  if (!branch) {
-    res.status(400).json({ error: 'Es existiert noch keine Filiale für diese Organisation.' });
-    return;
-  }
   // Innerhalb DIESER Filiale weiterzählen: Nummern sind pro Filiale eindeutig,
   // jede Filiale fängt bei 1 an.
   const existing = await db.collection('tables')
-    .find({ branchId: String(branch._id) }).sort({ number: -1 }).limit(1).toArray();
+    .find({ branchId }).sort({ number: -1 }).limit(1).toArray();
   const nextNumber = (existing[0]?.number ?? 0) + 1;
-  const newTables = Array.from({ length: count }, (_, i) => ({
-    branchId: String(branch._id), number: nextNumber + i,
-    status: 'frei' as const, items: [], openedAt: null, orderId: null,
-  }));
-  await db.collection('tables').insertMany(newTables);
-  res.json(await getFullState(db));
-}));
+  await db.collection('tables').insertMany(
+    Array.from({ length: count }, (_, i) => ({
+      branchId, number: nextNumber + i,
+      status: 'frei' as const, items: [], openedAt: null, orderId: null,
+    }))
+  );
+  res.json(await getFullState(db, scopeOf(req)));
+})));
 
-// ── Admin: Tisch (und damit seinen QR-Code) wieder entfernen ──
-router.delete('/tables/:id', adminOnly(async (req: OrgRequest, res) => {
-  await req.db!.collection('tables').deleteOne({ _id: requireObjectId(req.params.id, 'Tisch-ID') });
-  res.json(await getFullState(req.db!));
-}));
+// ── Tisch (und damit seinen QR-Code) wieder entfernen ──
+router.delete('/branches/:branchSlug/tables/:id', branchAdmin(withBranch(async (req: OrgRequest, res) => {
+  // An die Filiale gebunden mitlöschen: sonst könnte eine Filialleitung über
+  // eine fremde Tisch-ID doch einen Tisch anderswo entfernen.
+  const result = await req.db!.collection('tables').deleteOne({
+    _id: requireObjectId(req.params.id, 'Tisch-ID'),
+    branchId: String(req.branch!._id),
+  });
+  if (result.deletedCount === 0) {
+    res.status(404).json({ error: 'Tisch wurde in dieser Filiale nicht gefunden.' });
+    return;
+  }
+  res.json(await getFullState(req.db!, scopeOf(req)));
+})));
 
 // ── Kellner: Bestellung für einen Tisch speichern ──
 router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranch(async (req: OrgRequest, res, next) => {
@@ -477,7 +591,7 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
         },
       }
     );
-    res.json(await getFullState(req.db!));
+    res.json(await getFullState(req.db!, scopeOf(req)));
   } catch (err) {
     next(err);
   }
@@ -498,7 +612,7 @@ router.post('/branches/:branchSlug/tables/:number/close', staffOrAdmin(withBranc
       { _id: table._id },
       { $set: { status: 'frei', items: [], orderId: null, openedAt: null } }
     );
-    res.json(await getFullState(req.db!));
+    res.json(await getFullState(req.db!, scopeOf(req)));
   } catch (err) {
     next(err);
   }
@@ -532,7 +646,7 @@ router.post('/branches/:branchSlug/tables/:number/items', withBranch(async (req:
         },
       }
     );
-    res.json(await getFullState(req.db!));
+    res.json(await getFullState(req.db!, scopeOf(req)));
   } catch (err) {
     next(err);
   }
@@ -582,11 +696,20 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     const ratedCount = dishRatings.filter(d => d.stars > 0).length;
     const pointsEarned = ratedCount * 20 + 30;
 
+    // Sterne zählen auf das Konto DIESER Filiale: die Küche der einen sagt
+    // nichts über die der anderen. Der Ketten-Schnitt entsteht daraus durch
+    // Summieren (serializeDish), nicht durch einen zweiten Zähler.
+    const branchKey = String(table.branchId);
     for (const r of dishRatings) {
       if (r.stars <= 0) continue;
       await db.collection('dishes').updateOne(
         { _id: new ObjectId(r.dishId) },
-        { $inc: { ratingsSum: r.stars, ratingsCount: 1 } }
+        {
+          $inc: {
+            [`ratingsByBranch.${branchKey}.sum`]: r.stars,
+            [`ratingsByBranch.${branchKey}.count`]: 1,
+          },
+        }
       );
     }
 
@@ -616,7 +739,7 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
       { $set: { status: 'abgeschlossen', items: [], orderId: null } }
     );
 
-    const state = await getFullState(db);
+    const state = await getFullState(db, scopeOf(req));
     res.json({ ...state, pointsEarned });
   } catch (err) {
     next(err);
@@ -647,7 +770,7 @@ router.post('/vouchers/:id/redeem', async (req: OrgRequest, res) => {
     { $inc: { points: -voucher.points }, $push: { redeemed: req.params.id } },
     { upsert: true }
   );
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 });
 
 // ── Gast: Demo-Login (kein echtes Auth-System — bewusst nicht Teil des Produkts) ──
@@ -655,7 +778,7 @@ router.post('/guest/login', async (req: OrgRequest, res) => {
   await req.db!.collection<GuestProfileDoc>('guestProfile').updateOne(
     { _id: 'default' }, { $set: { loggedIn: true } }, { upsert: true }
   );
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 });
 
 // ── Kellner: Alarm-Banner (Bewertung < 3 Sterne) als erledigt markieren ──
@@ -664,19 +787,43 @@ router.post('/alerts/:id/resolve', staffOrAdmin(async (req: OrgRequest, res) => 
     { _id: requireObjectId(req.params.id, 'Alarm-ID') },
     { $set: { resolved: true } }
   );
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 }));
 
-// ── Admin: Benutzer verwalten ──
+// ── Benutzer verwalten ──
+//
+// Der Admin verwaltet die ganze Kette. Die Filialleitung darf nur Kellner und
+// nur in der eigenen Filiale anlegen — ohne das müsste sie bei jedem neuen
+// Mitarbeiter den Ketten-Admin anrufen, und Personalwechsel ist in der Gastro
+// der häufigste Vorgang überhaupt.
+//
 // Eingeladene Benutzer haben noch kein Passwort und können sich deshalb nicht
-// anmelden. Das Setzen des Passworts ist bewusst noch nicht Teil dieses Tickets;
-// bis dahin vergibt es das Seed-Skript.
-router.post('/users', adminOnly(async (req: OrgRequest, res) => {
+// anmelden. Das Setzen des Passworts ist noch nicht gebaut; bis dahin vergibt
+// es das Seed-Skript.
+router.post('/users', branchAdmin(async (req: OrgRequest, res) => {
+  const actor = req.user!;
   const email = requireText(req.body?.email, 'E-Mail', 200).toLowerCase();
   const role = req.body?.role;
   if (role !== 'Admin' && role !== 'Manager' && role !== 'Kellner') {
     throw new HttpError(400, 'Rolle muss Admin, Manager oder Kellner sein.');
   }
+
+  // Eine Filialleitung darf niemanden anlegen, der mehr darf als sie selbst —
+  // sonst wäre die Rollentrennung mit einer einzigen Einladung ausgehebelt.
+  const isChainAdmin = actor.role === 'Admin';
+  if (!isChainAdmin && role !== 'Kellner') {
+    res.status(403).json({ error: 'Als Filialleitung kannst du nur Servicekräfte anlegen.' });
+    return;
+  }
+
+  let branchId: string | null;
+  if (isChainAdmin) {
+    branchId = req.body?.branchId ? String(requireObjectId(req.body.branchId, 'Filial-ID')) : null;
+  } else {
+    // Die eigene Filiale, unabhängig davon, was im Body steht.
+    branchId = actor.branchId;
+  }
+
   if (await req.db!.collection('users').countDocuments({ email }) > 0) {
     res.status(409).json({ error: 'Für diese E-Mail existiert bereits ein Benutzer.' });
     return;
@@ -686,22 +833,34 @@ router.post('/users', adminOnly(async (req: OrgRequest, res) => {
     email,
     passwordHash: null,
     role,
-    branchId: req.body?.branchId ? String(requireObjectId(req.body.branchId, 'Filial-ID')) : null,
+    branchId,
     status: 'eingeladen',
   });
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 }));
 
-router.delete('/users/:id', adminOnly(async (req: OrgRequest, res) => {
+router.delete('/users/:id', branchAdmin(async (req: OrgRequest, res) => {
+  const actor = req.user!;
   const id = requireObjectId(req.params.id, 'Benutzer-ID');
   // Sich selbst zu löschen würde den Zugang sofort verlieren; und der letzte
   // Admin muss stehen bleiben, sonst kommt niemand mehr in die Verwaltung.
-  if (String(id) === req.user!.sub) {
+  if (String(id) === actor.sub) {
     res.status(400).json({ error: 'Das eigene Konto kann nicht gelöscht werden.' });
     return;
   }
   const target = await req.db!.collection<UserDoc>('users').findOne({ _id: id });
-  if (target?.role === 'Admin') {
+  if (!target) {
+    res.status(404).json({ error: 'Benutzer wurde nicht gefunden.' });
+    return;
+  }
+  if (actor.role !== 'Admin') {
+    // Filialleitung: nur eigene Kellner.
+    if (target.role !== 'Kellner' || target.branchId !== actor.branchId) {
+      res.status(403).json({ error: 'Du kannst nur Servicekräfte deiner eigenen Filiale entfernen.' });
+      return;
+    }
+  }
+  if (target.role === 'Admin') {
     const admins = await req.db!.collection('users').countDocuments({ role: 'Admin' });
     if (admins <= 1) {
       res.status(400).json({ error: 'Der letzte Admin kann nicht gelöscht werden.' });
@@ -709,11 +868,11 @@ router.delete('/users/:id', adminOnly(async (req: OrgRequest, res) => {
     }
   }
   await req.db!.collection('users').deleteOne({ _id: id });
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 }));
 
 // ── Admin: Branding-Einstellungen (inkl. Design-Studio: Logo, Schrift, Karten-Layout) ──
-router.patch('/settings/brand', adminOnly(async (req: OrgRequest, res) => {
+router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   const { name, accent, logo, logoImage, coverImage, font, cardStyle } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
@@ -724,11 +883,11 @@ router.patch('/settings/brand', adminOnly(async (req: OrgRequest, res) => {
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 }));
 
 // ── Admin: Gerichtsfoto ersetzen ──
-router.patch('/dishes/:id/image', adminOnly(async (req: OrgRequest, res) => {
+router.patch('/dishes/:id/image', chainAdmin(async (req: OrgRequest, res) => {
   const { img } = req.body ?? {};
   if (typeof img !== 'string' || !img.startsWith('data:image/')) {
     res.status(400).json({ error: 'Ungültiges Bild.' });
@@ -737,26 +896,25 @@ router.patch('/dishes/:id/image', adminOnly(async (req: OrgRequest, res) => {
   await req.db!.collection('dishes').updateOne(
     { _id: requireObjectId(req.params.id, 'Gericht-ID') }, { $set: { img } }
   );
-  res.json(await getFullState(req.db!));
+  res.json(await getFullState(req.db!, scopeOf(req)));
 }));
 
-// ── Admin: Menüverwaltung ──
-// Neue Gerichte starten ohne Bewertungen; ratingsSum/ratingsCount wachsen
-// ausschließlich über abgegebene Bewertungen.
-router.post('/dishes', adminOnly(async (req: OrgRequest, res) => {
+// ── Admin: Menüverwaltung (Stammkarte der Kette) ──
+// Neue Gerichte starten ohne Bewertungen; ratingsByBranch wächst ausschließlich
+// über abgegebene Bewertungen.
+router.post('/dishes', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   await db.collection('dishes').insertOne({
     name: requireText(req.body?.name, 'Name', 80),
     price: requirePrice(req.body?.price),
     cat: requireCategory(req.body?.cat),
     img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
-    ratingsSum: 0,
-    ratingsCount: 0,
+    ratingsByBranch: {},
   });
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
-router.patch('/dishes/:id', adminOnly(async (req: OrgRequest, res) => {
+router.patch('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const update: Record<string, unknown> = {};
   if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 80);
@@ -774,7 +932,7 @@ router.patch('/dishes/:id', adminOnly(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Gericht wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
 /**
@@ -782,7 +940,7 @@ router.patch('/dishes/:id', adminOnly(async (req: OrgRequest, res) => {
  * sonst hinge es unbewertbar auf dem Tisch. Bereits abgegebene Bewertungen
  * behalten ihre dishId; die Oberfläche zeigt dafür "Gelöschtes Gericht".
  */
-router.delete('/dishes/:id', adminOnly(async (req: OrgRequest, res) => {
+router.delete('/dishes/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const id = requireObjectId(req.params.id, 'Gericht-ID');
   await db.collection('dishes').deleteOne({ _id: id });
@@ -792,11 +950,11 @@ router.delete('/dishes/:id', adminOnly(async (req: OrgRequest, res) => {
     { status: 'offen', items: { $size: 0 } },
     { $set: { status: 'frei', orderId: null, openedAt: null } }
   );
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
 // ── Admin: Gutscheinverwaltung ──
-router.post('/vouchers', adminOnly(async (req: OrgRequest, res) => {
+router.post('/vouchers', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   await db.collection('vouchers').insertOne({
     title: requireText(req.body?.title, 'Titel', 80),
@@ -804,10 +962,10 @@ router.post('/vouchers', adminOnly(async (req: OrgRequest, res) => {
     expiry: requireText(req.body?.expiry, 'Gültig bis', 40),
     img: optionalImage(req.body?.img) ?? IMAGE_PLACEHOLDER,
   });
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
-router.patch('/vouchers/:id', adminOnly(async (req: OrgRequest, res) => {
+router.patch('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const update: Record<string, unknown> = {};
   if (req.body?.title !== undefined) update.title = requireText(req.body.title, 'Titel', 80);
@@ -825,10 +983,10 @@ router.patch('/vouchers/:id', adminOnly(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Gutschein wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
-router.delete('/vouchers/:id', adminOnly(async (req: OrgRequest, res) => {
+router.delete('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const id = requireObjectId(req.params.id, 'Gutschein-ID');
   await db.collection('vouchers').deleteOne({ _id: id });
@@ -836,11 +994,11 @@ router.delete('/vouchers/:id', adminOnly(async (req: OrgRequest, res) => {
   await db.collection<GuestProfileDoc>('guestProfile').updateOne(
     { _id: 'default' }, { $pull: { redeemed: String(id) } }
   );
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
 // ── Admin: Filialverwaltung ──
-router.post('/branches', adminOnly(async (req: OrgRequest, res) => {
+router.post('/branches', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const name = requireText(req.body?.name, 'Name', 80);
   await db.collection('branches').insertOne({
@@ -848,10 +1006,10 @@ router.post('/branches', adminOnly(async (req: OrgRequest, res) => {
     name,
     address: requireText(req.body?.address, 'Adresse', 160),
   });
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
-router.patch('/branches/:id', adminOnly(async (req: OrgRequest, res) => {
+router.patch('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const update: Record<string, unknown> = {};
   if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 80);
@@ -868,7 +1026,7 @@ router.patch('/branches/:id', adminOnly(async (req: OrgRequest, res) => {
     res.status(404).json({ error: 'Filiale wurde nicht gefunden.' });
     return;
   }
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
 /**
@@ -877,7 +1035,7 @@ router.patch('/branches/:id', adminOnly(async (req: OrgRequest, res) => {
  * deshalb erst die Tische, dann die Filiale. Die letzte Filiale bleibt stehen,
  * weil neue Tische sonst nirgends mehr angelegt werden könnten.
  */
-router.delete('/branches/:id', adminOnly(async (req: OrgRequest, res) => {
+router.delete('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const id = requireObjectId(req.params.id, 'Filial-ID');
   if (await db.collection('branches').countDocuments() <= 1) {
@@ -894,7 +1052,7 @@ router.delete('/branches/:id', adminOnly(async (req: OrgRequest, res) => {
   await db.collection('branches').deleteOne({ _id: id });
   // Benutzer, die nur dieser Filiale zugeordnet waren, gelten wieder für alle.
   await db.collection('users').updateMany({ branchId: String(id) }, { $set: { branchId: null } });
-  res.json(await getFullState(db));
+  res.json(await getFullState(db, scopeOf(req)));
 }));
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

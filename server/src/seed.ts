@@ -9,8 +9,17 @@ const ORG_SLUG = 'sakura-sushi';
 const IMG = (id: string, w = 400, h = 400) =>
   `https://images.unsplash.com/${id}?w=${w}&h=${h}&fit=crop&auto=format&q=80`;
 
-function seedDish(name: string, img: string, price: number, cat: DishDoc['cat'], avg: number, count: number): Omit<DishDoc, '_id'> {
-  return { name, img, price, cat, ratingsSum: Math.round(avg * count), ratingsCount: count };
+// Die Demo-Bewertungen hängen an der Hauptfiliale — dort stehen auch die
+// meisten Tische. Die zweite Filiale startet ohne Bewertungen, damit der
+// Unterschied zwischen Filial- und Ketten-Blick im Admin sichtbar wird.
+function seedDish(
+  name: string, img: string, price: number, cat: DishDoc['cat'],
+  avg: number, count: number, branchId: string
+): Omit<DishDoc, '_id'> {
+  return {
+    name, img, price, cat,
+    ratingsByBranch: { [branchId]: { sum: Math.round(avg * count), count } },
+  };
 }
 
 async function main() {
@@ -54,15 +63,15 @@ async function main() {
   const dishesCol = db.collection<DishDoc>('dishes');
   if ((await dishesCol.countDocuments()) === 0) {
     await dishesCol.insertMany([
-      seedDish('Spicy Tuna Roll', IMG('photo-1611143669185-af224c5e3252'), 14.5, 'Speisen', 4.6, 87),
-      seedDish('California Roll', IMG('photo-1617196034183-421b4917c92d'), 12.5, 'Speisen', 4.2, 74),
-      seedDish('Dragon Roll', IMG('photo-1633478062482-790e3b5dd810'), 16.0, 'Speisen', 2.4, 65),
-      seedDish('Miso Suppe', IMG('photo-1680137248903-7af5d51a3350'), 4.5, 'Speisen', 3.1, 91),
-      seedDish('Lachs Nigiri', IMG('photo-1562158074-d49fbeffcc91'), 13.0, 'Speisen', 4.8, 52),
-      seedDish('Edamame', IMG('photo-1611810174991-5cdd99a2c6b2'), 5.0, 'Speisen', 4.1, 43),
-      seedDish('Asahi Bier', IMG('photo-1571613316887-6f8d5cbf7ef7'), 4.8, 'Getränke', 4.5, 38),
-      seedDish('Japanischer Sake', IMG('photo-1594035900144-17151c9910af'), 6.5, 'Getränke', 4.3, 29),
-      seedDish('Matcha Latte', IMG('photo-1515823064-d6e0c04616a7'), 4.2, 'Getränke', 4.7, 61),
+      seedDish('Spicy Tuna Roll', IMG('photo-1611143669185-af224c5e3252'), 14.5, 'Speisen', 4.6, 87, branchId),
+      seedDish('California Roll', IMG('photo-1617196034183-421b4917c92d'), 12.5, 'Speisen', 4.2, 74, branchId),
+      seedDish('Dragon Roll', IMG('photo-1633478062482-790e3b5dd810'), 16.0, 'Speisen', 2.4, 65, branchId),
+      seedDish('Miso Suppe', IMG('photo-1680137248903-7af5d51a3350'), 4.5, 'Speisen', 3.1, 91, branchId),
+      seedDish('Lachs Nigiri', IMG('photo-1562158074-d49fbeffcc91'), 13.0, 'Speisen', 4.8, 52, branchId),
+      seedDish('Edamame', IMG('photo-1611810174991-5cdd99a2c6b2'), 5.0, 'Speisen', 4.1, 43, branchId),
+      seedDish('Asahi Bier', IMG('photo-1571613316887-6f8d5cbf7ef7'), 4.8, 'Getränke', 4.5, 38, branchId),
+      seedDish('Japanischer Sake', IMG('photo-1594035900144-17151c9910af'), 6.5, 'Getränke', 4.3, 29, branchId),
+      seedDish('Matcha Latte', IMG('photo-1515823064-d6e0c04616a7'), 4.2, 'Getränke', 4.7, 61, branchId),
     ]);
     console.log('Gerichte angelegt.');
   } else {
@@ -147,9 +156,12 @@ async function main() {
   const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'bitely123';
 
   const usersCol = db.collection<UserDoc>('users');
+  // Je Rolle ein Zugang. Die zweite Filiale bekommt eine eigene Filialleitung —
+  // damit lässt sich prüfen, dass sie die Daten der ersten nicht sieht.
   const demoUsers: Omit<UserDoc, '_id' | 'passwordHash'>[] = [
     { name: 'Hiroshi Tanaka', email: 'admin@sakura.at', role: 'Admin', branchId: null, status: 'aktiv' },
     { name: 'Maria Gruber', email: 'manager@sakura.at', role: 'Manager', branchId, status: 'aktiv' },
+    { name: 'Elena Bauer', email: 'manager2@sakura.at', role: 'Manager', branchId: secondBranch._id!.toString(), status: 'aktiv' },
     { name: 'Jakob Weber', email: 'kellner@sakura.at', role: 'Kellner', branchId, status: 'aktiv' },
     { name: 'Sina Koller', email: 's.koller@sakura.at', role: 'Kellner', branchId, status: 'eingeladen' },
   ];
@@ -190,10 +202,11 @@ async function main() {
   console.log(`\nKellner-URL: /${ORG_SLUG}/staff`);
   console.log(`Admin-URL: /${ORG_SLUG}/admin`);
   console.log('\nTest-Zugänge (Passwort jeweils gleich):');
-  console.log(`  Admin         admin@sakura.at    / ${DEMO_PASSWORD}`);
-  console.log(`  Manager       manager@sakura.at  / ${DEMO_PASSWORD}`);
-  console.log(`  Servicekraft  kellner@sakura.at  / ${DEMO_PASSWORD}`);
-  console.log('  Gast          kein Konto nötig — über den QR-Link am Tisch');
+  console.log(`  Admin (ganze Kette)         admin@sakura.at     / ${DEMO_PASSWORD}`);
+  console.log(`  Filialleitung ${branches[0].name.padEnd(13)} manager@sakura.at   / ${DEMO_PASSWORD}`);
+  console.log(`  Filialleitung ${branches[1].name.padEnd(13)} manager2@sakura.at  / ${DEMO_PASSWORD}`);
+  console.log(`  Servicekraft ${branches[0].name.padEnd(14)} kellner@sakura.at   / ${DEMO_PASSWORD}`);
+  console.log('  Gast                        kein Konto nötig — über den QR-Link am Tisch');
   await closeDb();
 }
 

@@ -19,7 +19,7 @@ import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
   BRAND_FONTS, BRAND_CARD_STYLES,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
-  type Branch,
+  type Branch, type BranchScope,
 } from './store';
 import { LoginScreen } from './components/auth/LoginScreen';
 
@@ -1368,8 +1368,12 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
 
 type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'vouchers' | 'design' | 'users' | 'settings';
 
-function AdminApp({ orgSlug, branch, onBranchChange }: {
-  orgSlug: string; branch: Branch; onBranchChange: (b: Branch) => void;
+// branch === null heißt "alle Filialen": der Ketten-Admin sieht die Zahlen
+// aller Standorte zusammen. Alles Filialgebundene (Tische, QR-Codes) braucht
+// dann erst eine Auswahl.
+function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
+  orgSlug: string; branch: Branch | null; canSwitchBranch: boolean;
+  onPick: (p: string | 'all') => void;
 }) {
   const store = useStore();
   const [page, setPage] = useState<AdminPage>('dashboard');
@@ -1394,8 +1398,12 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [addTableCount, setAddTableCount] = useState(1);
   const [addingTables, setAddingTables] = useState(false);
-  // Tische der gewählten Filiale — Grundlage für Liste, Zähler und Anlage.
-  const branchTables = store.tables.filter(t => t.branchId === branch.id);
+  // Der Server liefert bereits nur die passenden Tische; im Ketten-Blick sind
+  // es alle. Das Filtern hier ist die zweite Sicherung, damit die Tischliste
+  // niemals Tische einer anderen Filiale zeigt als die Überschrift behauptet.
+  const branchTables = branch ? store.tables.filter(t => t.branchId === branch.id) : [];
+  // Nur der Ketten-Admin verwaltet Filialen, Branding, Stammkarte und Rollen.
+  const isChainAdmin = store.authUser?.role === 'Admin';
   // Offener Dialog: { dish: null } heißt "neu anlegen", { dish } heißt "bearbeiten".
   const [dishDialog, setDishDialog] = useState<{ dish: Dish | null } | null>(null);
   const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
@@ -1432,14 +1440,19 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
     { id: 'vouchers', label: 'Eingelöste Gutscheine', value: String(store.guest.redeemed.length), Icon: CheckCircle2 },
   ];
 
+  // Die Filialleitung sieht nur, was ihre Filiale betrifft. Stammkarte,
+  // Gutscheine und Einstellungen sind Sache der Kette — sie auszublenden ist
+  // Bequemlichkeit, den Schutz macht der Server (chainAdmin in index.ts).
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
     { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
-    { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
-    { id: 'vouchers', label: 'Gutscheine', Icon: Ticket },
-    // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
-    // Zum Zurückholen die folgende Zeile wieder einkommentieren:
-    // { id: 'design', label: 'Design', Icon: Palette },
+    ...(isChainAdmin ? [
+      { id: 'menu' as const, label: 'Menü', Icon: UtensilsCrossed },
+      { id: 'vouchers' as const, label: 'Gutscheine', Icon: Ticket },
+      // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
+      // Zum Zurückholen die folgende Zeile wieder einkommentieren:
+      // { id: 'design' as const, label: 'Design', Icon: Palette },
+    ] : []),
     { id: 'users', label: 'Benutzer', Icon: Users },
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
   ];
@@ -1521,10 +1534,10 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
   // Neue Tische landen immer in der oben gewählten Filiale — ein zweiter
   // Filial-Wähler direkt am Formular wäre eine zweite Wahrheit daneben.
   const handleAddTables = async () => {
-    if (addingTables) return;
+    if (addingTables || !branch) return;
     setAddingTables(true);
     try {
-      await store.addTables(addTableCount, branch.id);
+      await store.addTables(branch.slug, addTableCount);
       setAddTableCount(1);
     } finally {
       setAddingTables(false);
@@ -1575,31 +1588,44 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
         <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-10 z-10">
           <div className="flex items-center justify-between gap-3 px-4 sm:px-8 h-14">
             <div className="relative min-w-0" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setBranchDrop(p => !p)}
-                className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors min-w-0">
+              <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
+                disabled={!canSwitchBranch}
+                className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors min-w-0 disabled:hover:text-gray-700 dark:disabled:hover:text-gray-300">
                 <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
                 <span className="font-medium truncate">{store.brand?.name}</span>
                 <span className="hidden sm:inline text-gray-400 mx-0.5">›</span>
-                <span className="hidden sm:inline text-gray-500 dark:text-gray-400 truncate">{branch.name}</span>
-                <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
+                <span className="hidden sm:inline text-gray-500 dark:text-gray-400 truncate">
+                  {branch ? branch.name : 'Alle Filialen'}
+                </span>
+                {canSwitchBranch && (
+                  <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
+                )}
               </button>
               <AnimatePresence>
                 {branchDrop && (
                   <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
                     className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden min-w-[280px] z-50">
+                    {/* Der Umschalter lädt neu: der Server liefert die Daten
+                        genau einer Filiale (oder aller), die Oberfläche filtert
+                        nicht selbst. */}
+                    <button onClick={() => { onPick('all'); setBranchDrop(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-700">
+                      <span className="text-xl">🏢</span>
+                      <div className="flex-1">
+                        <p className="text-[14px] font-medium text-gray-900 dark:text-white">Alle Filialen</p>
+                        <p className="text-[12px] text-gray-400">Zahlen der ganzen Kette zusammen</p>
+                      </div>
+                      {!branch && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
+                    </button>
                     {store.branches.map(b => (
-                      // Der Umschalter wählt jetzt tatsächlich aus: Tischliste,
-                      // Zähler und Anlage-Formular hängen an dieser Filiale.
-                      <button key={b.id} onClick={() => { onBranchChange(b); setBranchDrop(false); }}
+                      <button key={b.id} onClick={() => { onPick(b.slug); setBranchDrop(false); }}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <span className="text-xl">🏠</span>
                         <div className="flex-1">
                           <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
-                          <p className="text-[12px] text-gray-400">
-                            {store.tables.filter(t => t.branchId === b.id).length} Tische · {b.address}
-                          </p>
+                          <p className="text-[12px] text-gray-400">{b.address}</p>
                         </div>
-                        {b.id === branch.id && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
+                        {b.id === branch?.id && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
                       </button>
                     ))}
                   </motion.div>
@@ -1644,10 +1670,11 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</p>
-                      {/* Bewusst "alle Filialen": die Kennzahlen sind noch nicht
-                          filialgetrennt. Hier den Namen der gewählten Filiale zu
-                          zeigen, würde eine Filterung behaupten, die es nicht gibt. */}
-                      <p className="text-[13px] text-gray-400 mt-0.5">Alle bisherigen Bewertungen · alle Filialen</p>
+                      {/* Der Server hat die Zahlen bereits auf diese Reichweite
+                          eingegrenzt — die Beschriftung sagt, welche es ist. */}
+                      <p className="text-[13px] text-gray-400 mt-0.5">
+                        Alle bisherigen Bewertungen · {branch ? branch.name : 'alle Filialen'}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       {hidden.size > 0 && (
@@ -1938,7 +1965,7 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
                             </div>
                             <p className={`text-[15px] font-semibold text-center ${brandForm.coverImage ? 'text-white' : 'text-gray-900 dark:text-white'}`}
                               style={brandForm.coverImage ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{brandForm.name || 'Dein Restaurant'}</p>
-                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{branch.name}</p>
+                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{branch?.name ?? store.branches[0]?.name}</p>
                             {previewDish ? (
                               <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
                                 onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
@@ -2043,40 +2070,49 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
               {page === 'settings' && (
                 <div className="space-y-5 max-w-3xl">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">Einstellungen</p>
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> Filialen</p>
-                      <button onClick={() => setBranchDialog({ branch: null })}
-                        className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl text-white" style={{ backgroundColor: 'var(--ba)' }}>
-                        <Plus size={12} strokeWidth={2} /> Hinzufügen
-                      </button>
+                  {/* Filialen anzulegen oder zu löschen ist Sache der Kette. Die
+                      Filialleitung sieht ihre eigene, kann sie aber nicht ändern. */}
+                  {isChainAdmin && (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> Filialen</p>
+                        <button onClick={() => setBranchDialog({ branch: null })}
+                          className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl text-white" style={{ backgroundColor: 'var(--ba)' }}>
+                          <Plus size={12} strokeWidth={2} /> Hinzufügen
+                        </button>
+                      </div>
+                      {store.branches.map(b => {
+                        // Im Ketten-Blick sind alle Tische da; bei gewählter
+                        // Filiale liefert der Server nur deren — dann steht die
+                        // Zahl nur bei der eigenen.
+                        const tableCount = store.tables.filter(t => t.branchId === b.id).length;
+                        return (
+                          <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
+                            <span className="text-2xl">🏠</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
+                              <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
+                              {!branch && (
+                                <p className="text-[11px] text-gray-400 mt-0.5">{tableCount} {tableCount === 1 ? 'Tisch' : 'Tische'}</p>
+                              )}
+                            </div>
+                            <div className="flex gap-1 flex-shrink-0">
+                              <button onClick={() => setBranchDialog({ branch: b })} title="Filiale bearbeiten"
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
+                              <button title="Filiale löschen"
+                                onClick={() => { if (confirm(`Filiale „${b.name}" wirklich löschen?`)) runAction(() => store.removeBranch(b.id)); }}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    {store.branches.map(b => {
-                      const tableCount = store.tables.filter(t => t.branchId === b.id).length;
-                      return (
-                        <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
-                          <span className="text-2xl">🏠</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
-                            <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
-                            <p className="text-[11px] text-gray-400 mt-0.5">{tableCount} {tableCount === 1 ? 'Tisch' : 'Tische'}</p>
-                          </div>
-                          <div className="flex gap-1 flex-shrink-0">
-                            <button onClick={() => setBranchDialog({ branch: b })} title="Filiale bearbeiten"
-                              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                            <button title="Filiale löschen"
-                              onClick={() => { if (confirm(`Filiale „${b.name}" wirklich löschen?`)) runAction(() => store.removeBranch(b.id)); }}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  )}
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><QrCode size={15} strokeWidth={1.5} className="text-gray-400" /> QR-Codes per Tisch</p>
                     <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                      Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/table/&lt;nummer&gt;</code> — das ist die Route, die Gäste beim Scannen öffnen.
+                      Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/&lt;filiale&gt;/table/&lt;nummer&gt;</code> — das ist die Route, die Gäste beim Scannen öffnen. Die Filiale steht mit drin: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.
                     </p>
                     {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
                       <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
@@ -2087,41 +2123,48 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
                         </p>
                       </div>
                     )}
-                    <div className="flex items-end gap-3 flex-wrap pb-1 border-b border-gray-100 dark:border-gray-800">
-                      <div>
-                        <p className="text-[12px] text-gray-400 mb-1.5">Neue Tische</p>
-                        <input type="number" min={1} max={50} value={addTableCount}
-                          onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                          className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
-                      </div>
-                      <button onClick={handleAddTables} disabled={addingTables}
-                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
-                        style={{ backgroundColor: 'var(--ba)' }}>
-                        <Plus size={14} strokeWidth={2} /> {addingTables ? 'Wird angelegt…' : 'Tisch(e) anlegen'}
-                      </button>
-                      {/* Zähler und Anlage beziehen sich auf die oben gewählte
-                          Filiale — vorher zeigte eine Filiale ohne Tische
-                          trotzdem die Gesamtzahl aller Filialen an. */}
-                      <p className="text-[11px] text-gray-400">
-                        {branchTables.length} {branchTables.length === 1 ? 'Tisch' : 'Tische'} in {branch.name}
-                      </p>
-                    </div>
-                    {branchTables.length === 0 ? (
-                      <EmptyState icon={QrCode} title={`Noch keine Tische in ${branch.name}`}
-                        desc="Lege oben Tische an — jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
+                    {/* Tische und QR-Codes gehören immer GENAU einer Filiale.
+                        Im Ketten-Blick gibt es deshalb nichts anzulegen — erst
+                        die Filiale wählen. */}
+                    {!branch ? (
+                      <EmptyState icon={Building2} title="Erst eine Filiale wählen"
+                        desc={'QR-Codes gehören zu einer bestimmten Filiale. Wechsle oben links von „Alle Filialen" auf eine einzelne, um ihre Tische zu sehen und neue anzulegen.'} />
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
-                        {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
-                          <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
-                            <button onClick={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(t.id); }}
-                              title="Tisch löschen"
-                              className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                              <Trash2 size={12} strokeWidth={1.5} />
-                            </button>
-                            <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number} />
+                      <>
+                        <div className="flex items-end gap-3 flex-wrap pb-1 border-b border-gray-100 dark:border-gray-800">
+                          <div>
+                            <p className="text-[12px] text-gray-400 mb-1.5">Neue Tische</p>
+                            <input type="number" min={1} max={50} value={addTableCount}
+                              onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                              className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
                           </div>
-                        ))}
-                      </div>
+                          <button onClick={handleAddTables} disabled={addingTables}
+                            className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
+                            style={{ backgroundColor: 'var(--ba)' }}>
+                            <Plus size={14} strokeWidth={2} /> {addingTables ? 'Wird angelegt…' : 'Tisch(e) anlegen'}
+                          </button>
+                          <p className="text-[11px] text-gray-400">
+                            {branchTables.length} {branchTables.length === 1 ? 'Tisch' : 'Tische'} in {branch.name}
+                          </p>
+                        </div>
+                        {branchTables.length === 0 ? (
+                          <EmptyState icon={QrCode} title={`Noch keine Tische in ${branch.name}`}
+                            desc="Lege oben Tische an — jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
+                            {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
+                              <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
+                                <button onClick={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(branch.slug, t.id); }}
+                                  title="Tisch löschen"
+                                  className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                                  <Trash2 size={12} strokeWidth={1.5} />
+                                </button>
+                                <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -2133,7 +2176,7 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst
+                        Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst · {branch ? branch.name : 'alle Filialen'}
                       </p>
                     </div>
                     {store.reviews.length > 0 && (
@@ -2465,19 +2508,27 @@ function AdminApp({ orgSlug, branch, onBranchChange }: {
                     <input value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))} placeholder="name@restaurant.at" type="email"
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                   </div>
+                  {/* Die Filialleitung darf nur Servicekräfte und nur in der
+                      eigenen Filiale anlegen. Der Server erzwingt das ohnehin
+                      (POST /users); hier gar nicht erst anzubieten erspart die
+                      Fehlermeldung. */}
                   <div className="flex gap-3">
                     <div className="flex-1">
                       <label className="text-[12px] text-gray-500 mb-1 block">Rolle</label>
                       <select value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value as AdminUser['role'] }))}
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
-                        {['Kellner', 'Manager', 'Admin'].map(o => <option key={o} value={o}>{o}</option>)}
+                        disabled={!isChainAdmin}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none disabled:opacity-60">
+                        {(isChainAdmin ? ['Kellner', 'Manager', 'Admin'] : ['Kellner']).map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     </div>
                     <div className="flex-1">
                       <label className="text-[12px] text-gray-500 mb-1 block">Filiale</label>
                       <select value={inviteForm.branchId} onChange={e => setInviteForm(p => ({ ...p, branchId: e.target.value }))}
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
-                        {store.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        disabled={!isChainAdmin}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none disabled:opacity-60">
+                        {isChainAdmin
+                          ? store.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)
+                          : <option value="">{store.branches.find(b => b.id === store.authUser?.branchId)?.name ?? 'Eigene Filiale'}</option>}
                       </select>
                     </div>
                   </div>
@@ -2544,24 +2595,68 @@ function TopBar({ dark, setDark }: {
 
 function OrgShell({ view }: { view: View }) {
   const { orgSlug, branchSlug, tableNumber } = useParams<{ orgSlug: string; branchSlug?: string; tableNumber?: string }>();
+  // Die Filialwahl liegt ÜBER dem Store: sie bestimmt, was er überhaupt lädt.
+  // null = noch nichts gewählt, dann entscheidet der Server anhand des Kontos.
+  const [picked, setPicked] = useState<string | 'all' | null>(null);
+
   if (!orgSlug) return <FullScreenMessage error>Keine Organisation angegeben.</FullScreenMessage>;
+
+  const scope: BranchScope = view === 'guest' ? (branchSlug ?? null) : (picked ?? 'self');
+
   return (
-    <StoreProvider orgSlug={orgSlug}>
+    <StoreProvider orgSlug={orgSlug} scope={scope}>
       <OrgChrome view={view} orgSlug={orgSlug} branchSlug={branchSlug ?? null}
-        tableNumber={tableNumber ? Number(tableNumber) : null} />
+        tableNumber={tableNumber ? Number(tableNumber) : null}
+        picked={picked} onPick={setPicked} />
     </StoreProvider>
   );
 }
 
-function OrgChrome({ view, orgSlug, branchSlug, tableNumber }: {
+function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   view: View; orgSlug: string; branchSlug: string | null; tableNumber: number | null;
+  picked: string | 'all' | null; onPick: (p: string | 'all') => void;
 }) {
   const store = useStore();
   const [dark, setDark] = useState(false);
-  // Welche Filiale der Admin gerade betrachtet. Der Gast bekommt sie aus der
-  // URL, die Servicekraft aus ihrem Konto — nur der Admin wählt frei.
-  const [adminBranchId, setAdminBranchId] = useState<string | null>(null);
   useGoogleFont(store.brand?.font);
+
+  const needsLogin = view === 'admin' || view === 'waiter';
+
+  // Die Anmeldung wird VOR dem Zustand geprüft: ohne Konto lehnt /state für
+  // Mitarbeiteransichten ab, und diese Absage soll als Login-Maske erscheinen,
+  // nicht als Serverfehler.
+  //
+  // Die Prüfung hier ersetzt NICHT den Schutz auf dem Server (requireAuth) —
+  // sie verhindert nur, dass jemand eine Ansicht sieht, deren Schaltflächen
+  // ohnehin mit 401/403 abgewiesen würden.
+  if (needsLogin) {
+    if (store.authLoading) return <FullScreenMessage>Anmeldung wird geprüft…</FullScreenMessage>;
+    if (!store.authUser) {
+      return (
+        <div className={dark ? 'dark' : ''}>
+          <TopBar dark={dark} setDark={setDark} />
+          <LoginScreen
+            title={view === 'admin' ? 'Verwaltung' : 'Servicekraft-Bereich'}
+            hint="Bitte mit deinem Mitarbeiterkonto anmelden."
+          />
+        </div>
+      );
+    }
+    if (view === 'admin' && !isAdminRole(store.authUser.role)) {
+      return (
+        <div className={dark ? 'dark' : ''}>
+          <TopBar dark={dark} setDark={setDark} />
+          <FullScreenMessage error action={
+            <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+              Zur Tischübersicht
+            </Link>
+          }>
+            Als {store.authUser.role} hast du auf die Verwaltung keinen Zugriff.
+          </FullScreenMessage>
+        </div>
+      );
+    }
+  }
 
   if (store.loading) return <FullScreenMessage>Lädt Restaurantdaten…</FullScreenMessage>;
   if (store.error) {
@@ -2581,53 +2676,31 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber }: {
     );
   }
 
-  // Rollenprüfung in der Oberfläche. Sie ersetzt NICHT den Schutz auf dem Server
-  // (requireAuth in index.ts) — sie sorgt nur dafür, dass niemand eine Ansicht
-  // sieht, deren Schaltflächen ohnehin mit 401/403 abgewiesen würden.
-  const needsLogin = view === 'admin' || view === 'waiter';
-
-  if (needsLogin) {
-    if (store.authLoading) return <FullScreenMessage>Anmeldung wird geprüft…</FullScreenMessage>;
-    if (!store.authUser) {
-      return (
-        <div className={dark ? 'dark' : ''} style={{ '--ba': store.brand.accent } as React.CSSProperties}>
-          <TopBar dark={dark} setDark={setDark} />
-          <LoginScreen
-            title={view === 'admin' ? 'Admin-Bereich' : 'Servicekraft-Bereich'}
-            hint="Bitte mit deinem Mitarbeiterkonto anmelden."
-          />
-        </div>
-      );
-    }
-    // Nur der Admin-Bereich ist zusätzlich eingeschränkt; an den Tischen
-    // arbeiten alle drei Rollen.
-    if (view === 'admin' && !isAdminRole(store.authUser.role)) {
-      return (
-        <div className={dark ? 'dark' : ''}>
-          <TopBar dark={dark} setDark={setDark} />
-          <FullScreenMessage error action={
-            <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
-              Zur Tischübersicht
-            </Link>
-          }>
-            Als {store.authUser.role} hast du auf den Admin-Bereich keinen Zugriff.
-          </FullScreenMessage>
-        </div>
-      );
-    }
-  }
-
   // ── Welche Filiale gilt in dieser Ansicht? ──
-  // Gast: aus dem QR-Link. Servicekraft: aus dem Konto (branchId), sonst wählbar.
-  // Admin/Manager ohne feste Filiale: der Umschalter oben entscheidet.
+  // Gast: aus dem QR-Link. Wer im Konto eine feste Filiale hat, ist daran
+  // gebunden — kein Umschalter. Nur der Ketten-Admin wählt frei; null heißt
+  // bei ihm "alle Filialen" (Roll-up).
   const boundBranch = store.authUser?.branchId
     ? store.branches.find(b => b.id === store.authUser!.branchId) ?? null
     : null;
-  const branch = view === 'guest'
-    ? store.branches.find(b => b.slug === branchSlug) ?? null
-    : boundBranch ?? store.branches.find(b => b.id === adminBranchId) ?? store.branches[0] ?? null;
+  const canSwitchBranch = !boundBranch && view !== 'guest';
 
-  if (!branch) {
+  const branch: Branch | null = view === 'guest'
+    ? store.branches.find(b => b.slug === branchSlug) ?? null
+    : boundBranch ?? (picked && picked !== 'all' ? store.branches.find(b => b.slug === picked) ?? null : null);
+
+  // Der Gast braucht zwingend eine gültige Filiale; die Kellneransicht auch,
+  // weil jede Tischaktion sie in der Adresse trägt.
+  if (!branch && (view === 'guest' || view === 'waiter')) {
+    const firstBranch = store.branches[0];
+    if (view === 'waiter' && firstBranch) {
+      return (
+        <div className={dark ? 'dark' : ''}>
+          <TopBar dark={dark} setDark={setDark} />
+          <BranchPicker branches={store.branches} onPick={onPick} />
+        </div>
+      );
+    }
     return (
       <div className={dark ? 'dark' : ''}>
         <TopBar dark={dark} setDark={setDark} />
@@ -2644,7 +2717,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber }: {
     <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
       <TopBar dark={dark} setDark={setDark} />
 
-      {view === 'guest' && (
+      {view === 'guest' && branch && (
         // Mobil (der eigentliche Anwendungsfall über QR-Code): randlos, bildschirmfüllend,
         // kein Geräte-Mockup. Ab sm-Breakpoint (Desktop-Vorschau): zentrierte Karte.
         <div className="h-[calc(100dvh-40px)] overflow-hidden sm:h-auto sm:min-h-[calc(100dvh-40px)] sm:overflow-visible bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
@@ -2654,10 +2727,37 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber }: {
         </div>
       )}
 
-      {view === 'waiter' && <WaiterApp branch={branch} />}
+      {view === 'waiter' && branch && <WaiterApp branch={branch} />}
       {view === 'admin' && (
-        <AdminApp orgSlug={orgSlug} branch={branch} onBranchChange={b => setAdminBranchId(b.id)} />
+        <AdminApp orgSlug={orgSlug} branch={branch} canSwitchBranch={canSwitchBranch}
+          onPick={onPick} />
       )}
+    </div>
+  );
+}
+
+/** Filialwahl für den Ketten-Admin, der die Kellneransicht öffnet. */
+function BranchPicker({ branches, onPick }: { branches: Branch[]; onPick: (slug: string) => void }) {
+  return (
+    <div className="min-h-[calc(100dvh-40px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
+      <div className="w-full max-w-sm">
+        <p className="text-[17px] font-semibold text-gray-900 dark:text-white mb-1">Filiale wählen</p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4">
+          Dein Konto ist an keine Filiale gebunden — wähle, an welcher du arbeiten möchtest.
+        </p>
+        <div className="space-y-2">
+          {branches.map(b => (
+            <button key={b.id} onClick={() => onPick(b.slug)}
+              className="w-full flex items-center gap-3 p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 hover:border-gray-400 dark:hover:border-gray-600 transition-colors text-left">
+              <Building2 size={16} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+              <div>
+                <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
+                <p className="text-[12px] text-gray-400">{b.address}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
