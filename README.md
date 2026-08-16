@@ -9,9 +9,26 @@ pro Gericht, was funktioniert und was nicht.
 
 | Ansicht | Route | Wofür |
 |---|---|---|
-| **Gast** | `/:orgSlug/table/:number` | Ziel des QR-Codes: Gerichte bewerten, Gesamteindruck, Punkte |
+| **Gast** | `/:orgSlug/:branchSlug/table/:number` | Ziel des QR-Codes: Gerichte bewerten, Gesamteindruck, Punkte |
 | **Kellner** | `/:orgSlug/staff` | Bestellungen auf Tische buchen, Tische schließen, Alarme bei schlechten Bewertungen |
 | **Admin** | `/:orgSlug/admin` | Auswertungen, Bewertungen mit Freitexten, Benutzer, QR-Codes, CSV-Export |
+
+Die Filiale steht im QR-Link, weil Tischnummern nur **pro Filiale** eindeutig
+sind: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.
+
+## Anmeldung
+
+`/staff` und `/admin` verlangen ein Mitarbeiterkonto; die Gastansicht bleibt
+offen (am Tisch gibt es kein Konto). Drei Rollen:
+
+| Rolle | Reichweite |
+|---|---|
+| **Admin** | die ganze Kette — Filialen, Branding, Stammkarte, Gutscheine |
+| **Manager** | Filialleitung: nur die eigene Filiale, kein Kettenweites |
+| **Kellner** | Tischarbeit in der eigenen Filiale |
+
+`npm run server:seed` legt je einen Test-Zugang an und gibt sie am Ende aus
+(Passwort `bitely123`, über `SEED_PASSWORD` änderbar).
 
 ## Lokal starten
 
@@ -21,15 +38,22 @@ Voraussetzungen: Node 20+, eine MongoDB (Atlas genügt in der Gratis-Stufe).
 npm install
 npm install --prefix server
 
-cp server/.env.example server/.env     # MONGODB_URI eintragen
+cp server/.env.example server/.env     # MONGODB_URI und JWT_SECRET eintragen
 npm run check-db --prefix server       # Verbindung prüfen
-npm run server:seed                    # Demo-Daten anlegen
+npm run server:seed                    # Demo-Daten und Test-Zugänge anlegen
 
 npm run server:dev                     # Terminal 1 — API auf Port 4000
 npm run dev                            # Terminal 2 — Oberfläche auf Port 5173
 ```
 
-Danach im Browser: `http://localhost:5173/sakura-sushi/table/4`
+`JWT_SECRET` ist Pflicht — ohne ihn startet der Server nicht. Zufälligen Wert
+erzeugen mit:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Danach im Browser: `http://localhost:5173/sakura-sushi/herrengasse/table/4`
 
 Der Vite-Dev-Server leitet `/api` automatisch an Port 4000 weiter; lokal wird
 `VITE_API_BASE_URL` nicht gebraucht.
@@ -55,21 +79,38 @@ Alle API-Routen laufen unter `/api/:orgSlug/*`.
 
 ```bash
 npm run check-db --prefix server   # Verbindung prüfen, Fehler im Klartext
-npm run verify:tables              # 17 Tests für den Tisch-Lebenszyklus
+npm run verify:tables              # Tisch-Lebenszyklus, Rechte, Filialtrennung
+npm run verify:admin               # Menü, Gutscheine, Filialen, Rollen
 npm run build                      # Produktionsbuild
 ```
 
-`npm run verify:tables` braucht einen laufenden Server und schreibt in dessen
-Datenbank: Es legt einen eigenen Tisch an und löscht ihn wieder, erhöht dabei
-aber die Sternezähler der Testgerichte. Für echte Datenbestände vorher
-`ORG_SLUG` auf eine Wegwerf-Organisation setzen.
+Beide Skripte brauchen einen laufenden Server und melden sich als Admin an
+(`ADMIN_EMAIL`/`ADMIN_PASSWORD`, Vorgabe aus dem Seed). Sie **schreiben in die
+Datenbank, auf die der Server zeigt**: eigene Testdatensätze werden angelegt und
+wieder entfernt, die Bewertungstests erhöhen aber die Sternezähler der
+Testgerichte. Für echte Datenbestände vorher auf eine Wegwerf-Organisation
+zeigen:
+
+```bash
+ORG_SLUG=wegwerf npm run verify:tables
+```
 
 ## Deployment
 
 | Teil | Dienst | Nötige Variable |
 |---|---|---|
 | Frontend | Netlify | `VITE_API_BASE_URL` = URL des Backends |
-| Backend | Render (`render.yaml`) | `MONGODB_URI` |
+| Backend | Render (`render.yaml`) | `MONGODB_URI`, `JWT_SECRET` |
+
+`JWT_SECRET` erzeugt Render beim ersten Deploy selbst (`generateValue: true`).
+Fehlt er, **startet der Dienst nicht** — das ist Absicht, ein geratenes Geheimnis
+wäre schlimmer als ein Startfehler.
+
+Nach einem Deploy laufen beim ersten Aufruf automatisch die Migrationen
+(`ensureOrgSchema` in `db.ts`): Tischnummern werden pro Filiale neu vergeben,
+Gerichtsbewertungen auf Filialen aufgeteilt. **Bereits gedruckte QR-Codes aus
+der Zeit ohne Filiale im Pfad funktionieren danach nicht mehr** und müssen neu
+erzeugt werden (Admin → Einstellungen → QR-Codes).
 
 Beide hängen am selben Repository und bauen bei einem Push unabhängig
 voneinander. `VITE_API_BASE_URL` wird **zur Buildzeit** ins Bundle geschrieben —
@@ -92,7 +133,10 @@ Organisationen existieren und was zu tun ist.
 
 ## Stand
 
-Prototyp. Es gibt **keine Authentifizierung** — wer den Organisations-Slug kennt,
-erreicht `/admin` und `/staff`. Der Slug steht in jedem QR-Code. Vor dem Einsatz
-mit echten Kundendaten ist das zu schließen; weitere bekannte Lücken stehen in
-`CLAUDE.md`.
+MVP. Anmeldung, Rollen und Filialtrennung stehen; die Rechte werden
+serverseitig erzwungen, nicht nur in der Oberfläche versteckt.
+
+Offen vor dem Einsatz mit echten Kundendaten: eingeladene Benutzer können sich
+noch kein Passwort setzen (nur das Seed-Skript vergibt eines), ein geteiltes
+Gastprofil für alle Gäste, CORS offen, keine Ratenbegrenzung auf `/auth/login`.
+Vollständige Liste in `CLAUDE.md`.

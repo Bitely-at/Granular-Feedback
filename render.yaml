@@ -9,5 +9,10 @@ services:
     envVars:
       - key: MONGODB_URI
         sync: false
+      # Signiert die Login-Tokens. Render erzeugt beim ersten Deploy einen
+      # zufälligen Wert — ohne ihn startet der Server nicht (siehe auth.ts).
+      # Wird er später geändert, sind alle offenen Sitzungen ungültig.
+      - key: JWT_SECRET
+        generateValue: true
       - key: PORT
         value: 4000
