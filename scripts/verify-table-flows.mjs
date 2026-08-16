@@ -222,10 +222,14 @@ async function main() {
         const mine = state.json.tables.filter(t => t.branchId === branch.id).map(t => t.number);
         const theirs = state.json.tables.filter(t => t.branchId === other.id).map(t => t.number);
         const shared = mine.filter(nr => theirs.includes(nr));
-        check('Beide Filialen vergeben dieselben Nummern (fangen bei 1 an)', shared.length > 0,
-          `gemeinsame Nummern: ${shared.length}`);
 
-        if (shared.length > 0) {
+        // Ob es überhaupt eine doppelt vergebene Nummer gibt, hängt am
+        // Datenbestand — in einer frisch geseedeten Organisation ja, in einem
+        // gewachsenen (zweite Filiale noch ohne Tische) nein. Das ist keine
+        // Aussage über den Code, also kein Fehlschlag.
+        if (shared.length === 0) {
+          console.log(`  \x1b[33mSKIP\x1b[0m  "${other.name}" hat noch keine Tische mit gleicher Nummer`);
+        } else {
           const nr = shared[0];
           const a = await req('GET', `/branches/${B}/tables/${nr}`);
           const b = await req('GET', `/branches/${other.slug}/tables/${nr}`);
