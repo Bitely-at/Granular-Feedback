@@ -36,7 +36,7 @@ npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
 npm run verify:redemptions   # 48 Tests für die Gutschein-Einlösung (wartet 60 s
                              # auf den Verfall; SKIP_EXPIRY=1 überspringt das)
-npm run verify:guests    # 31 Tests für die Gastkonten
+npm run verify:guests    # 39 Tests für die Gastkonten
 npm run build            # Produktionsbuild
 ```
 
@@ -96,6 +96,17 @@ Gutscheine als verbraucht.
   Oberfläche sagen kann, worum es geht.
 - **Einlösen setzt ein Konto voraus** (401). Ohne Konto gäbe es niemanden,
   dem die Punkte abgezogen und bei Verfall zurückgebucht werden.
+- **Die Ansicht bestimmt, welches Token mitgeht** (`audience` am `StoreProvider`):
+  Gastansicht = Gastkonto, Kellner/Admin = Mitarbeiterkonto. Der Header trägt nur
+  eines. Wer den Admin offen hat und daneben den QR-Code am eigenen Handy öffnet,
+  hat BEIDE im Browser — ging dabei das Personal-Token mit, sah der Server kein
+  Gastkonto: die Anmeldung wirkte folgenlos und Bewertungen brachten keine Punkte.
+- **Punkte lassen sich nachträglich sichern.** Wer ohne Konto bewertet, bekommt in
+  der Antwort ein signiertes Ticket (`signPointsTicket`, 30 Minuten). Meldet er
+  sich danach an, löst die Oberfläche es über `POST /guest/claim-points` ein. Die
+  Bewertungs-ID allein wäre kein Beleg — sie steht für jeden lesbar im
+  Gesamtzustand. Einmaligkeit steckt im Update-Filter: nur wer die Bewertung noch
+  mit `guestId: null` vorfindet, bekommt die Punkte.
 - **Zwei Token-Arten, streng getrennt.** Das Gast-Token trägt `kind: 'guest'`
   und fällt in `verifyToken` durch; das Personal-Token fällt in
   `verifyGuestToken` durch. Ohne diese Trennung wäre ein Gastkonto eine

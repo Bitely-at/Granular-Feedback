@@ -294,6 +294,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const [earnedPts, setEarnedPts] = useState(0);
   // Was ohne Konto liegengeblieben ist (0, wenn angemeldet).
   const [missedPts, setMissedPts] = useState(0);
+  // Der Gutschein auf genau diese Punkte. Wird eingelöst, sobald sich der Gast
+  // anmeldet — deshalb ist "Anmelden und Punkte sichern" keine leere Zusage.
+  const [pointsTicket, setPointsTicket] = useState<string | null>(null);
   // Anmeldung/Registrierung als Gast — von mehreren Stellen aus zu öffnen.
   const [authOpen, setAuthOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -322,6 +325,23 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
     }
   }, [screen, earnedPts]);
 
+  // Meldet sich der Gast an, NACHDEM er bewertet hat, wandern die Punkte
+  // nachträglich auf sein frisches Konto. Der Server lässt das genau einmal zu.
+  useEffect(() => {
+    if (!pointsTicket || !store.guest.loggedIn) return;
+    let cancelled = false;
+    const ticket = pointsTicket;
+    setPointsTicket(null);
+    store.claimPoints(ticket)
+      .then(claimed => {
+        if (cancelled || claimed <= 0) return;
+        setMissedPts(0);
+        setEarnedPts(claimed);
+      })
+      .catch(() => { /* Ticket abgelaufen oder schon eingelöst — dann bleibt es dabei. */ });
+    return () => { cancelled = true; };
+  }, [pointsTicket, store.guest.loggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const go = (s: GuestScreen) => setScreen(s);
 
   const handleSubmitReview = async () => {
@@ -332,11 +352,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
       const dishRatings: DishRatingInput[] = tableDishes.map(d => ({
         dishId: d.id, stars: ratings[d.id] ?? 0, note: notes[d.id]?.trim() || undefined,
       }));
-      const { earned, possible } = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
+      const { earned, possible, ticket } = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
       setEarnedPts(earned);
       // Ohne Konto ist earned 0 — dann zeigt der Dank-Bildschirm, was mit einem
-      // Konto drin gewesen wäre, statt die Punkte stillschweigend zu verschlucken.
+      // Konto drin wäre, und das Ticket hebt die Punkte auf, bis sich der Gast
+      // anmeldet (siehe den Effekt weiter unten).
       setMissedPts(earned === 0 ? possible : 0);
+      setPointsTicket(ticket);
       setPts(0);
       go('thanks');
     } catch (err) {
@@ -2911,8 +2933,12 @@ function OrgShell({ view }: { view: View }) {
 
   const scope: BranchScope = view === 'guest' ? (branchSlug ?? null) : (picked ?? 'self');
 
+  // Die Gastansicht spricht als Gastkonto mit dem Server, die Personalansichten
+  // als Mitarbeiterkonto. Wer beides im Browser hat — Admin offen, QR-Code am
+  // eigenen Handy — bekäme sonst überall das Personal-Token angehängt und wäre
+  // als Gast scheinbar nie angemeldet.
   return (
-    <StoreProvider orgSlug={orgSlug} scope={scope}>
+    <StoreProvider orgSlug={orgSlug} scope={scope} audience={view === 'guest' ? 'guest' : 'staff'}>
       <OrgChrome view={view} orgSlug={orgSlug} branchSlug={branchSlug ?? null}
         tableNumber={tableNumber ? Number(tableNumber) : null}
         picked={picked} onPick={setPicked} />

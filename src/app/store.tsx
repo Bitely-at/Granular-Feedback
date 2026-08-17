@@ -243,14 +243,21 @@ function writeGuestToken(orgSlug: string, token: string | null) {
 export class UnauthorizedError extends Error {}
 
 /**
- * Welches Token mitgeht. Das Personal-Token hat Vorrang, sonst das des Gastes —
- * beide gleichzeitig zu schicken geht nicht, der Header trägt nur eines. In der
- * Gastansicht ist ohnehin kein Personal angemeldet; wer beides hat (die
- * Servicekraft, die den QR-Code am eigenen Handy öffnet), sieht dort dann den
- * Zustand ohne Gastkonto — und kann sich als Gast anmelden, wenn er will.
+ * Wer die Anfrage stellt. Der Header trägt nur EIN Token, also muss die Ansicht
+ * entscheiden: In der Gastansicht gilt das Gastkonto, in Kellner- und
+ * Adminansicht das Personalkonto.
+ *
+ * Das ist keine Feinheit: Wer den Admin offen hat und daneben den QR-Code am
+ * eigenen Handy öffnet, hat BEIDE Token im Browser. Ging dabei das
+ * Personal-Token mit, sah der Server kein Gastkonto — die Anmeldung schien
+ * wirkungslos und Bewertungen brachten keine Punkte.
  */
-async function api<T>(orgSlug: string, path: string, init?: RequestInit): Promise<T> {
-  const token = readToken(orgSlug) ?? readGuestToken(orgSlug);
+export type Audience = 'guest' | 'staff';
+
+async function api<T>(orgSlug: string, path: string, init?: RequestInit, audience: Audience = 'staff'): Promise<T> {
+  const token = audience === 'guest'
+    ? (readGuestToken(orgSlug) ?? readToken(orgSlug))
+    : (readToken(orgSlug) ?? readGuestToken(orgSlug));
   const res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
     ...init,
     headers: {
@@ -299,7 +306,10 @@ interface StoreApi extends OrgState {
   // Liefert, was gutgeschrieben wurde UND was möglich gewesen wäre: ohne
   // Gastkonto gibt es keine Punkte, und der Gast soll erfahren, was er
   // liegenlässt.
-  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<{ earned: number; possible: number }>;
+  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<{ earned: number; possible: number; ticket: string | null }>;
+  // Löst den Punkte-Gutschein einer Bewertung ein, die vor der Anmeldung
+  // abgegeben wurde. Gibt zurück, wie viele Punkte tatsächlich ankamen.
+  claimPoints: (ticket: string) => Promise<number>;
   // Einlösung eröffnen — gibt den kurzlebigen Code zurück, den die
   // Servicekraft in ihrer eigenen App gegenprüft.
   startRedemption: (branchSlug: string, voucherId: string, tableNumber?: number)
@@ -352,8 +362,8 @@ const EMPTY_STATE: OrgState = {
  */
 export type BranchScope = string | 'all' | 'self' | null;
 
-export function StoreProvider({ orgSlug, scope, children }: {
-  orgSlug: string; scope: BranchScope; children: ReactNode;
+export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: {
+  orgSlug: string; scope: BranchScope; audience?: Audience; children: ReactNode;
 }) {
   const [state, setState] = useState<OrgState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -374,14 +384,14 @@ export function StoreProvider({ orgSlug, scope, children }: {
       // 'self' lässt den Parameter weg — dann leitet der Server die Filiale aus
       // dem Token ab.
       const query = scope === 'self' ? '' : `?branch=${encodeURIComponent(scope)}`;
-      const data = await api<OrgState>(orgSlug, `/state${query}`);
+      const data = await api<OrgState>(orgSlug, `/state${query}`, undefined, audience);
       setState(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verbindung zum Server fehlgeschlagen.');
     } finally {
       setLoading(false);
     }
-  }, [orgSlug, scope]);
+  }, [orgSlug, scope, audience]);
 
   useEffect(() => { if (scope) setLoading(true); refresh(); }, [refresh, scope]);
 
@@ -424,7 +434,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
   // und die Oberfläche fällt zurück auf die Anmeldung, statt stumm zu scheitern.
   const call = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     try {
-      return await api<T>(orgSlug, path, init);
+      return await api<T>(orgSlug, path, init, audience);
     } catch (err) {
       // Nur eine abgelaufene PERSONAL-Sitzung führt zurück zur Anmeldung. Ein
       // 401 in der Gastansicht heißt meist "dafür brauchst du ein Konto" — das
@@ -432,7 +442,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
       if (err instanceof UnauthorizedError && readToken(orgSlug)) logout();
       throw err;
     }
-  }, [orgSlug, logout]);
+  }, [orgSlug, logout, audience]);
 
   // ── Gastkonten ────────────────────────────────────────────────
   // Eigene Sitzung, eigenes Token, eigener Zustand. Punkte gehören ab hier
@@ -447,20 +457,29 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const guestRegister = useCallback(async (email: string, name: string, password: string) => {
     await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/register', {
       method: 'POST', body: JSON.stringify({ email, name, password }),
-    }));
+    }, 'guest'));
   }, [orgSlug, applyGuestSession]);
 
   const guestLogin = useCallback(async (email: string, password: string) => {
     await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/login', {
       method: 'POST', body: JSON.stringify({ email, password }),
-    }));
+    }, 'guest'));
   }, [orgSlug, applyGuestSession]);
 
   const guestGoogleLogin = useCallback(async (credential: string) => {
     await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/google', {
       method: 'POST', body: JSON.stringify({ credential }),
-    }));
+    }, 'guest'));
   }, [orgSlug, applyGuestSession]);
+
+  const claimPoints = useCallback(async (ticket: string) => {
+    const data = await api<OrgState & { pointsClaimed: number }>(orgSlug, '/guest/claim-points', {
+      method: 'POST', body: JSON.stringify({ ticket }),
+    }, 'guest');
+    const { pointsClaimed, ...rest } = data;
+    setState(rest);
+    return pointsClaimed;
+  }, [orgSlug]);
 
   const guestLogout = useCallback(async () => {
     writeGuestToken(orgSlug, null);
@@ -469,7 +488,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
   }, [orgSlug, refresh]);
 
   const deleteGuestAccount = useCallback(async () => {
-    await api(orgSlug, '/guest/me', { method: 'DELETE' });
+    await api(orgSlug, '/guest/me', { method: 'DELETE' }, 'guest');
     await guestLogout();
   }, [orgSlug, guestLogout]);
 
@@ -478,7 +497,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
   useEffect(() => {
     let cancelled = false;
     if (!readGuestToken(orgSlug)) { setGuestUser(null); return; }
-    api<{ guest: GuestAccount }>(orgSlug, '/guest/me')
+    api<{ guest: GuestAccount }>(orgSlug, '/guest/me', undefined, 'guest')
       .then(({ guest }) => { if (!cancelled) setGuestUser(guest); })
       .catch(() => { if (!cancelled) { writeGuestToken(orgSlug, null); setGuestUser(null); } });
     return () => { cancelled = true; };
@@ -511,12 +530,12 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const submitReview = useCallback(async (
     branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
   ) => {
-    const data = await call<OrgState & { pointsEarned: number; pointsPossible: number }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
+    const data = await call<OrgState & { pointsEarned: number; pointsPossible: number; pointsTicket: string | null }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
       method: 'POST', body: JSON.stringify({ dishRatings, overall }),
     });
-    const { pointsEarned, pointsPossible, ...rest } = data;
+    const { pointsEarned, pointsPossible, pointsTicket, ...rest } = data;
     setState(rest);
-    return { earned: pointsEarned, possible: pointsPossible };
+    return { earned: pointsEarned, possible: pointsPossible, ticket: pointsTicket };
   }, [call]);
 
   const startRedemption = useCallback(async (branchSlug: string, voucherId: string, tableNumber?: number) => {
@@ -620,7 +639,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
     guestUser, guestAuthOptions: authOptions, guestRegister, guestLogin, guestGoogleLogin,
-    guestLogout, deleteGuestAccount,
+    guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
     startRedemption, confirmRedemption, cancelRedemption,
     setDishAvailability,
@@ -628,7 +647,7 @@ export function StoreProvider({ orgSlug, scope, children }: {
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
   }), [state, orgSlug, loading, error, authUser, authLoading, login, logout,
-    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount,
+    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
     startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 

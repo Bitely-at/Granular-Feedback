@@ -6,6 +6,7 @@ import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import {
   verifyPassword, hashPassword, signToken, verifyToken, signGuestToken, verifyGuestToken,
+  signPointsTicket, verifyPointsTicket,
   type TokenPayload, type GuestTokenPayload,
 } from './auth.js';
 import { verifyGoogleIdToken, googleClientId } from './googleAuth.js';
@@ -865,12 +866,17 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     // Anfragen, den eine vorgelagerte Prüfung nicht abfangen kann. Erst wenn dieser
     // Schreibvorgang durch ist, folgen die Nebenwirkungen (Sterne, Alarme, Punkte);
     // andernfalls würde eine abgelehnte Doppelabgabe die Statistik verfälschen.
+    let reviewId: ObjectId;
     try {
-      await db.collection('reviews').insertOne({
+      const inserted = await db.collection('reviews').insertOne({
         orderId,
         branchId: table.branchId, tableId: String(table._id), tableNumber: number,
         dishRatings, overall, createdAt: Date.now(),
+        // Wem die Punkte dieser Bewertung gehören. null heißt: noch niemandem —
+        // wer sich gleich anmeldet, kann sie mit dem Ticket unten holen.
+        guestId: null,
       });
+      reviewId = inserted.insertedId;
     } catch (err) {
       if ((err as { code?: number }).code === 11000) {
         res.status(409).json({ error: 'Diese Bestellung wurde bereits bewertet.' });
@@ -922,6 +928,9 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
         { _id: guestAccount._id },
         { $inc: { points: pointsEarned } }
       );
+      await db.collection('reviews').updateOne(
+        { _id: reviewId }, { $set: { guestId: String(guestAccount._id) } }
+      );
     }
 
     // Bestellung abräumen: der Tisch ist bewertet und damit wieder frei. Ein
@@ -933,7 +942,11 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     );
 
     const state = await stateFor(req);
-    res.json({ ...state, pointsEarned, pointsPossible });
+    // Ohne Konto: ein Gutschein auf die Punkte, einlösbar durch Anmelden.
+    const pointsTicket = guestAccount ? null : signPointsTicket({
+      reviewId: String(reviewId), points: pointsPossible, orgSlug: req.params.orgSlug!,
+    });
+    res.json({ ...state, pointsEarned, pointsPossible, pointsTicket });
   } catch (err) {
     next(err);
   }
@@ -1256,6 +1269,45 @@ router.get('/guest/me', async (req: OrgRequest, res) => {
     return;
   }
   res.json({ guest: serializeGuest(guest) });
+});
+
+/**
+ * Gast: die Punkte einer Bewertung nachträglich gutschreiben, die vor der
+ * Anmeldung abgegeben wurde.
+ *
+ * Der Beleg ist das signierte Ticket aus der Antwort auf die Bewertung — die
+ * Bewertungs-ID allein reicht nicht, sie steht für jeden lesbar im
+ * Gesamtzustand. Einmaligkeit steckt wie überall im Update-Filter: nur wer die
+ * Bewertung noch mit `guestId: null` vorfindet, bekommt die Punkte. Zweimal
+ * dasselbe Ticket zu schicken ändert nichts mehr.
+ */
+router.post('/guest/claim-points', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Zum Gutschreiben bitte anmelden.' });
+    return;
+  }
+  const ticket = typeof req.body?.ticket === 'string' ? verifyPointsTicket(req.body.ticket) : null;
+  if (!ticket || ticket.orgSlug !== req.params.orgSlug) {
+    res.status(400).json({ error: 'Dieser Punkte-Gutschein gilt nicht (mehr).' });
+    return;
+  }
+
+  const claimed = await db.collection('reviews').findOneAndUpdate(
+    { _id: requireObjectId(ticket.reviewId, 'Bewertungs-ID'), guestId: null },
+    { $set: { guestId: String(guest._id) } }
+  );
+  if (!claimed) {
+    // Schon jemandem zugeschrieben — kein Fehlerfall, nur nichts zu tun.
+    res.json({ ...(await stateFor(req)), pointsClaimed: 0 });
+    return;
+  }
+
+  await db.collection<GuestDoc>('guests').updateOne(
+    { _id: guest._id }, { $inc: { points: ticket.points } }
+  );
+  res.json({ ...(await stateFor(req)), pointsClaimed: ticket.points });
 });
 
 /**

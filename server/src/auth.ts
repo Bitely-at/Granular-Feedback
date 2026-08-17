@@ -118,3 +118,37 @@ export function verifyGuestToken(token: string): GuestTokenPayload | null {
   if (!payload || payload.kind !== 'guest') return null;
   return payload as unknown as GuestTokenPayload;
 }
+
+/**
+ * Gutschein auf Punkte aus einer Bewertung, die ohne Konto abgegeben wurde.
+ *
+ * Wer erst bewertet und sich danach anmeldet, soll seine Punkte bekommen —
+ * sonst ist "Anmelden und Punkte sichern" ein leeres Versprechen. Der Beleg
+ * dafür ist dieses signierte Ticket, das NUR der bekommt, der die Bewertung
+ * gerade abgegeben hat. Die Bewertungs-ID allein würde nicht genügen: sie steht
+ * für jeden lesbar im Gesamtzustand, und damit könnte sich jeder fremde Punkte
+ * holen.
+ */
+export interface PointsTicket {
+  reviewId: string;
+  points: number;
+  orgSlug: string;
+  kind: 'points';
+  exp: number;
+}
+
+// Lang genug, um sich in Ruhe anzumelden; kurz genug, dass ein liegengebliebenes
+// Ticket nicht Tage später noch Punkte auslöst.
+const TICKET_TTL_MS = 30 * 60 * 1000;
+
+export function signPointsTicket(payload: Omit<PointsTicket, 'exp' | 'kind'>): string {
+  const full: PointsTicket = { ...payload, kind: 'points', exp: Date.now() + TICKET_TTL_MS };
+  const body = base64url(Buffer.from(JSON.stringify(full)));
+  return `${body}.${sign(body)}`;
+}
+
+export function verifyPointsTicket(token: string): PointsTicket | null {
+  const payload = readPayload(token);
+  if (!payload || payload.kind !== 'points') return null;
+  return payload as unknown as PointsTicket;
+}

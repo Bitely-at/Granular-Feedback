@@ -192,6 +192,43 @@ async function main() {
       check('… und der erste Gast behält seine Punkte', await pointsOf(tokenA) === afterA);
     }
 
+    // ── 4b) Punkte nachträglich sichern ───────────────────────────
+    // Wer erst bewertet und sich dann anmeldet, soll seine Punkte bekommen —
+    // sonst ist "Anmelden und Punkte sichern" eine leere Zusage.
+    console.log('\n4b) Erst bewerten, dann anmelden');
+    {
+      await order();
+      const anon = await req('POST', `/branches/${branchSlug}/tables/${table.number}/review`, review());
+      check('Bewertung ohne Konto liefert einen Punkte-Gutschein',
+        typeof anon.json?.pointsTicket === 'string' && anon.json.pointsTicket.length > 0);
+      const ticket = anon.json?.pointsTicket;
+      const wert = anon.json?.pointsPossible ?? 0;
+
+      const vorher = await pointsOf(tokenB);
+      const claim = await req('POST', '/guest/claim-points', { ticket }, { as: tokenB });
+      check('Einlösen schreibt die Punkte gut', claim.json?.pointsClaimed === wert,
+        `${claim.json?.pointsClaimed} statt ${wert}`);
+      check('… und sie stehen auf dem Konto', await pointsOf(tokenB) === vorher + wert,
+        `${vorher} → ${await pointsOf(tokenB)}`);
+
+      const nochmal = await req('POST', '/guest/claim-points', { ticket }, { as: tokenB });
+      check('Derselbe Gutschein ein zweites Mal bringt nichts', nochmal.json?.pointsClaimed === 0,
+        `ist: ${nochmal.json?.pointsClaimed}`);
+      check('… und der Kontostand bleibt', await pointsOf(tokenB) === vorher + wert);
+
+      const fremd = await req('POST', '/guest/claim-points', { ticket }, { as: tokenA });
+      check('Ein anderes Konto bekommt dieselben Punkte nicht', fremd.json?.pointsClaimed === 0,
+        `ist: ${fremd.json?.pointsClaimed}`);
+
+      const ohneKonto = await req('POST', '/guest/claim-points', { ticket });
+      check('Einlösen ohne Anmeldung wird mit 401 abgelehnt', ohneKonto.status === 401,
+        `HTTP ${ohneKonto.status}`);
+
+      const erfunden = await req('POST', '/guest/claim-points', { ticket: 'aaa.bbb' }, { as: tokenB });
+      check('Ein erfundener Gutschein wird mit 400 abgelehnt', erfunden.status === 400,
+        `HTTP ${erfunden.status}`);
+    }
+
     // ── 5) Einlösen setzt ein Konto voraus ────────────────────────
     console.log('\n5) Einlösen');
     {
