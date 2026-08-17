@@ -546,8 +546,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <p className="text-xl font-semibold text-gray-900 dark:text-white mb-1">Vielen Dank!</p>
               <p className="text-[13px] text-gray-500 dark:text-gray-400">Dein Feedback hilft uns, noch besser zu werden.</p>
               {/* Ohne Konto gibt es keine Punkte — das gehört hierher gesagt,
-                  und zwar mit dem Betrag, um den es geht. */}
-              {missedPts > 0 ? (
+                  und zwar mit dem Betrag, um den es geht. Sobald der Gast
+                  angemeldet ist, verschwindet der Hinweis auf jeden Fall: er
+                  darf nicht davon abhängen, dass das Nachbuchen der Punkte
+                  glückt, sonst steht der Gast vor einem Bildschirm, der ihn zu
+                  etwas auffordert, das er gerade erledigt hat. */}
+              {missedPts > 0 && !store.guest.loggedIn ? (
                 <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-3">
                   <p className="text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed">
                     Deine Bewertung ist angekommen. <strong>{missedPts} Punkte</strong> warten
@@ -595,6 +599,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <button onClick={() => openVouchers('thanks')} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">Alle Gutscheine →</button>
               </div>
             )}
+            {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
+                einzige Weg zurück über das Neuladen der Seite. */}
+            <button onClick={() => go('welcome')}
+              className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              Zurück zum Start
+            </button>
           </div>
         </motion.div>
       )}
