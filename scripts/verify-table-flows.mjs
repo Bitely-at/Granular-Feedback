@@ -167,7 +167,7 @@ async function main() {
       const table = await req('GET', `/branches/${B}/tables/${n}`);
       check('Tisch hat danach keine Positionen mehr', table.json?.items?.length === 0,
         `ist: ${table.json?.items?.length} Positionen`);
-      check('Tisch ist als "abgeschlossen" markiert', table.json?.status === 'abgeschlossen',
+      check('Tisch ist danach wieder "frei"', table.json?.status === 'frei',
         `ist: ${table.json?.status}`);
 
       const second = await req('POST', `/branches/${B}/tables/${n}/review`, review);

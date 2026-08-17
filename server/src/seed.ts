@@ -107,13 +107,12 @@ async function main() {
     await tablesCol.insertMany([
       t(1, 'frei', [], null),
       t(2, 'offen', [[0, 2], [6, 2]], 22),
-      // 'abgeschlossen' heißt: bewertet und abgeräumt — deshalb ohne Gerichte.
-      t(3, 'abgeschlossen', [], 60),
+      t(3, 'frei', [], null),
       t(4, 'offen', [[0, 1], [1, 1], [2, 1]], 8), // Tisch 4 = Demo-Gasttisch, siehe README
       t(5, 'frei', [], null),
       t(6, 'offen', [[1, 3], [7, 2], [3, 2]], 45),
       t(7, 'frei', [], null),
-      t(8, 'abgeschlossen', [], 120),
+      t(8, 'frei', [], null),
       t(9, 'offen', [[2, 2], [5, 3]], 15),
       t(10, 'frei', [], null),
       t(11, 'offen', [[6, 3]], 33),
@@ -134,7 +133,7 @@ async function main() {
       // Absichtlich belegt: Tisch 4 gibt es in beiden Filialen, mit anderem Inhalt.
       t(4, 'offen', [[5, 1], [7, 1]], 30),
       t(5, 'frei', [], null),
-      t(6, 'abgeschlossen', [], 90),
+      t(6, 'frei', [], null),
     ]);
     console.log(`Tische 1–6 für "${secondBranch.name}" angelegt.`);
   } else {

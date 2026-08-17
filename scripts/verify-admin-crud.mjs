@@ -41,12 +41,15 @@ function check(name, condition, detail = '') {
   }
 }
 
-async function req(method, path, body, { auth = true } = {}) {
+// `as` schickt die Anfrage mit einem anderen Token — für die Fälle, in denen
+// geprüft wird, was jemand ANDERES darf.
+async function req(method, path, body, { auth = true, as = null } = {}) {
+  const bearer = as ?? token;
   const res = await fetch(`${API_BASE}/api/${ORG_SLUG}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(auth && bearer ? { Authorization: `Bearer ${bearer}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -268,6 +271,53 @@ async function main() {
       }
     }
 
+    // ── 4b) Einladen und Freischalten ────────────────────────────
+    // Eine Einladung ohne Passwort ist eine Sackgasse: das Projekt verschickt
+    // keine E-Mails, und `passwordHash: null` heißt "kann sich nicht anmelden".
+    console.log('\n4b) Einladen und freischalten');
+    {
+      const email = 'zz-pruef-neuer@example.com';
+      const branches = (await req('GET', '/state')).json.branches;
+      const invite = await req('POST', '/users', {
+        name: `${MARK} Neuling`, email, role: 'Kellner', branchId: branches[0].id,
+      });
+      check('Benutzer anlegen liefert 200', invite.status === 200,
+        `HTTP ${invite.status} — ${invite.json?.error ?? ''}`);
+      const user = invite.json?.users?.find(u => u.email === email);
+      check('… mit Status "eingeladen"', user?.status === 'eingeladen', `ist: ${user?.status}`);
+      check('… und ohne Passwort-Hash in der Antwort', user?.passwordHash === undefined);
+
+      if (user) {
+        const noLogin = await req('POST', '/auth/login', { email, password: 'egal-was' }, { auth: false });
+        check('Eingeladen heißt: Anmeldung wird mit 401 abgelehnt', noLogin.status === 401,
+          `HTTP ${noLogin.status}`);
+
+        const anon = await req('PUT', `/users/${user.id}/password`, { password: 'geheim12345' }, { auth: false });
+        check('Passwort setzen ohne Anmeldung wird mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
+
+        const tooShort = await req('PUT', `/users/${user.id}/password`, { password: 'kurz' });
+        check('Zu kurzes Passwort wird mit 400 abgelehnt', tooShort.status === 400, `HTTP ${tooShort.status}`);
+
+        const set = await req('PUT', `/users/${user.id}/password`, { password: 'geheim12345' });
+        check('Passwort setzen liefert 200', set.status === 200, `HTTP ${set.status} — ${set.json?.error ?? ''}`);
+        check('… und schaltet das Konto auf "aktiv"',
+          set.json?.users?.find(u => u.id === user.id)?.status === 'aktiv');
+
+        const login = await req('POST', '/auth/login', { email, password: 'geheim12345' }, { auth: false });
+        check('Der neue Benutzer kann sich anmelden', login.status === 200, `HTTP ${login.status}`);
+        check('… und bekommt die Rolle aus der Einladung', login.json?.user?.role === 'Kellner',
+          `ist: ${login.json?.user?.role}`);
+
+        // Eine Servicekraft darf niemandem ein Passwort geben — auch sich selbst nicht.
+        const asWaiter = await req('PUT', `/users/${user.id}/password`, { password: 'nochmalneu1' },
+          { as: login.json?.token });
+        check('Eine Servicekraft darf keine Passwörter setzen (403)', asWaiter.status === 403,
+          `HTTP ${asWaiter.status}`);
+
+        await req('DELETE', `/users/${user.id}`);
+      }
+    }
+
     // ── 5) Menü pro Filiale ──────────────────────────────────────
     console.log('\n5) Gerichte lassen sich pro Filiale führen');
     {
@@ -296,8 +346,11 @@ async function main() {
         check('… der Admin sieht es trotzdem (sonst nicht mehr einschaltbar)',
           Boolean(findDish(in2.json, `${MARK} Nur B1`)));
 
-        // Alle Filialen ausgewählt = "überall", als null gespeichert.
-        const toAll = await req('PATCH', `/dishes/${created.dishId}`, { branchIds: [b1.id, b2.id] });
+        // Alle Filialen ausgewählt = "überall", als null gespeichert. "Alle"
+        // heißt wirklich alle: eine gewachsene Organisation hat mehr als die
+        // zwei, mit denen dieser Abschnitt arbeitet.
+        const allBranchIds = state.json.branches.map(b => b.id);
+        const toAll = await req('PATCH', `/dishes/${created.dishId}`, { branchIds: allBranchIds });
         check('Alle Filialen ausgewählt wird zu "überall" (null)',
           findDish(toAll.json, `${MARK} Nur B1`)?.branchIds === null,
           `ist: ${JSON.stringify(findDish(toAll.json, `${MARK} Nur B1`)?.branchIds)}`);

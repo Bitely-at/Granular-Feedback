@@ -80,6 +80,15 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { $set: { passwordHash: null } }
   );
 
+  // Der Tisch kennt nur noch zwei Zustände. 'abgeschlossen' hieß "bewertet und
+  // abgeräumt" — ein Tisch ohne Positionen, also dasselbe wie 'frei', nur mit
+  // einer Beschriftung, die im Personalbildschirm stehen blieb, bis jemand ihn
+  // ausdrücklich schloss.
+  await db.collection('tables').updateMany(
+    { status: 'abgeschlossen' },
+    { $set: { status: 'frei', items: [], orderId: null, openedAt: null } }
+  );
+
   await resolveTableNumberConflicts(db);
   await splitDishRatingsPerBranch(db);
 

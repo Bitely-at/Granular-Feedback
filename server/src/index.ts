@@ -4,7 +4,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
-import { verifyPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
+import { verifyPassword, hashPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
 import type {
   Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch, DishDoc, RedemptionDoc,
 } from './types.js';
@@ -865,11 +865,12 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
       { upsert: true }
     );
 
-    // Bestellung abräumen: der Tisch gilt als bewertet, ein erneuter Aufruf des
-    // QR-Links zeigt den Leerzustand statt derselben Gerichte.
+    // Bestellung abräumen: der Tisch ist bewertet und damit wieder frei. Ein
+    // erneuter Aufruf des QR-Links zeigt den Leerzustand statt derselben
+    // Gerichte.
     await db.collection('tables').updateOne(
       { _id: table._id },
-      { $set: { status: 'abgeschlossen', items: [], orderId: null } }
+      { $set: { status: 'frei', items: [], orderId: null, openedAt: null } }
     );
 
     const state = await stateFor(req);
@@ -1144,6 +1145,47 @@ router.delete('/users/:id', branchAdmin(async (req: OrgRequest, res) => {
     }
   }
   await req.db!.collection('users').deleteOne({ _id: id });
+  res.json(await stateFor(req));
+}));
+
+/**
+ * Passwort eines Mitarbeiterkontos setzen — und es damit freischalten.
+ *
+ * Ohne das war eine Einladung eine Sackgasse: `passwordHash: null` heißt
+ * "kann sich nicht anmelden", und vergeben konnte es nur das Skript auf dem
+ * Server. Wer die Einladung ausspricht, muss auch das erste Passwort geben
+ * können — sonst wartet der Eingeladene auf eine E-Mail, die dieses Projekt
+ * gar nicht verschickt.
+ *
+ * Dieselben Grenzen wie beim Anlegen und Löschen: eine Filialleitung kommt nur
+ * an ihre eigenen Servicekräfte. Sonst könnte sie sich über das Passwort eines
+ * Admin-Kontos selbst befördern.
+ */
+router.put('/users/:id/password', branchAdmin(async (req: OrgRequest, res) => {
+  const actor = req.user!;
+  const id = requireObjectId(req.params.id, 'Benutzer-ID');
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (password.length < 8) {
+    res.status(400).json({ error: 'Das Passwort muss mindestens 8 Zeichen haben.' });
+    return;
+  }
+
+  const target = await req.db!.collection<UserDoc>('users').findOne({ _id: id });
+  if (!target) {
+    res.status(404).json({ error: 'Benutzer wurde nicht gefunden.' });
+    return;
+  }
+  if (actor.role !== 'Admin' && (target.role !== 'Kellner' || target.branchId !== actor.branchId)) {
+    res.status(403).json({ error: 'Du kannst nur Servicekräfte deiner eigenen Filiale freischalten.' });
+    return;
+  }
+
+  // 'aktiv' mitsetzen: ein eingeladenes Konto mit Passwort, das sich trotzdem
+  // nicht anmelden darf, wäre für niemanden nachvollziehbar.
+  await req.db!.collection<UserDoc>('users').updateOne(
+    { _id: id },
+    { $set: { passwordHash: hashPassword(password), status: 'aktiv' } }
+  );
   res.json(await stateFor(req));
 }));
 

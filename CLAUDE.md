@@ -45,15 +45,21 @@ eigenes TypeScript — für Frontend-Typechecks den Compiler aus `server/` nehme
 
 ## Tisch-Lebenszyklus
 
-Das Herzstück. Drei Zustände, und `orderId` trägt die Identität der laufenden
-Bestellung:
+Das Herzstück. **Zwei** Zustände, und `orderId` trägt die Identität der
+laufenden Bestellung:
 
 ```
-frei ──(Kellner bucht)──> offen ──(Gast bewertet)──> abgeschlossen
-  ^                         |                              |
-  └────(Kellner schließt)───┴──────────────────────────────┘
+frei ──(Kellner bucht)──> offen
+  ^                         |
+  └──(Gast bewertet ODER Kellner schließt)──┘
 ```
 
+- `offen` heißt: es liegt eine Bestellung an, deren Bewertung noch aussteht.
+  `frei` heißt: nichts offen. Mehr braucht der Personalbildschirm nicht.
+- Ein dritter Zustand `abgeschlossen` ("bewertet und abgeräumt") ist entfallen:
+  er beschrieb einen Tisch ohne Positionen — also dasselbe wie `frei` —, ließ
+  aber frisch bewertete Tische als "fertig" stehen, bis jemand sie ausdrücklich
+  schloss. `db.ts` stellt Altbestand um.
 - `orderId` wird gesetzt, sobald das erste Gericht gebucht wird, und auf `null`
   zurückgesetzt, sobald bewertet oder geschlossen wurde. `null` heißt: keine
   offene Bestellung.

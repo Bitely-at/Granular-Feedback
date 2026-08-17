@@ -27,7 +27,12 @@ export interface TableDoc {
   branchId: string;
   // Feste, für Menschen lesbare Nummer -> wird in der QR-Route verwendet: /:orgSlug/table/:number
   number: number;
-  status: 'frei' | 'offen' | 'abgeschlossen';
+  // Zwei Zustände, mehr braucht der Ablauf nicht: 'offen' heißt "es liegt eine
+  // Bestellung an, deren Bewertung noch aussteht", 'frei' heißt "nichts offen".
+  // Ein eigener Zustand für "bewertet und abgeräumt" sagte dem Personal nichts,
+  // was der leere Tisch nicht auch sagt — und ließ frisch bewertete Tische
+  // dauerhaft als "fertig" stehen, statt sie wieder freizugeben.
+  status: 'frei' | 'offen';
   items: TableItem[];
   openedAt: number | null;
   // Identität der aktuell offenen Bestellung. Wird gesetzt, sobald das erste

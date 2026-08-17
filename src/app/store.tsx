@@ -76,7 +76,9 @@ export interface TableItem { dishId: string; qty: number; }
 
 export interface TableRow {
   id: string; branchId: string; number: number;
-  status: 'frei' | 'offen' | 'abgeschlossen'; items: TableItem[]; openedAt: number | null;
+  // Zwei Zustände: 'offen' = Bestellung läuft, Bewertung steht aus; 'frei' =
+  // nichts offen. Siehe TableDoc in server/src/types.ts.
+  status: 'frei' | 'offen'; items: TableItem[]; openedAt: number | null;
 }
 
 export interface Voucher {
@@ -254,8 +256,9 @@ interface StoreApi extends OrgState {
   setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
   loginGuest: () => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
-  addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<void>;
+  addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<AdminUser | null>;
   removeUser: (id: string) => Promise<void>;
+  setUserPassword: (id: string, password: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
   updateDishImage: (dishId: string, img: string) => Promise<void>;
   addTables: (branchSlug: string, count: number) => Promise<void>;
@@ -432,12 +435,24 @@ export function StoreProvider({ orgSlug, scope, children }: {
     setState(await call<OrgState>(`/alerts/${alertId}/resolve`, { method: 'POST' }));
   }, [call]);
 
+  // Gibt den angelegten Benutzer zurück, damit der Aufrufer ihm direkt ein
+  // Passwort geben kann — ohne das bliebe die Einladung wirkungslos.
   const addUser = useCallback(async (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => {
-    setState(await call<OrgState>('/users', { method: 'POST', body: JSON.stringify(u) }));
+    const next = await call<OrgState>('/users', { method: 'POST', body: JSON.stringify(u) });
+    setState(next);
+    return next.users.find(x => x.email === u.email.trim().toLowerCase()) ?? null;
   }, [call]);
 
   const removeUser = useCallback(async (id: string) => {
     setState(await call<OrgState>(`/users/${id}`, { method: 'DELETE' }));
+  }, [call]);
+
+  // Schaltet ein eingeladenes Konto frei oder setzt ein vergessenes Passwort
+  // zurück. Ohne das bliebe eine Einladung ohne Wirkung.
+  const setUserPassword = useCallback(async (id: string, password: string) => {
+    setState(await call<OrgState>(`/users/${id}/password`, {
+      method: 'PUT', body: JSON.stringify({ password }),
+    }));
   }, [call]);
 
   const updateBrand = useCallback(async (partial: Partial<Brand>) => {
@@ -483,11 +498,11 @@ export function StoreProvider({ orgSlug, scope, children }: {
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
     startRedemption, confirmRedemption, cancelRedemption,
     setDishAvailability,
-    loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable,
+    loginGuest, resolveAlert, addUser, removeUser, setUserPassword, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
   }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
-    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, setUserPassword, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

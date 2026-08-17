@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
 import {
   Star, Search, Camera, Check, ChevronLeft, Plus, Minus, X,
-  WifiOff, Wifi, LayoutDashboard, UtensilsCrossed, Users, Settings,
+  LayoutDashboard, UtensilsCrossed, Users, Settings,
   MoreHorizontal, Download, QrCode, Pencil, AlertTriangle, TrendingUp,
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
@@ -362,9 +362,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // Leerzustands-Box, die den Hero-Aufbau sprengen würde.
   const welcomeText = tableDishes.length > 0
     ? 'In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.'
-    : table.status === 'abgeschlossen'
-      ? 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald neue Gerichte gebucht werden, kannst du hier Feedback geben.'
-      : 'Dein Service-Team hat noch nichts eingetragen. Frag kurz nach — danach kannst du jedes Gericht einzeln bewerten.';
+    : 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald dein Service-Team Gerichte einträgt, kannst du sie hier einzeln bewerten.';
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 bg-[#F7F8FA] dark:bg-[#0D1117]">
@@ -660,7 +658,6 @@ function WaiterApp({ branch }: { branch: Branch }) {
   // Render frisch aus dem Server-Zustand gelesen. Eine Kopie im lokalen State
   // würde nach dem Speichern weiter die alten Positionen anzeigen.
   const [activeTableNumber, setActiveTableNumber] = useState<number | null>(null);
-  const [online, setOnline] = useState(true);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('Speisen');
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -679,12 +676,12 @@ function WaiterApp({ branch }: { branch: Branch }) {
     ? null
     : branchTables.find(t => t.number === activeTableNumber) ?? null;
 
-  // Die drei Zustände müssen auf einen Blick unterscheidbar sein — vorher waren
-  // 'frei' und 'offen' beide grau und unterschieden sich nur in der Rahmenstufe.
+  // Zwei Zustände, und der eine ist der, der Arbeit bedeutet: eine Bestellung
+  // liegt an, deren Bewertung noch aussteht. Der wird farbig hervorgehoben,
+  // der freie Tisch bleibt ruhig.
   const statusCls: Record<TableRow['status'], string> = {
     frei: 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500',
     offen: 'bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300',
-    abgeschlossen: 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300',
   };
 
   const openAlerts = store.alerts.filter(a => !a.resolved && a.branchId === branch.id);
@@ -754,14 +751,6 @@ function WaiterApp({ branch }: { branch: Branch }) {
   return (
     <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex flex-col">
       <AnimatePresence>
-        {!online && (
-          <motion.div initial={{ y: -56 }} animate={{ y: 0 }} exit={{ y: -56 }}
-            className="bg-amber-400 px-5 py-2.5 flex items-center gap-3 z-50 relative">
-            <WifiOff size={16} className="text-amber-900 flex-shrink-0" />
-            <p className="text-[13px] text-amber-900 flex-1">Offline — Änderungen werden synchronisiert, sobald die Verbindung zurückkehrt.</p>
-            <button onClick={() => setOnline(true)} className="text-amber-900 text-[12px] font-medium underline">Verbinden</button>
-          </motion.div>
-        )}
         {openAlerts.map(a => (
           <motion.div key={a.id} initial={{ y: -56 }} animate={{ y: 0 }} exit={{ y: -56 }}
             className="bg-amber-100 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-900 px-5 py-2.5 flex items-center gap-3 z-40 relative">
@@ -796,11 +785,6 @@ function WaiterApp({ branch }: { branch: Branch }) {
           <span className="hidden md:inline text-[14px] text-gray-400 flex-shrink-0">· {branch.name}</span>
           {activeTable && screen === 'detail' && <span className="hidden sm:inline text-[15px] text-gray-400 flex-shrink-0">· Tisch {activeTable.number}</span>}
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-            <button onClick={() => setOnline(p => !p)}
-              className={`flex items-center gap-1.5 text-[13px] px-2 sm:px-3 py-1.5 rounded-lg transition-colors ${online ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950'}`}>
-              {online ? <Wifi size={13} strokeWidth={1.5} /> : <WifiOff size={13} strokeWidth={1.5} />}
-              <span className="hidden sm:inline">{online ? 'Online' : 'Offline'}</span>
-            </button>
             <button onClick={() => { setScreen('photo'); setPhotoStep('scan'); }}
               className="flex items-center gap-1.5 text-[13px] px-2 sm:px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
               <Camera size={13} strokeWidth={1.5} /> <span className="hidden sm:inline">Foto-Scan</span>
@@ -819,7 +803,7 @@ function WaiterApp({ branch }: { branch: Branch }) {
               </p>
             </div>
             <div className="flex items-center gap-3 sm:gap-4 text-[12px] sm:text-[13px] text-gray-500">
-              {([['bg-gray-300', 'Frei'], ['bg-amber-400', 'Offen'], ['bg-emerald-500', 'Fertig']] as const).map(([cls, l]) => (
+              {([['bg-gray-300', 'Frei'], ['bg-amber-400', 'Bewertung offen']] as const).map(([cls, l]) => (
                 <span key={l} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${cls}`} />{l}</span>
               ))}
             </div>
@@ -837,7 +821,7 @@ function WaiterApp({ branch }: { branch: Branch }) {
                 )}
                 <span className="text-2xl font-bold">{t.number}</span>
                 <span className="text-[10px] font-semibold mt-0.5 uppercase tracking-wide opacity-70">
-                  {t.status === 'frei' ? 'Frei' : t.status === 'offen' ? 'Offen' : 'Fertig'}
+                  {t.status === 'frei' ? 'Frei' : 'Bewertung offen'}
                 </span>
                 {t.status !== 'frei' && (
                   <>
@@ -1069,7 +1053,9 @@ function tableUrl(orgSlug: string, branchSlug: string, tableNumber: number): str
   return `${window.location.origin}/${orgSlug}/${branchSlug}/table/${tableNumber}`;
 }
 
-function TableQRCode({ orgSlug, branchSlug, tableNumber }: { orgSlug: string; branchSlug: string; tableNumber: number }) {
+function TableQRCode({ orgSlug, branchSlug, tableNumber, onDelete }: {
+  orgSlug: string; branchSlug: string; tableNumber: number; onDelete?: () => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const url = tableUrl(orgSlug, branchSlug, tableNumber);
 
@@ -1099,9 +1085,21 @@ function TableQRCode({ orgSlug, branchSlug, tableNumber }: { orgSlug: string; br
       <canvas ref={canvasRef} className="w-24 h-24 rounded-lg" />
       <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {tableNumber}</p>
       <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/{branchSlug}/table/{tableNumber}</p>
-      <button onClick={download} className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-        <Download size={11} strokeWidth={1.5} /> PNG laden
-      </button>
+      {/* Beide Aktionen als beschriftete Knöpfe mit Rahmen. Vorher war das
+          Löschen ein hellgraues 12-Pixel-Symbol ohne Text in der Ecke der
+          Kachel — wer es nicht kannte, fand es nicht. */}
+      <div className="flex items-center gap-2 w-full pt-0.5">
+        <button onClick={download}
+          className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition-colors">
+          <Download size={13} strokeWidth={1.5} /> PNG
+        </button>
+        {onDelete && (
+          <button onClick={onDelete}
+            className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium py-1.5 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+            <Trash2 size={13} strokeWidth={1.5} /> Löschen
+          </button>
+        )}
+      </div>
     </>
   );
 }
@@ -1460,7 +1458,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const [openMenus, setOpenMenus] = useState<Set<string>>(new Set());
   const [userMenuOpen, setUserMenuOpen] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'Kellner' as AdminUser['role'], branchId: '' });
+  const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'Kellner' as AdminUser['role'], branchId: '', password: '' });
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  // Passwort eines bestehenden Kontos setzen (Freischalten oder Zurücksetzen).
+  const [pwDialog, setPwDialog] = useState<{ user: AdminUser; value: string; error: string | null } | null>(null);
   const [branchDrop, setBranchDrop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [brandForm, setBrandForm] = useState({
@@ -1540,14 +1541,41 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
   ];
 
+  // Anlegen und Freischalten in einem Zug. Getrennt wäre es eine Sackgasse:
+  // das Projekt verschickt keine E-Mails, ein Konto ohne Passwort könnte sich
+  // also nie anmelden.
   const handleInviteSubmit = async () => {
     if (!inviteForm.name || !inviteForm.email) return;
-    await store.addUser({
-      name: inviteForm.name, email: inviteForm.email, role: inviteForm.role,
-      branchId: inviteForm.branchId || null,
-    });
-    setInviteForm({ name: '', email: '', role: 'Kellner', branchId: '' });
-    setShowInvite(false);
+    if (inviteForm.password.length < 8) {
+      setInviteError('Das Passwort muss mindestens 8 Zeichen haben.');
+      return;
+    }
+    setInviteError(null);
+    try {
+      const created = await store.addUser({
+        name: inviteForm.name, email: inviteForm.email, role: inviteForm.role,
+        branchId: inviteForm.branchId || null,
+      });
+      if (created) await store.setUserPassword(created.id, inviteForm.password);
+      setInviteForm({ name: '', email: '', role: 'Kellner', branchId: '', password: '' });
+      setShowInvite(false);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'Anlegen fehlgeschlagen.');
+    }
+  };
+
+  const handleSetPassword = async () => {
+    if (!pwDialog) return;
+    if (pwDialog.value.length < 8) {
+      setPwDialog(p => p && { ...p, error: 'Das Passwort muss mindestens 8 Zeichen haben.' });
+      return;
+    }
+    try {
+      await store.setUserPassword(pwDialog.user.id, pwDialog.value);
+      setPwDialog(null);
+    } catch (err) {
+      setPwDialog(p => p && { ...p, error: err instanceof Error ? err.message : 'Fehlgeschlagen.' });
+    }
   };
 
   const handleSaveBrand = async () => {
@@ -2100,12 +2128,19 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                             </td>
                             <td className="px-6 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{store.branches.find(b => b.id === u.branchId)?.name ?? 'Alle Filialen'}</td>
                             <td className="px-6 py-3.5">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.status === 'aktiv' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : u.status === 'eingeladen' ? 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'}`}>{u.status}</span>
+                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.status === 'aktiv' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : u.status === 'eingeladen' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'}`}>{u.status}</span>
+                              {u.status === 'eingeladen' && (
+                                <p className="text-[11px] text-gray-400 mt-1">kann sich noch nicht anmelden</p>
+                              )}
                             </td>
                             <td className="px-6 py-3.5 relative" onClick={e => e.stopPropagation()}>
                               <button onClick={() => setUserMenuOpen(p => p === u.id ? null : u.id)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><MoreHorizontal size={16} strokeWidth={1.5} /></button>
                               {userMenuOpen === u.id && (
-                                <div className="absolute right-6 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[140px]">
+                                <div className="absolute right-6 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[190px]">
+                                  <button onClick={() => { setPwDialog({ user: u, value: '', error: null }); setUserMenuOpen(null); }}
+                                    className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                                    <Lock size={12} /> {u.status === 'eingeladen' ? 'Freischalten' : 'Passwort ändern'}
+                                  </button>
                                   <button onClick={() => { store.removeUser(u.id); setUserMenuOpen(null); }} className="w-full text-left px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950 flex items-center gap-2">
                                     <Trash2 size={12} /> Entfernen
                                   </button>
@@ -2237,12 +2272,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
                             {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
                               <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
-                                <button onClick={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(branch.slug, t.id); }}
-                                  title="Tisch löschen"
-                                  className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                                  <Trash2 size={12} strokeWidth={1.5} />
-                                </button>
-                                <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number} />
+                                <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number}
+                                  onDelete={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(branch.slug, t.id); }} />
                               </div>
                             ))}
                           </div>
@@ -2717,10 +2748,52 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                       </select>
                     </div>
                   </div>
+                  <div>
+                    <label className="text-[12px] text-gray-500 mb-1 block">Erstes Passwort (mind. 8 Zeichen)</label>
+                    <input value={inviteForm.password} onChange={e => setInviteForm(p => ({ ...p, password: e.target.value }))}
+                      placeholder="wird beim Anlegen gesetzt" type="text" autoComplete="off"
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
+                    <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+                      Es wird keine E-Mail verschickt — gib das Passwort persönlich weiter.
+                      Die Person meldet sich damit und der E-Mail-Adresse an; ändern lässt es
+                      sich hier jederzeit wieder.
+                    </p>
+                  </div>
                 </div>
+                {inviteError && <p className="text-[13px] text-red-600 dark:text-red-400">{inviteError}</p>}
                 <div className="flex gap-3 pt-1">
-                  <SecondaryBtn onClick={() => setShowInvite(false)}>Abbrechen</SecondaryBtn>
-                  <PrimaryBtn onClick={handleInviteSubmit}>Einladung senden</PrimaryBtn>
+                  <SecondaryBtn onClick={() => { setShowInvite(false); setInviteError(null); }}>Abbrechen</SecondaryBtn>
+                  <PrimaryBtn onClick={handleInviteSubmit}>Benutzer anlegen</PrimaryBtn>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {pwDialog && (
+          <>
+            <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPwDialog(null)} />
+            <motion.div className="fixed inset-0 flex items-center justify-center z-50 p-4 sm:p-8"
+              initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }}>
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">
+                    {pwDialog.user.status === 'eingeladen' ? 'Konto freischalten' : 'Passwort ändern'}
+                  </p>
+                  <button onClick={() => setPwDialog(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
+                </div>
+                <p className="text-[13px] text-gray-500 dark:text-gray-400">{pwDialog.user.name} · {pwDialog.user.email}</p>
+                <div>
+                  <label className="text-[12px] text-gray-500 mb-1 block">Neues Passwort (mind. 8 Zeichen)</label>
+                  <input value={pwDialog.value} autoFocus type="text" autoComplete="off"
+                    onChange={e => setPwDialog(p => p && { ...p, value: e.target.value, error: null })}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
+                  <p className="text-[11px] text-gray-400 mt-1.5">Gib es der Person persönlich weiter — verschickt wird nichts.</p>
+                </div>
+                {pwDialog.error && <p className="text-[13px] text-red-600 dark:text-red-400">{pwDialog.error}</p>}
+                <div className="flex gap-3 pt-1">
+                  <SecondaryBtn onClick={() => setPwDialog(null)}>Abbrechen</SecondaryBtn>
+                  <PrimaryBtn onClick={handleSetPassword}>Speichern</PrimaryBtn>
                 </div>
               </div>
             </motion.div>
