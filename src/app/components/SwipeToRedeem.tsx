@@ -53,9 +53,8 @@ export function SwipeToRedeem({ onRedeem, redeemed }: SwipeToRedeemProps) {
           animate={{ scale: 1 }}
           transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         >
-          <Check size={18} className="text-white" strokeWidth={2.5} />
+          <Check size={20} className="text-white" strokeWidth={2.5} />
         </motion.div>
-        <span className="text-white text-sm">Eingelöst</span>
       </motion.div>
     );
   }
@@ -81,11 +80,16 @@ export function SwipeToRedeem({ onRedeem, redeemed }: SwipeToRedeemProps) {
         }}
       />
 
-      {/* Label */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none pl-12">
-        <span className="text-sm" style={{ color: progress > 0.45 ? '#fff' : '#64748b' }}>
-          Zum Einlösen wischen
-        </span>
+      {/* Richtungspfeile statt Beschriftung: die Geste wird vor der Servicekraft
+          ausgeführt, nicht gelesen. Sie verblassen, während gewischt wird. */}
+      <div className="absolute inset-0 flex items-center justify-center gap-1 pointer-events-none pl-12"
+        style={{ opacity: 1 - progress * 1.4 }}>
+        {[0, 1, 2].map(i => (
+          <svg key={i} width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="#94a3b8" strokeWidth="2.5" style={{ opacity: 0.35 + i * 0.25 }}>
+            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ))}
       </div>
 
       {/* Thumb */}

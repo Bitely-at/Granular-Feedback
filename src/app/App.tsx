@@ -3327,13 +3327,8 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
                 <p className="text-[19px] font-bold text-gray-900 dark:text-white">{voucher.title}</p>
                 <p className="text-[13px] text-gray-400 mt-1">{voucher.points} Punkte · {branch.name}</p>
               </div>
-              <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-2xl px-4 py-3">
-                <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
-                <p className="text-[13px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                  Erst einlösen, wenn die Servicekraft neben dir steht. Der Gutschein
-                  ist danach <strong>60 Sekunden</strong> gültig und verfällt.
-                </p>
-              </div>
+              {/* Kein Erklärtext: gewischt wird vor der Servicekraft, und die
+                  Geste erklärt sich in dem Moment von selbst. */}
               {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
               <SwipeToRedeem onRedeem={start} redeemed={busy} />
               <button onClick={onClose} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">

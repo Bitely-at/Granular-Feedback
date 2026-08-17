@@ -1,5 +1,8 @@
 # Bitely — Arbeitskontext
 
+> Neu auf diesem Rechner? `WEITERMACHEN.md` zuerst lesen: was nicht im
+> Repository liegt (`server/.env`), wo das Projekt steht und was ansteht.
+
 Item-basiertes Feedback für Restaurants. Gäste scannen einen QR-Code am Tisch,
 bewerten die Gerichte ihrer Bestellung einzeln und erhalten dafür Punkte.
 
