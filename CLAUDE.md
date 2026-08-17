@@ -34,14 +34,24 @@ npm run server:seed      # Demo-Daten anlegen
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
-npm run verify:redemptions   # 44 Tests für die Gutschein-Einlösung (wartet 60 s
+npm run verify:redemptions   # 48 Tests für die Gutschein-Einlösung (wartet 60 s
                              # auf den Verfall; SKIP_EXPIRY=1 überspringt das)
+npm run verify:guests    # 31 Tests für die Gastkonten
 npm run build            # Produktionsbuild
 ```
 
 Typecheck Server: `cd server && npx tsc --noEmit`. Das Root-Projekt hat kein
-eigenes TypeScript — für Frontend-Typechecks den Compiler aus `server/` nehmen.
-`npm run build` (Vite/esbuild) prüft **keine** Typen, nur Syntax.
+eigenes TypeScript — für Frontend-Typechecks den Compiler aus `server/` nehmen:
+
+```bash
+./server/node_modules/.bin/tsc --noEmit --jsx react-jsx --esModuleInterop \
+  --skipLibCheck --moduleResolution bundler --module esnext --target es2020 \
+  --strict src/app/store.tsx src/app/App.tsx
+```
+
+Die eine Meldung zu `import.meta.env` ist erwartbar (Vite-Typen fehlen dieser
+Ad-hoc-Konfiguration), alles andere ist echt. `npm run build` (Vite/esbuild)
+prüft **keine** Typen, nur Syntax — ein fehlender React-Import fällt dort nicht auf.
 
 ## Tisch-Lebenszyklus
 
@@ -72,6 +82,40 @@ frei ──(Kellner bucht)──> offen
 - Die Bewertung wird **vor** ihren Nebenwirkungen geschrieben (Sterne, Alarme,
   Punkte). Umgekehrt würde eine abgelehnte Doppelabgabe die Statistik
   verfälschen.
+
+## Gastkonten
+
+Der Gast hat ein eigenes Konto (`guests`) — Punkte und eingelöste Gutscheine
+hängen daran. Vorher teilten sich **alle** Gäste ein Profil
+(`guestProfile._id: 'default'`): jeder sah denselben Punktestand und dieselben
+Gutscheine als verbraucht.
+
+- **Bewerten bleibt ohne Konto möglich.** Der QR-Code am Tisch wäre sonst
+  wertlos. Ohne Anmeldung gibt es nur keine Punkte: die Antwort auf die
+  Bewertung trägt `pointsEarned: 0` **und** `pointsPossible`, damit die
+  Oberfläche sagen kann, worum es geht.
+- **Einlösen setzt ein Konto voraus** (401). Ohne Konto gäbe es niemanden,
+  dem die Punkte abgezogen und bei Verfall zurückgebucht werden.
+- **Zwei Token-Arten, streng getrennt.** Das Gast-Token trägt `kind: 'guest'`
+  und fällt in `verifyToken` durch; das Personal-Token fällt in
+  `verifyGuestToken` durch. Ohne diese Trennung wäre ein Gastkonto eine
+  Hintertür in die Kellner- und Adminrouten. Es liegt unter
+  `bitely.guest.<orgSlug>` im `localStorage`, getrennt vom Personal-Token, und
+  hält 90 Tage.
+- **Zwei Wege hinein:** E-Mail mit Passwort und Google. Zusammengeführt wird
+  über die E-Mail — wer erst ein Passwort hatte und später Google nimmt, behält
+  sein Konto samt Punkten.
+- **Google prüft der Server** (`googleAuth.ts`): Signatur gegen Googles
+  öffentliche Schlüssel, Aussteller, Empfänger (`aud` muss die eigene
+  Client-ID sein) und Ablauf. Ohne diese Prüfungen wäre "melde mich als
+  beliebige E-Mail an" ein einzelner HTTP-Aufruf. Der Grund einer Ablehnung
+  steht im Log, nicht in der Antwort.
+- **Die Client-ID kommt aus `GET /guest/auth-options`**, nicht aus dem
+  Frontend-Build: als `VITE_`-Variable müsste Netlify für jede Änderung neu
+  bauen. Ist `GOOGLE_CLIENT_ID` nicht gesetzt, erscheint der Google-Knopf gar
+  nicht erst.
+- `DELETE /guest/me` löscht das eigene Konto; abgegebene Bewertungen bleiben,
+  sie hängen am Tisch und sind für das Restaurant die eigentliche Substanz.
 
 ## Gutschein-Einlösung
 
@@ -199,7 +243,13 @@ der normale `mongodb+srv`-String.
 
 - Frontend: Netlify (`bitelyvienna`), braucht `VITE_API_BASE_URL` **zur
   Buildzeit** — nachträglich gesetzt erfordert einen neuen Build.
-- Backend: Render (`bitely-api`), braucht `MONGODB_URI`.
+- Backend: Render (`bitely-api`), braucht `MONGODB_URI` und `JWT_SECRET`.
+- **Google-Anmeldung für Gäste** braucht `GOOGLE_CLIENT_ID` auf dem Server —
+  eine OAuth-Client-ID vom Typ *Web* aus der Google Cloud Console, mit der
+  Frontend-Adresse unter "Authorized JavaScript origins" (Netlify-Domain und
+  `http://localhost:5173`). Ist sie nicht gesetzt, bleibt der Google-Knopf aus
+  und E-Mail mit Passwort funktioniert weiterhin. Kein neuer Frontend-Build
+  nötig: die ID kommt über `GET /guest/auth-options`.
 - `GET /health` sagt im Klartext, ob die Datenbank steht, als welcher Benutzer
   verbunden wird (Passwort maskiert) und was zu tun ist.
 - Render Free schläft nach 15 Minuten; erster Aufruf danach 20–30 Sekunden.
@@ -257,9 +307,15 @@ Prüfskripte nehmen dafür `ADMIN_EMAIL`/`ADMIN_PASSWORD` aus der Umgebung.
 
 ## Bekannte Lücken
 
-Ein geteiltes Gastprofil für alle Gäste (`guestProfile._id: 'default'`), kein
-Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
-`/auth/login`).
+Kein Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung — weder auf
+`/auth/login` noch auf `/guest/login` und `/guest/register`. Gastkonten haben
+kein "Passwort vergessen" (dafür bräuchte es Mailversand) und kein Bestätigen
+der E-Mail; wer über Google kommt, hat beides von dort.
+
+Die alte Sammlung `guestProfile` (das von allen Gästen geteilte Profil) bleibt
+als Bestandsdaten liegen — sie wird nirgends mehr gelesen. Einlösungen aus
+dieser Zeit tragen `guestId: 'default'`; für die gibt es nichts zurückzubuchen
+(siehe `refundGuest`).
 
 **Kein Filialpreis.** Eine Filiale kann ein Gericht führen oder nicht, aber
 nicht zu einem anderen Preis anbieten. Nachrüstbar, indem `branchIds` von einer

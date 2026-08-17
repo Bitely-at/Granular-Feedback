@@ -149,10 +149,29 @@ export interface Redemption {
   confirmedByName: string | null;
 }
 
-export interface GuestProfile { loggedIn: boolean; points: number; redeemed: string[]; }
+export interface GuestProfile {
+  loggedIn: boolean; points: number; redeemed: string[];
+  // Nur gesetzt, wenn ein Gastkonto angemeldet ist.
+  name?: string | null; email?: string | null;
+}
+
+/** Das angemeldete Gastkonto — das Gegenstück zu AuthUser auf der Personalseite. */
+export interface GuestAccount {
+  id: string; email: string; name: string;
+  points: number; redeemed: string[];
+  hasPassword: boolean; hasGoogle: boolean;
+}
+
+/** Welche Anmeldewege der Server anbietet. Google hängt an einer Client-ID. */
+export interface GuestAuthOptions {
+  password: boolean; google: boolean; googleClientId: string | null;
+}
 
 interface OrgState {
   brand: Brand | null;
+  // Ausgeblendete Dashboard-Kacheln. Liegt beim Server, weil eine Ansicht,
+  // die sich beim Neuladen zurücksetzt, keine Einstellung ist.
+  dashboard: { hiddenWidgets: string[] };
   branches: Branch[];
   dishes: Dish[];
   tables: TableRow[];
@@ -203,11 +222,35 @@ function writeToken(orgSlug: string, token: string | null) {
   } catch { /* privater Modus o. Ä. — dann gilt die Sitzung nur bis zum Reload */ }
 }
 
+// Das Gast-Token liegt getrennt vom Personal-Token: auf demselben Gerät kann
+// eine Servicekraft angemeldet sein UND ein Gast — beide dürfen sich nicht
+// gegenseitig abmelden. Es hält länger (90 Tage), weil ein Gast seine Punkte
+// nicht bei jedem Besuch neu freischalten soll.
+const guestTokenKey = (orgSlug: string) => `bitely.guest.${orgSlug}`;
+
+export function readGuestToken(orgSlug: string): string | null {
+  try { return localStorage.getItem(guestTokenKey(orgSlug)); } catch { return null; }
+}
+
+function writeGuestToken(orgSlug: string, token: string | null) {
+  try {
+    if (token) localStorage.setItem(guestTokenKey(orgSlug), token);
+    else localStorage.removeItem(guestTokenKey(orgSlug));
+  } catch { /* siehe oben */ }
+}
+
 /** Abgelaufene/ungültige Sitzung, damit die Oberfläche zurück zum Login kann. */
 export class UnauthorizedError extends Error {}
 
+/**
+ * Welches Token mitgeht. Das Personal-Token hat Vorrang, sonst das des Gastes —
+ * beide gleichzeitig zu schicken geht nicht, der Header trägt nur eines. In der
+ * Gastansicht ist ohnehin kein Personal angemeldet; wer beides hat (die
+ * Servicekraft, die den QR-Code am eigenen Handy öffnet), sieht dort dann den
+ * Zustand ohne Gastkonto — und kann sich als Gast anmelden, wenn er will.
+ */
 async function api<T>(orgSlug: string, path: string, init?: RequestInit): Promise<T> {
-  const token = readToken(orgSlug);
+  const token = readToken(orgSlug) ?? readGuestToken(orgSlug);
   const res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
     ...init,
     headers: {
@@ -239,13 +282,24 @@ interface StoreApi extends OrgState {
   authLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  // Angemeldeter GAST (nicht Personal) oder null.
+  guestUser: GuestAccount | null;
+  guestAuthOptions: GuestAuthOptions;
+  guestRegister: (email: string, name: string, password: string) => Promise<void>;
+  guestLogin: (email: string, password: string) => Promise<void>;
+  guestGoogleLogin: (credential: string) => Promise<void>;
+  guestLogout: () => Promise<void>;
+  deleteGuestAccount: () => Promise<void>;
   refresh: () => Promise<void>;
   // Alle Tisch-Aufrufe tragen die Filiale: die Nummer allein ist mehrdeutig,
   // Tisch 5 gibt es in jeder Filiale einmal.
   saveTableOrder: (branchSlug: string, tableNumber: number, cart: Record<string, number>) => Promise<void>;
   closeTable: (branchSlug: string, tableNumber: number) => Promise<void>;
   addItemToTable: (branchSlug: string, tableNumber: number, dishId: string, qty?: number) => Promise<void>;
-  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<number>;
+  // Liefert, was gutgeschrieben wurde UND was möglich gewesen wäre: ohne
+  // Gastkonto gibt es keine Punkte, und der Gast soll erfahren, was er
+  // liegenlässt.
+  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<{ earned: number; possible: number }>;
   // Einlösung eröffnen — gibt den kurzlebigen Code zurück, den die
   // Servicekraft in ihrer eigenen App gegenprüft.
   startRedemption: (branchSlug: string, voucherId: string, tableNumber?: number)
@@ -254,12 +308,12 @@ interface StoreApi extends OrgState {
   cancelRedemption: (branchSlug: string, redemptionId: string, code: string) => Promise<void>;
   // Gericht in EINER Filiale führen oder nicht — der Hebel der Filialleitung.
   setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
-  loginGuest: () => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
   addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<AdminUser | null>;
   removeUser: (id: string) => Promise<void>;
   setUserPassword: (id: string, password: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
+  setHiddenWidgets: (ids: string[]) => Promise<void>;
   updateDishImage: (dishId: string, img: string) => Promise<void>;
   addTables: (branchSlug: string, count: number) => Promise<void>;
   removeTable: (branchSlug: string, id: string) => Promise<void>;
@@ -277,7 +331,8 @@ interface StoreApi extends OrgState {
 const StoreContext = createContext<StoreApi | null>(null);
 
 const EMPTY_STATE: OrgState = {
-  brand: null, branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [], reviews: [],
+  brand: null, dashboard: { hiddenWidgets: [] },
+  branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [], reviews: [],
   redemptions: [],
   guest: { loggedIn: false, points: 0, redeemed: [] },
 };
@@ -305,6 +360,10 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const [error, setError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [guestUser, setGuestUser] = useState<GuestAccount | null>(null);
+  const [authOptions, setAuthOptions] = useState<GuestAuthOptions>({
+    password: true, google: false, googleClientId: null,
+  });
 
   // Der Server liefert nur die Daten der angefragten Filiale — die Oberfläche
   // filtert nicht selbst. Ohne bekannte Filiale wird gar nicht erst geladen.
@@ -367,10 +426,73 @@ export function StoreProvider({ orgSlug, scope, children }: {
     try {
       return await api<T>(orgSlug, path, init);
     } catch (err) {
-      if (err instanceof UnauthorizedError) logout();
+      // Nur eine abgelaufene PERSONAL-Sitzung führt zurück zur Anmeldung. Ein
+      // 401 in der Gastansicht heißt meist "dafür brauchst du ein Konto" — das
+      // darf die Servicekraft am selben Gerät nicht hinauswerfen.
+      if (err instanceof UnauthorizedError && readToken(orgSlug)) logout();
       throw err;
     }
   }, [orgSlug, logout]);
+
+  // ── Gastkonten ────────────────────────────────────────────────
+  // Eigene Sitzung, eigenes Token, eigener Zustand. Punkte gehören ab hier
+  // einem Konto; ohne Anmeldung bewertet man weiterhin, bekommt aber nichts
+  // gutgeschrieben.
+  const applyGuestSession = useCallback(async (data: { token: string; guest: GuestAccount }) => {
+    writeGuestToken(orgSlug, data.token);
+    setGuestUser(data.guest);
+    await refresh();
+  }, [orgSlug, refresh]);
+
+  const guestRegister = useCallback(async (email: string, name: string, password: string) => {
+    await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/register', {
+      method: 'POST', body: JSON.stringify({ email, name, password }),
+    }));
+  }, [orgSlug, applyGuestSession]);
+
+  const guestLogin = useCallback(async (email: string, password: string) => {
+    await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/login', {
+      method: 'POST', body: JSON.stringify({ email, password }),
+    }));
+  }, [orgSlug, applyGuestSession]);
+
+  const guestGoogleLogin = useCallback(async (credential: string) => {
+    await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/google', {
+      method: 'POST', body: JSON.stringify({ credential }),
+    }));
+  }, [orgSlug, applyGuestSession]);
+
+  const guestLogout = useCallback(async () => {
+    writeGuestToken(orgSlug, null);
+    setGuestUser(null);
+    await refresh();
+  }, [orgSlug, refresh]);
+
+  const deleteGuestAccount = useCallback(async () => {
+    await api(orgSlug, '/guest/me', { method: 'DELETE' });
+    await guestLogout();
+  }, [orgSlug, guestLogout]);
+
+  // Gespeicherte Gast-Sitzung beim Seitenaufruf prüfen — wie beim Personal
+  // weiß nur der Server, ob sie noch gilt.
+  useEffect(() => {
+    let cancelled = false;
+    if (!readGuestToken(orgSlug)) { setGuestUser(null); return; }
+    api<{ guest: GuestAccount }>(orgSlug, '/guest/me')
+      .then(({ guest }) => { if (!cancelled) setGuestUser(guest); })
+      .catch(() => { if (!cancelled) { writeGuestToken(orgSlug, null); setGuestUser(null); } });
+    return () => { cancelled = true; };
+  }, [orgSlug]);
+
+  // Welche Anmeldewege es gibt, entscheidet der Server (Google nur mit
+  // hinterlegter Client-ID) — nicht der Frontend-Build.
+  useEffect(() => {
+    let cancelled = false;
+    api<GuestAuthOptions>(orgSlug, '/guest/auth-options')
+      .then(opts => { if (!cancelled) setAuthOptions(opts); })
+      .catch(() => { /* dann bleibt es beim Standard: nur E-Mail und Passwort */ });
+    return () => { cancelled = true; };
+  }, [orgSlug]);
 
   const saveTableOrder = useCallback(async (branchSlug: string, tableNumber: number, cart: Record<string, number>) => {
     setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) }));
@@ -389,12 +511,12 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const submitReview = useCallback(async (
     branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
   ) => {
-    const data = await call<OrgState & { pointsEarned: number }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
+    const data = await call<OrgState & { pointsEarned: number; pointsPossible: number }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
       method: 'POST', body: JSON.stringify({ dishRatings, overall }),
     });
-    const { pointsEarned, ...rest } = data;
+    const { pointsEarned, pointsPossible, ...rest } = data;
     setState(rest);
-    return pointsEarned;
+    return { earned: pointsEarned, possible: pointsPossible };
   }, [call]);
 
   const startRedemption = useCallback(async (branchSlug: string, voucherId: string, tableNumber?: number) => {
@@ -427,10 +549,6 @@ export function StoreProvider({ orgSlug, scope, children }: {
     }));
   }, [call]);
 
-  const loginGuest = useCallback(async () => {
-    setState(await call<OrgState>('/guest/login', { method: 'POST' }));
-  }, [call]);
-
   const resolveAlert = useCallback(async (alertId: string) => {
     setState(await call<OrgState>(`/alerts/${alertId}/resolve`, { method: 'POST' }));
   }, [call]);
@@ -452,6 +570,12 @@ export function StoreProvider({ orgSlug, scope, children }: {
   const setUserPassword = useCallback(async (id: string, password: string) => {
     setState(await call<OrgState>(`/users/${id}/password`, {
       method: 'PUT', body: JSON.stringify({ password }),
+    }));
+  }, [call]);
+
+  const setHiddenWidgets = useCallback(async (ids: string[]) => {
+    setState(await call<OrgState>('/settings/dashboard', {
+      method: 'PATCH', body: JSON.stringify({ hiddenWidgets: ids }),
     }));
   }, [call]);
 
@@ -495,14 +619,18 @@ export function StoreProvider({ orgSlug, scope, children }: {
 
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
+    guestUser, guestAuthOptions: authOptions, guestRegister, guestLogin, guestGoogleLogin,
+    guestLogout, deleteGuestAccount,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
     startRedemption, confirmRedemption, cancelRedemption,
     setDishAvailability,
-    loginGuest, resolveAlert, addUser, removeUser, setUserPassword, updateBrand, updateDishImage, addTables, removeTable,
+    resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
-  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout, refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
-    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, loginGuest, resolveAlert, addUser, removeUser, setUserPassword, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout,
+    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount,
+    refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
+    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

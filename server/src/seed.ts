@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { ObjectId } from 'mongodb';
 import { platformDb, orgDbBySlug, closeDb } from './db.js';
 import { hashPassword } from './auth.js';
-import type { Organization, Branch, DishDoc, TableDoc, VoucherDoc, UserDoc, BrandDoc, GuestProfileDoc } from './types.js';
+import type { Organization, Branch, DishDoc, TableDoc, VoucherDoc, UserDoc, BrandDoc, GuestDoc } from './types.js';
 
 const ORG_SLUG = 'sakura-sushi';
 
@@ -194,12 +194,18 @@ async function main() {
     console.log('Branding existiert bereits.');
   }
 
-  const guestCol = db.collection<GuestProfileDoc>('guestProfile');
-  if ((await guestCol.countDocuments({ _id: 'default' })) === 0) {
-    await guestCol.insertOne({ _id: 'default', points: 0, redeemed: [], loggedIn: false });
-    console.log('Gast-Profil angelegt.');
+  // Ein Demo-Gastkonto, damit die Punkte- und Gutscheinansicht ohne
+  // Registrierung vorführbar ist. Gäste legen sich sonst selbst eines an.
+  const guestsCol = db.collection<GuestDoc>('guests');
+  const demoGuestEmail = 'gast@example.com';
+  if ((await guestsCol.countDocuments({ email: demoGuestEmail })) === 0) {
+    await guestsCol.insertOne({
+      email: demoGuestEmail, name: 'Demo-Gast', passwordHash: hashPassword(DEMO_PASSWORD),
+      googleSub: null, points: 500, redeemed: [], createdAt: Date.now(),
+    });
+    console.log(`Demo-Gastkonto angelegt (${demoGuestEmail} / ${DEMO_PASSWORD}).`);
   } else {
-    console.log('Gast-Profil existiert bereits.');
+    console.log('Demo-Gastkonto existiert bereits.');
   }
 
   console.log('\nFertig. QR-Ziele pro Filiale (Tisch 4 gibt es in beiden — verschiedene Tische):');

@@ -14,5 +14,9 @@ services:
       # Wird er später geändert, sind alle offenen Sitzungen ungültig.
       - key: JWT_SECRET
         generateValue: true
+      # Google-Anmeldung für Gäste. Ohne Wert bleibt der Google-Knopf aus und
+      # es geht nur E-Mail mit Passwort — die Anwendung startet trotzdem.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       - key: PORT
         value: 4000

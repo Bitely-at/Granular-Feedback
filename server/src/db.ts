@@ -117,6 +117,19 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { createdAt: -1 },
     { name: 'newest_first' }
   );
+
+  // Gastkonten: die E-Mail ist die Kennung, und zwei Konten mit derselben
+  // wären nicht auseinanderzuhalten — die Regel gehört wie überall in den
+  // Index, nicht in den Handler.
+  await db.collection('guests').createIndex(
+    { email: 1 },
+    { unique: true, name: 'uniq_guest_email' }
+  );
+  // Dasselbe für die Google-Konto-ID, aber nur für Konten, die eine haben.
+  await db.collection('guests').createIndex(
+    { googleSub: 1 },
+    { unique: true, name: 'uniq_google_sub', partialFilterExpression: { googleSub: { $type: 'string' } } }
+  );
 }
 
 /**

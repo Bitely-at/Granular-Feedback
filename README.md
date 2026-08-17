@@ -139,8 +139,10 @@ Organisationen existieren und was zu tun ist.
 MVP. Anmeldung, Rollen und Filialtrennung stehen; die Rechte werden
 serverseitig erzwungen, nicht nur in der Oberfläche versteckt.
 
-Offen vor dem Einsatz mit echten Kundendaten: Passwörter lassen sich nur auf
-der Kommandozeile vergeben (`npm run set-password --prefix server`), nicht in
-der Oberfläche; ein geteiltes Gastprofil für alle Gäste, CORS offen, keine
-Ratenbegrenzung auf `/auth/login`.
+Gäste haben eigene Konten (E-Mail mit Passwort oder Google); Punkte und
+Gutscheine hängen daran. Bewerten geht weiterhin ohne Anmeldung — dann gibt es
+nur keine Punkte.
+
+Offen vor dem Einsatz mit echten Kundendaten: CORS offen, keine
+Ratenbegrenzung auf den Anmelderouten, kein "Passwort vergessen" für Gäste.
 Vollständige Liste in `CLAUDE.md`.

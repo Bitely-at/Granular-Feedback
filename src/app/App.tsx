@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
@@ -292,6 +292,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const [vTab, setVTab] = useState('Verfügbar');
   const [pts, setPts] = useState(0);
   const [earnedPts, setEarnedPts] = useState(0);
+  // Was ohne Konto liegengeblieben ist (0, wenn angemeldet).
+  const [missedPts, setMissedPts] = useState(0);
+  // Anmeldung/Registrierung als Gast — von mehreren Stellen aus zu öffnen.
+  const [authOpen, setAuthOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -328,8 +332,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
       const dishRatings: DishRatingInput[] = tableDishes.map(d => ({
         dishId: d.id, stars: ratings[d.id] ?? 0, note: notes[d.id]?.trim() || undefined,
       }));
-      const earned = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
+      const { earned, possible } = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
       setEarnedPts(earned);
+      // Ohne Konto ist earned 0 — dann zeigt der Dank-Bildschirm, was mit einem
+      // Konto drin gewesen wäre, statt die Punkte stillschweigend zu verschlucken.
+      setMissedPts(earned === 0 ? possible : 0);
       setPts(0);
       go('thanks');
     } catch (err) {
@@ -397,9 +404,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <div className="w-full max-w-sm mx-auto pt-4 pb-10 flex-shrink-0">
                   {tableDishes.length > 0 && <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>}
                   {!store.guest.loggedIn && (
-                    <button onClick={() => store.loginGuest()}
+                    <button onClick={() => setAuthOpen(true)}
                       className="w-full text-[15px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-3 transition-colors">
-                      Bereits Mitglied? Anmelden
+                      Anmelden, um Punkte zu sichern
                     </button>
                   )}
                 </div>
@@ -501,6 +508,17 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               </motion.div>
               <p className="text-xl font-semibold text-gray-900 dark:text-white mb-1">Vielen Dank!</p>
               <p className="text-[13px] text-gray-500 dark:text-gray-400">Dein Feedback hilft uns, noch besser zu werden.</p>
+              {/* Ohne Konto gibt es keine Punkte — das gehört hierher gesagt,
+                  und zwar mit dem Betrag, um den es geht. */}
+              {missedPts > 0 ? (
+                <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-3">
+                  <p className="text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed">
+                    Deine Bewertung ist angekommen. <strong>{missedPts} Punkte</strong> warten
+                    auf ein Konto — ohne Anmeldung können wir sie niemandem gutschreiben.
+                  </p>
+                  <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden und Punkte sichern</PrimaryBtn>
+                </div>
+              ) : (
               <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700">
                 <p className="text-[12px] text-gray-400 mb-1">Verdiente Punkte</p>
                 <p className="text-4xl font-bold mb-3" style={{ color: 'var(--ba, #16A34A)' }}>+{pts}</p>
@@ -512,6 +530,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   <span>{store.guest.points} Pkt. insgesamt</span><span>{nextRewardPoints} Pkt. = nächste Belohnung</span>
                 </div>
               </div>
+              )}
             </div>
             {!store.guest.loggedIn ? (
               <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-4">
@@ -522,13 +541,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   </div>
                   <p className="text-[13px] text-gray-500 dark:text-gray-400">Melde dich an, um deine Punkte dauerhaft zu speichern.</p>
                 </div>
-                {/* Vorher standen hier drei Anmelde-Attrappen (E-Mail/Google/Apple)
-                    ohne Funktion plus ein Entwickler-Link — alles für Gäste sichtbar.
-                    Ersetzt durch die eine Aktion, die tatsächlich etwas tut. */}
-                <PrimaryBtn onClick={() => store.loginGuest()}>Punkte sichern</PrimaryBtn>
+                <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
                 <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-                  Deine Punkte bleiben auf diesem Gerät gespeichert. Ein Konto mit
-                  E-Mail-Anmeldung kommt später.
+                  Ohne Konto kannst du weiterhin alles bewerten — die Punkte dafür
+                  werden aber nirgends gutgeschrieben.
                 </p>
               </div>
             ) : (
@@ -559,6 +575,28 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <div className="px-4 pb-3"><TabBar tabs={['Verfügbar', 'Gesperrt', 'Eingelöst']} active={vTab} onChange={setVTab} /></div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Ohne Konto ist hier nichts zu holen: einlösen setzt eines voraus,
+                weil die Punkte einem Konto gehören. Das gehört an den Anfang
+                der Liste, nicht erst in die Fehlermeldung nach dem Wischen. */}
+            {!store.guest.loggedIn ? (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3 text-center">
+                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gutscheine brauchen ein Konto</p>
+                <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  Punkte sammeln und einlösen geht nur mit Anmeldung — sonst wüssten
+                  wir nicht, wem die Punkte gehören.
+                </p>
+                <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between px-1 pb-1">
+                <p className="text-[12px] text-gray-400 truncate">
+                  Angemeldet als <span className="text-gray-600 dark:text-gray-300">{store.guest.name ?? store.guest.email}</span>
+                </p>
+                <button onClick={() => store.guestLogout()} className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0">
+                  Abmelden
+                </button>
+              </div>
+            )}
 
             {vTab === 'Verfügbar' && (unlockedVouchers.length === 0
               ? <EmptyState icon={Zap} title="Noch nichts verfügbar" desc="Sammle weiter Punkte durch Bewertungen — dein nächster Gutschein wartet." />
@@ -577,6 +615,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <RedemptionSheet branch={branch} voucher={redeeming} tableNumber={tableNumber}
             onClose={() => setRedeeming(null)} />
         )}
+      </AnimatePresence>
+
+      {/* GASTKONTO — anmelden oder anlegen. Punkte hängen daran. */}
+      <AnimatePresence>
+        {authOpen && <GuestAuthSheet onClose={() => setAuthOpen(false)} />}
       </AnimatePresence>
 
       {/* BOTTOM SHEET */}
@@ -1454,7 +1497,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const store = useStore();
   const [page, setPage] = useState<AdminPage>('dashboard');
   const [editMode, setEditMode] = useState(false);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // Ausgeblendete Kacheln kommen aus dem Server-Zustand, nicht aus lokalem
+  // State — sonst stand nach jedem Neuladen wieder alles da.
+  const hidden = useMemo(() => new Set(store.dashboard.hiddenWidgets), [store.dashboard.hiddenWidgets]);
   const [openMenus, setOpenMenus] = useState<Set<string>>(new Set());
   const [userMenuOpen, setUserMenuOpen] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
@@ -1500,7 +1545,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   useGoogleFont(brandForm.font);
 
   const toggleMenu = (id: string) => setOpenMenus(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const hideWidget = (id: string) => { setHidden(p => new Set([...p, id])); setOpenMenus(new Set()); };
+  const hideWidget = (id: string) => {
+    setOpenMenus(new Set());
+    if (hidden.has(id)) return;
+    runAction(() => store.setHiddenWidgets([...hidden, id]));
+  };
+  const showAllWidgets = () => runAction(() => store.setHiddenWidgets([]));
 
   const ratedDishes = store.dishes.filter(d => d.ratingsCount > 0);
   const totalRatings = ratedDishes.reduce((a, d) => a + d.ratingsCount, 0);
@@ -1789,7 +1839,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     </div>
                     <div className="flex gap-2">
                       {hidden.size > 0 && (
-                        <button onClick={() => setHidden(new Set())}
+                        <button onClick={showAllWidgets}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
                           <Eye size={13} strokeWidth={1.5} /> Alles einblenden
                         </button>
@@ -3023,6 +3073,149 @@ function useCountdown(expiresAt: number | null): number {
  * soll. Sobald sie in ihrer App quittiert, wechselt der Zustand von selbst —
  * `redemption` kommt aus dem Server-Zustand, nicht aus lokalem Raten.
  */
+/**
+ * Lädt Googles Anmelde-Skript — aber nur, wenn der Server eine Client-ID
+ * hinterlegt hat. Ohne sie erscheint der Knopf gar nicht erst, statt beim
+ * Antippen mit einem Fehler zu enden.
+ */
+function useGoogleSignIn(clientId: string | null, onCredential: (credential: string) => void) {
+  const buttonRef = useRef<HTMLDivElement>(null);
+  // In einer Ref, damit ein neu erzeugter Callback nicht das ganze Skript neu lädt.
+  const handler = useRef(onCredential);
+  handler.current = onCredential;
+
+  useEffect(() => {
+    if (!clientId || !buttonRef.current) return;
+    let cancelled = false;
+
+    const render = () => {
+      const google = (window as unknown as { google?: any }).google;
+      if (cancelled || !google?.accounts?.id || !buttonRef.current) return;
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (res: { credential?: string }) => {
+          if (res.credential) handler.current(res.credential);
+        },
+      });
+      google.accounts.id.renderButton(buttonRef.current, {
+        theme: 'outline', size: 'large', width: 280, text: 'continue_with', locale: 'de',
+      });
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[data-google-signin]');
+    if (existing) { existing.addEventListener('load', render); render(); }
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleSignin = 'true';
+      script.addEventListener('load', render);
+      document.head.appendChild(script);
+    }
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  return buttonRef;
+}
+
+/**
+ * Anmelden oder Konto anlegen — als GAST, nicht als Personal. Die beiden
+ * Sitzungen sind getrennt (eigener Token-Typ, siehe auth.ts), damit ein
+ * Gastkonto nie an die Kellner- oder Adminrouten kommt.
+ */
+function GuestAuthSheet({ onClose }: { onClose: () => void }) {
+  const store = useStore();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [form, setForm] = useState({ email: '', name: '', password: '' });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Hat nicht geklappt. Bitte erneut versuchen.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const googleRef = useGoogleSignIn(
+    store.guestAuthOptions.google ? store.guestAuthOptions.googleClientId : null,
+    credential => { run(() => store.guestGoogleLogin(credential)); }
+  );
+
+  const submit = () => run(() => mode === 'login'
+    ? store.guestLogin(form.email.trim(), form.password)
+    : store.guestRegister(form.email.trim(), form.name.trim(), form.password));
+
+  const field = 'w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[15px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors';
+
+  return (
+    <>
+      <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <motion.div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl z-50 max-h-[92vh] overflow-y-auto"
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}>
+        <div className="p-5 pb-8 space-y-4">
+          <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto" />
+          <div className="text-center">
+            <p className="text-[19px] font-bold text-gray-900 dark:text-white">
+              {mode === 'login' ? 'Willkommen zurück' : 'Punkte dauerhaft sichern'}
+            </p>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed max-w-[300px] mx-auto">
+              Deine Punkte hängen an deinem Konto — damit sind sie auf jedem Gerät da,
+              auch beim nächsten Besuch.
+            </p>
+          </div>
+
+          {store.guestAuthOptions.google && (
+            <div className="flex flex-col items-center gap-3">
+              <div ref={googleRef} />
+              <div className="flex items-center gap-3 w-full">
+                <span className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
+                <span className="text-[12px] text-gray-400">oder</span>
+                <span className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2.5">
+            {mode === 'register' && (
+              <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="Dein Name" type="text" className={field} />
+            )}
+            <input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+              placeholder="E-Mail" type="email" autoComplete="email" className={field} />
+            <input value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+              placeholder={mode === 'login' ? 'Passwort' : 'Passwort (mind. 8 Zeichen)'}
+              type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className={field} />
+          </div>
+
+          {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
+
+          <PrimaryBtn onClick={submit}>
+            {busy ? 'Einen Moment…' : mode === 'login' ? 'Anmelden' : 'Konto anlegen'}
+          </PrimaryBtn>
+
+          <button onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(null); }}
+            className="w-full text-[13px] text-gray-500 dark:text-gray-400 py-1">
+            {mode === 'login' ? 'Noch kein Konto? Jetzt anlegen' : 'Schon ein Konto? Anmelden'}
+          </button>
+          <button onClick={onClose} className="w-full text-[13px] text-gray-400 py-1">
+            Ohne Konto weiter
+          </button>
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
 function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   branch: Branch; voucher: Voucher; tableNumber: number; onClose: () => void;
 }) {

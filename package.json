@@ -11,7 +11,8 @@
     "server:dev": "npm run dev --prefix server",
     "verify:tables": "node scripts/verify-table-flows.mjs",
     "verify:admin": "node scripts/verify-admin-crud.mjs",
-    "verify:redemptions": "node scripts/verify-redemptions.mjs"
+    "verify:redemptions": "node scripts/verify-redemptions.mjs",
+    "verify:guests": "node scripts/verify-guests.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

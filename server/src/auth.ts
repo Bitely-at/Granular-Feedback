@@ -49,6 +49,24 @@ export interface TokenPayload {
   exp: number; // Ablauf, ms seit Epoch
 }
 
+/**
+ * Gäste haben eigene Konten — und ein eigenes Token, das mit dem des Personals
+ * NICHTS gemein hat außer der Signatur. `kind` hält die beiden auseinander:
+ * ohne diese Unterscheidung könnte ein Gastkonto die Personalrouten aufrufen,
+ * weil `requireAuth` nur die Signatur und eine Rolle sieht.
+ *
+ * Personal-Tokens aus der Zeit vor den Gastkonten tragen kein `kind` — sie
+ * gelten weiter als Personal, siehe verifyToken/verifyGuestToken.
+ */
+export interface GuestTokenPayload {
+  sub: string; // Gast-ID
+  orgSlug: string;
+  kind: 'guest';
+  exp: number;
+}
+
+const GUEST_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 Tage — der Gast soll nicht ständig neu anmelden
+
 function base64url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -63,7 +81,14 @@ export function signToken(payload: Omit<TokenPayload, 'exp'>): string {
   return `${body}.${sign(body)}`;
 }
 
-export function verifyToken(token: string): TokenPayload | null {
+export function signGuestToken(payload: Omit<GuestTokenPayload, 'exp' | 'kind'>): string {
+  const full: GuestTokenPayload = { ...payload, kind: 'guest', exp: Date.now() + GUEST_TOKEN_TTL_MS };
+  const body = base64url(Buffer.from(JSON.stringify(full)));
+  return `${body}.${sign(body)}`;
+}
+
+/** Signatur und Ablauf prüfen. Wer das Token sein darf, entscheiden die zwei Funktionen darunter. */
+function readPayload(token: string): (Record<string, unknown> & { exp?: unknown }) | null {
   const [body, sig] = token.split('.');
   if (!body || !sig) return null;
   const expectedSig = sign(body);
@@ -72,10 +97,24 @@ export function verifyToken(token: string): TokenPayload | null {
   // Unterschiedliche Länge zuerst prüfen: timingSafeEqual wirft sonst, statt false zu liefern.
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
-    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return null;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (typeof payload?.exp !== 'number' || payload.exp < Date.now()) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+/** Personal-Token. Ein Gast-Token fällt hier durch — sonst käme ein Gast an die Kellner-Routen. */
+export function verifyToken(token: string): TokenPayload | null {
+  const payload = readPayload(token);
+  if (!payload || payload.kind === 'guest') return null;
+  return payload as unknown as TokenPayload;
+}
+
+/** Gast-Token. Ein Personal-Token fällt hier durch — Rollen und Punkte gehören nicht zusammen. */
+export function verifyGuestToken(token: string): GuestTokenPayload | null {
+  const payload = readPayload(token);
+  if (!payload || payload.kind !== 'guest') return null;
+  return payload as unknown as GuestTokenPayload;
 }

@@ -133,6 +133,19 @@ export interface BrandDoc {
 }
 
 /**
+ * Welche Kacheln des Admin-Dashboards ausgeblendet sind. Liegt in der
+ * Datenbank, weil eine Ansicht, die sich beim nächsten Laden selbst
+ * zurücksetzt, keine Einstellung ist, sondern ein Ärgernis.
+ *
+ * Bewusst pro Organisation, nicht pro Konto: das Dashboard eines Restaurants
+ * ist eine gemeinsame Ansicht, und ein zweites Konto soll dieselbe vorfinden.
+ */
+export interface DashboardDoc {
+  _id?: string; // konstant 'dashboard'
+  hiddenWidgets: string[];
+}
+
+/**
  * Eine Gutschein-Einlösung am Tisch.
  *
  * Der Gast eröffnet sie, die Servicekraft quittiert sie in IHRER App — nicht
@@ -163,6 +176,26 @@ export interface RedemptionDoc {
   confirmedByName: string | null;
 }
 
+/**
+ * Ein echtes Gastkonto. Punkte und eingelöste Gutscheine hängen daran, nicht
+ * mehr an einem geteilten Profil — vorher sah jeder Gast denselben Punktestand.
+ *
+ * Zwei Wege hinein, beide optional: E-Mail mit Passwort (`passwordHash`) und
+ * Google (`googleSub`, die unveränderliche Konto-ID von Google). Wer sich mit
+ * Google anmeldet und dieselbe E-Mail hat, landet im selben Konto.
+ */
+export interface GuestDoc {
+  _id?: ObjectId;
+  email: string; // eindeutig je Organisation, immer kleingeschrieben
+  name: string;
+  passwordHash: string | null;
+  googleSub: string | null;
+  points: number;
+  redeemed: string[];
+  createdAt: number;
+}
+
+/** Das alte, von ALLEN Gästen geteilte Profil. Bleibt für Bestandsdaten stehen. */
 export interface GuestProfileDoc {
   _id?: string; // konstant 'default' (kein echter Login vorgesehen)
   points: number;

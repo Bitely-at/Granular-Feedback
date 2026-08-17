@@ -4,9 +4,14 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
-import { verifyPassword, hashPassword, signToken, verifyToken, type TokenPayload } from './auth.js';
+import {
+  verifyPassword, hashPassword, signToken, verifyToken, signGuestToken, verifyGuestToken,
+  type TokenPayload, type GuestTokenPayload,
+} from './auth.js';
+import { verifyGoogleIdToken, googleClientId } from './googleAuth.js';
 import type {
-  Organization, BrandDoc, GuestProfileDoc, DishRatingInput, UserDoc, Branch, DishDoc, RedemptionDoc,
+  Organization, BrandDoc, DashboardDoc, GuestDoc, DishRatingInput, UserDoc, Branch,
+  DishDoc, RedemptionDoc,
 } from './types.js';
 
 const app = express();
@@ -127,6 +132,29 @@ function readUser(req: OrgRequest): TokenPayload | null {
 }
 
 /**
+ * Der angemeldete GAST, falls einer angemeldet ist. Anders als beim Personal
+ * ist das nie Pflicht: die Gastansicht muss ohne Konto funktionieren, sonst
+ * ist der QR-Code am Tisch wertlos. Ohne Konto gibt es nur keine Punkte.
+ */
+function readGuest(req: OrgRequest): GuestTokenPayload | null {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const payload = token ? verifyGuestToken(token) : null;
+  return payload && payload.orgSlug === req.params.orgSlug ? payload : null;
+}
+
+/** Das Konto des angemeldeten Gastes — oder null. */
+async function currentGuest(req: OrgRequest): Promise<WithId<GuestDoc> | null> {
+  const payload = readGuest(req);
+  if (!payload) return null;
+  try {
+    return await req.db!.collection<GuestDoc>('guests').findOne({ _id: new ObjectId(payload.sub) });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Erzwingt Anmeldung + Rolle serverseitig. Verpackt einen bestehenden
  * RouteHandler, statt eine eigene Express-Middleware-Kette zu sein — die
  * zentrale Promise-Fehlerbehandlung unten patcht router.METHOD auf genau
@@ -222,9 +250,12 @@ function scopeOf(req: OrgRequest): string | null {
  * antwortet damit — so trägt die Antwort automatisch die richtige Reichweite,
  * ohne dass jede Route sie einzeln bestimmen muss.
  */
-function stateFor(req: OrgRequest) {
+async function stateFor(req: OrgRequest) {
   const managesMenu = req.user?.role === 'Admin' || req.user?.role === 'Manager';
-  return getFullState(req.db!, scopeOf(req), managesMenu, !!req.user);
+  // Punkte und eingelöste Gutscheine sind die des angemeldeten Gastes — oder
+  // leer. Der Gesamtzustand trägt also je nach Aufrufer ein anderes Konto.
+  const guest = await currentGuest(req);
+  return getFullState(req.db!, scopeOf(req), managesMenu, !!req.user, guest);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -416,6 +447,21 @@ function sanitizeOverall(raw: unknown): { service: number; ambience: number; spe
  * gewinnen, und nur die schreibt die Punkte gut. Sonst bekäme der Gast bei zwei
  * gleichzeitigen Aufrufen seine Punkte doppelt zurück.
  */
+/**
+ * Punkte auf ein Gastkonto zurückbuchen (Verfall oder Abbruch).
+ *
+ * Einlösungen aus der Zeit des geteilten Profils tragen `guestId: 'default'` —
+ * keine Konto-ID. Für die gibt es nichts zurückzubuchen; sie sind längst
+ * abgeschlossen und dürfen den Ablauf nicht mit einem Fehler anhalten.
+ */
+async function refundGuest(db: Db, guestId: string, points: number, voucherId: string): Promise<void> {
+  if (!ObjectId.isValid(guestId)) return;
+  await db.collection<GuestDoc>('guests').updateOne(
+    { _id: new ObjectId(guestId) },
+    { $inc: { points }, $pull: { redeemed: voucherId } }
+  );
+}
+
 async function expireStaleRedemptions(db: Db): Promise<void> {
   const now = Date.now();
   const stale = await db.collection<RedemptionDoc>('redemptions')
@@ -430,14 +476,14 @@ async function expireStaleRedemptions(db: Db): Promise<void> {
     // Null heißt: eine andere Anfrage war schneller und hat die Punkte bereits
     // zurückgeschrieben. Dann hier nichts tun.
     if (!claimed) continue;
-    await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-      { _id: r.guestId },
-      { $inc: { points: r.points }, $pull: { redeemed: r.voucherId } }
-    );
+    await refundGuest(db, r.guestId, r.points, r.voucherId);
   }
 }
 
-async function getFullState(db: Db, branchId: string | null, fullMenu = false, isStaff = false) {
+async function getFullState(
+  db: Db, branchId: string | null, fullMenu = false, isStaff = false,
+  guestAccount: WithId<GuestDoc> | null = null,
+) {
   const branchFilter = branchId ? { branchId } : {};
   // Was in DIESER Filiale geführt wird: entweder überall gültig (null) oder
   // ausdrücklich für sie freigegeben. Im Ketten-Blick kommt alles.
@@ -453,8 +499,9 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false, i
   // als "offen" angezeigt bekommt.
   await expireStaleRedemptions(db);
 
-  const [brandDoc, branches, dishes, tables, vouchers, users, alerts, reviews, redemptions, guestDoc] = await Promise.all([
+  const [brandDoc, dashboardDoc, branches, dishes, tables, vouchers, users, alerts, reviews, redemptions] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
+    db.collection<DashboardDoc>('settings').findOne({ _id: 'dashboard' }),
     db.collection('branches').find().toArray(),
     db.collection('dishes').find(availableHere).toArray(),
     db.collection('tables').find(branchFilter).toArray(),
@@ -465,12 +512,17 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false, i
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
     db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
     db.collection<RedemptionDoc>('redemptions').find(branchFilter).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
-    db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' }),
   ]);
 
-  const guest = guestDoc
-    ? { points: guestDoc.points, redeemed: guestDoc.redeemed, loggedIn: !!guestDoc.loggedIn }
-    : { points: 0, redeemed: [] as string[], loggedIn: false };
+  // Ohne Anmeldung ein leeres Konto: keine Punkte, nichts eingelöst. Früher
+  // stand hier ein von allen Gästen geteiltes Profil — jeder sah denselben
+  // Punktestand und dieselben Gutscheine als verbraucht.
+  const guest = guestAccount
+    ? {
+        points: guestAccount.points, redeemed: guestAccount.redeemed, loggedIn: true,
+        name: guestAccount.name, email: guestAccount.email,
+      }
+    : { points: 0, redeemed: [] as string[], loggedIn: false, name: null, email: null };
 
   return {
     brand: brandDoc ? {
@@ -478,6 +530,7 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false, i
       logoImage: brandDoc.logoImage ?? null, coverImage: brandDoc.coverImage ?? null,
       font: brandDoc.font ?? 'Inter', cardStyle: brandDoc.cardStyle ?? 'standard',
     } : null,
+    dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
     dishes: (dishes as WithId<DishDoc>[]).map(d => serializeDish(d, branchId)),
     tables: tables.map(serialize),
@@ -827,7 +880,12 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     }
 
     const ratedCount = dishRatings.filter(d => d.stars > 0).length;
-    const pointsEarned = ratedCount * 20 + 30;
+    // Was die Bewertung wert ist. Gutgeschrieben wird sie nur einem Konto —
+    // ohne Anmeldung bleibt es beim Betrag, den der Gast verpasst hat, und die
+    // Oberfläche sagt ihm das (pointsEarned: 0, pointsPossible: …).
+    const pointsPossible = ratedCount * 20 + 30;
+    const guestAccount = await currentGuest(req);
+    const pointsEarned = guestAccount ? pointsPossible : 0;
 
     // Sterne zählen auf das Konto DIESER Filiale: die Küche der einen sagt
     // nichts über die der anderen. Der Ketten-Schnitt entsteht daraus durch
@@ -859,11 +917,12 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
       );
     }
 
-    await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-      { _id: 'default' },
-      { $inc: { points: pointsEarned } },
-      { upsert: true }
-    );
+    if (guestAccount) {
+      await db.collection<GuestDoc>('guests').updateOne(
+        { _id: guestAccount._id },
+        { $inc: { points: pointsEarned } }
+      );
+    }
 
     // Bestellung abräumen: der Tisch ist bewertet und damit wieder frei. Ein
     // erneuter Aufruf des QR-Links zeigt den Leerzustand statt derselben
@@ -874,7 +933,7 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     );
 
     const state = await stateFor(req);
-    res.json({ ...state, pointsEarned });
+    res.json({ ...state, pointsEarned, pointsPossible });
   } catch (err) {
     next(err);
   }
@@ -910,9 +969,15 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   // Abgelaufenes erst abräumen — sonst blockiert ein verwaister Versuch.
   await expireStaleRedemptions(db);
 
-  const guestId = 'default';
-  const guest = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: guestId });
-  if ((guest?.redeemed ?? []).includes(String(voucherId))) {
+  // Einlösen setzt ein Konto voraus: die Punkte gehören einem, und ohne
+  // Anmeldung gäbe es niemanden, dem sie abgezogen und zurückgebucht werden.
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Zum Einlösen bitte anmelden — deine Punkte hängen an deinem Konto.' });
+    return;
+  }
+  const guestId = String(guest._id);
+  if (guest.redeemed.includes(String(voucherId))) {
     res.status(409).json({ error: 'Dieser Gutschein wurde bereits eingelöst.' });
     return;
   }
@@ -936,16 +1001,16 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   // Punkte reservieren. BEIDE Bedingungen stecken IM Update — genug Punkte und
   // dieser Gutschein noch nicht vergeben. Die Prüfungen oben sind Diagnose, kein
   // Schutz: zwischen ihnen und hier liegt Zeit, und zwei Daumen auf demselben
-  // Gutschein kamen im Prüflauf beide durch (Punkte doppelt abgebucht). Alle
-  // Gäste teilen sich (noch) ein Profil — der Fall ist real, nicht theoretisch.
-  const reserved = await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: guestId, points: { $gte: voucher.points }, redeemed: { $ne: String(voucherId) } },
+  // Gutschein kamen im Prüflauf beide durch (Punkte doppelt abgebucht) — auf
+  // demselben Konto, zwei Geräte, ist das weiterhin möglich.
+  const reserved = await db.collection<GuestDoc>('guests').updateOne(
+    { _id: guest._id, points: { $gte: voucher.points }, redeemed: { $ne: String(voucherId) } },
     { $inc: { points: -voucher.points }, $push: { redeemed: String(voucherId) } }
   );
   if (reserved.modifiedCount === 0) {
     // Woran es lag, steht erst jetzt fest: im Wettlauf verloren oder zu wenige
     // Punkte. Der Gast bekommt denselben Satz zu lesen wie bei der Vorprüfung.
-    const profile = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: guestId });
+    const profile = await db.collection<GuestDoc>('guests').findOne({ _id: guest._id });
     if ((profile?.redeemed ?? []).includes(String(voucherId))) {
       res.status(409).json({ error: 'Dieser Gutschein wurde bereits eingelöst.' });
       return;
@@ -1043,19 +1108,175 @@ router.post('/branches/:branchSlug/redemptions/:id/cancel', withBranch(async (re
     return;
   }
   // Nur wer den Datensatz tatsächlich umgestellt hat, bucht zurück.
-  await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: claimed.guestId },
-    { $inc: { points: claimed.points }, $pull: { redeemed: claimed.voucherId } }
-  );
+  await refundGuest(db, claimed.guestId, claimed.points, claimed.voucherId);
   res.json(await stateFor(req));
 }));
 
-// ── Gast: Demo-Login (kein echtes Auth-System — bewusst nicht Teil des Produkts) ──
+// ═══════════════════════════════════════════════════════════
+// GASTKONTEN
+//
+// Punkte gehören ab hier einem Konto, nicht mehr einem von allen geteilten
+// Profil. Bewerten bleibt ohne Konto möglich — der QR-Code am Tisch wäre sonst
+// wertlos —, nur die Punkte gibt es dann nicht.
+//
+// Das Gast-Token ist ein eigener Typ (kind: 'guest') und kommt an keine
+// Personalroute heran, siehe verifyToken/verifyGuestToken in auth.ts.
+// ═══════════════════════════════════════════════════════════
+
+/** Was der Gast von sich selbst zu sehen bekommt — ohne Passwort-Hash. */
+function serializeGuest(doc: WithId<GuestDoc>) {
+  return {
+    id: String(doc._id), email: doc.email, name: doc.name,
+    points: doc.points, redeemed: doc.redeemed,
+    hasPassword: !!doc.passwordHash, hasGoogle: !!doc.googleSub,
+  };
+}
+
+function guestSession(req: OrgRequest, doc: WithId<GuestDoc>) {
+  return {
+    token: signGuestToken({ sub: String(doc._id), orgSlug: req.params.orgSlug! }),
+    guest: serializeGuest(doc),
+  };
+}
+
+// ── Gast: Konto anlegen ──
+router.post('/guest/register', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const email = requireText(req.body?.email, 'E-Mail', 200).toLowerCase();
+  const name = requireText(req.body?.name, 'Name', 80);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!email.includes('@')) {
+    res.status(400).json({ error: 'Bitte eine gültige E-Mail-Adresse angeben.' });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: 'Das Passwort muss mindestens 8 Zeichen haben.' });
+    return;
+  }
+  if (await db.collection('guests').countDocuments({ email }) > 0) {
+    res.status(409).json({ error: 'Für diese E-Mail gibt es bereits ein Konto. Melde dich einfach an.' });
+    return;
+  }
+
+  const doc: GuestDoc = {
+    email, name, passwordHash: hashPassword(password), googleSub: null,
+    points: 0, redeemed: [], createdAt: Date.now(),
+  };
+  const inserted = await db.collection<GuestDoc>('guests').insertOne(doc as GuestDoc);
+  res.json(guestSession(req, { ...doc, _id: inserted.insertedId } as WithId<GuestDoc>));
+});
+
+// ── Gast: anmelden ──
 router.post('/guest/login', async (req: OrgRequest, res) => {
-  await req.db!.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: 'default' }, { $set: { loggedIn: true } }, { upsert: true }
+  const email = optionalText(req.body?.email, 'E-Mail', 200)?.toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!email || !password) {
+    res.status(400).json({ error: 'E-Mail und Passwort sind erforderlich.' });
+    return;
+  }
+  const guest = await req.db!.collection<GuestDoc>('guests').findOne({ email });
+  // Dieselbe Meldung für "gibt es nicht" und "falsches Passwort" — sonst
+  // verrät die Antwort, welche E-Mails ein Konto haben.
+  if (!guest || !verifyPassword(password, guest.passwordHash)) {
+    res.status(401).json({ error: 'E-Mail oder Passwort ist falsch.' });
+    return;
+  }
+  res.json(guestSession(req, guest));
+});
+
+/**
+ * Welche Anmeldewege der Gast hat.
+ *
+ * Die Client-ID kommt vom Server, nicht aus dem Frontend-Build: sie ist
+ * ohnehin öffentlich (sie steht in jeder Google-Anmeldung im Browser), und als
+ * Build-Variable müsste Netlify für jede Änderung neu bauen — dieselbe Falle
+ * wie bei VITE_API_BASE_URL.
+ */
+router.get('/guest/auth-options', async (_req: OrgRequest, res) => {
+  const clientId = googleClientId();
+  res.json({ password: true, google: !!clientId, googleClientId: clientId });
+});
+
+/**
+ * Gast: Anmeldung mit Google.
+ *
+ * Der Browser holt sich das ID-Token bei Google und schickt es hierher; geprüft
+ * wird es serverseitig (googleAuth.ts). Zusammengeführt wird über die E-Mail:
+ * wer sich erst mit Passwort registriert hat und später Google nimmt, landet
+ * im selben Konto und behält seine Punkte.
+ */
+router.post('/guest/google', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  if (!googleClientId()) {
+    res.status(503).json({ error: 'Google-Anmeldung ist auf diesem Server nicht eingerichtet.' });
+    return;
+  }
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential : '';
+  if (!credential) {
+    res.status(400).json({ error: 'Es wurde kein Google-Token übergeben.' });
+    return;
+  }
+
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(credential);
+  } catch (err) {
+    // Der Grund gehört ins Log, nicht in die Antwort: er sagt einem Angreifer,
+    // welche Prüfung er als Nächstes umgehen müsste.
+    console.warn('Google-Anmeldung abgelehnt:', err instanceof Error ? err.message : err);
+    res.status(401).json({ error: 'Die Google-Anmeldung hat nicht geklappt. Bitte erneut versuchen.' });
+    return;
+  }
+
+  const guests = db.collection<GuestDoc>('guests');
+  const existing = await guests.findOne({ $or: [{ googleSub: identity.sub }, { email: identity.email }] });
+  if (existing) {
+    // Beim ersten Google-Login eines Konto, das per Passwort entstanden ist,
+    // die Konto-ID nachtragen — danach greift der schnellere Weg über sub.
+    if (!existing.googleSub) {
+      await guests.updateOne({ _id: existing._id }, { $set: { googleSub: identity.sub } });
+    }
+    res.json(guestSession(req, { ...existing, googleSub: identity.sub }));
+    return;
+  }
+
+  const doc: GuestDoc = {
+    email: identity.email, name: identity.name, passwordHash: null, googleSub: identity.sub,
+    points: 0, redeemed: [], createdAt: Date.now(),
+  };
+  const inserted = await guests.insertOne(doc as GuestDoc);
+  res.json(guestSession(req, { ...doc, _id: inserted.insertedId } as WithId<GuestDoc>));
+});
+
+// ── Gast: Sitzung prüfen (nach dem Neuladen der Seite) ──
+router.get('/guest/me', async (req: OrgRequest, res) => {
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Nicht angemeldet.' });
+    return;
+  }
+  res.json({ guest: serializeGuest(guest) });
+});
+
+/**
+ * Gast: eigenes Konto löschen. Wer ein Konto anlegen kann, muss es auch wieder
+ * loswerden können — samt Punkten. Abgegebene Bewertungen bleiben: sie hängen
+ * am Tisch, nicht am Gast, und sind für das Restaurant die eigentliche Substanz.
+ */
+router.delete('/guest/me', async (req: OrgRequest, res) => {
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Nicht angemeldet.' });
+    return;
+  }
+  // Laufende Einlösungen zuerst schließen — sonst quittiert die Servicekraft
+  // gleich einen Gutschein für ein Konto, das es nicht mehr gibt.
+  await req.db!.collection<RedemptionDoc>('redemptions').updateMany(
+    { guestId: String(guest._id), status: 'offen' },
+    { $set: { status: 'abgebrochen' } }
   );
-  res.json(await stateFor(req));
+  await req.db!.collection<GuestDoc>('guests').deleteOne({ _id: guest._id });
+  res.json({ ok: true });
 });
 
 // ── Kellner: Alarm-Banner (Bewertung < 3 Sterne) als erledigt markieren ──
@@ -1201,6 +1422,26 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
+  res.json(await stateFor(req));
+}));
+
+/**
+ * Welche Dashboard-Kacheln ausgeblendet sind. Die Filialleitung sieht dasselbe
+ * Dashboard und darf es deshalb auch einrichten (branchAdmin).
+ *
+ * Die Liste kommt vom Client und wandert unverändert in die Datenbank —
+ * deshalb begrenzt: Anzahl und Länge der Kennungen. Es sind die IDs der
+ * Kacheln, keine freien Texte.
+ */
+router.patch('/settings/dashboard', branchAdmin(async (req: OrgRequest, res) => {
+  const raw = req.body?.hiddenWidgets;
+  if (!Array.isArray(raw) || raw.length > 40) {
+    throw new HttpError(400, 'hiddenWidgets muss eine Liste mit höchstens 40 Einträgen sein.');
+  }
+  const hiddenWidgets = raw.map(v => requireText(v, 'Kachel-Kennung', 40));
+  await req.db!.collection<DashboardDoc>('settings').updateOne(
+    { _id: 'dashboard' }, { $set: { hiddenWidgets } }, { upsert: true }
+  );
   res.json(await stateFor(req));
 }));
 
@@ -1363,9 +1604,10 @@ router.delete('/vouchers/:id', chainAdmin(async (req: OrgRequest, res) => {
   const db = req.db!;
   const id = requireObjectId(req.params.id, 'Gutschein-ID');
   await db.collection('vouchers').deleteOne({ _id: id });
-  // Aus der Einlöse-Liste des Gasts nehmen, damit dort keine toten IDs bleiben.
-  await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: 'default' }, { $pull: { redeemed: String(id) } }
+  // Aus den Einlöse-Listen ALLER Gäste nehmen, damit dort keine toten IDs
+  // bleiben — ein gelöschter Gutschein soll niemandem einen Platz blockieren.
+  await db.collection<GuestDoc>('guests').updateMany(
+    { redeemed: String(id) }, { $pull: { redeemed: String(id) } }
   );
   res.json(await stateFor(req));
 }));

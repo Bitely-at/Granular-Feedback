@@ -11,7 +11,8 @@
  * Voraussetzung: der Server läuft (npm run server:dev) und wurde geseedet.
  *
  * ACHTUNG: Das Skript schreibt in die Datenbank, auf die der Server zeigt.
- * Es legt eigene Gutscheine (Präfix unten) an und löscht sie am Ende wieder.
+ * Es legt ein eigenes Gastkonto und eigene Gutscheine (Präfix unten) an und
+ * löscht beides am Ende wieder.
  * Zwei davon werden dabei aber wirklich eingelöst — die Punkte sind danach
  * verbraucht, wie bei jeder echten Einlösung auch. Reichen die Punkte des
  * Gastprofils nicht, verdient das Skript sie über den regulären
@@ -42,7 +43,12 @@ const MARK = 'ZZ-Prüflauf';
 // Muss zu REDEMPTION_TTL_MS in server/src/index.ts passen.
 const TTL_MS = 60_000;
 
+// Eigenes Gastkonto: Punkte gehören seit den Gastkonten einem Konto, und
+// einlösen kann nur, wer angemeldet ist.
+const GUEST = { email: 'zz-pruef-einloesung@example.com', name: 'Prüf Einlöser', password: 'geheim12345' };
+
 let token = null;
+let guestToken = null;
 let passed = 0;
 let failed = 0;
 
@@ -56,13 +62,16 @@ function check(name, condition, detail = '') {
   }
 }
 
-async function req(method, path, body, { auth = true, as = null } = {}) {
-  const bearer = as ?? token;
+// auth: false = nicht als Personal. Wenn ein Gast angemeldet ist, geht dessen
+// Token mit — das ist der Normalfall in der Gastansicht. `as: null` erzwingt
+// gar kein Token (echte Anonymität).
+async function req(method, path, body, { auth = true, as = null, anonymous = false } = {}) {
+  const bearer = anonymous ? null : (as ?? (auth ? token : guestToken));
   const res = await fetch(`${API_BASE}/api/${ORG_SLUG}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(auth && bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -114,9 +123,21 @@ async function main() {
   }
   const B = branch.slug;
 
+  // Gastkonto anlegen — oder anmelden, falls ein früherer Lauf abgebrochen ist.
+  const reg = await req('POST', '/guest/register', GUEST, { anonymous: true });
+  guestToken = reg.status === 200
+    ? reg.json.token
+    : (await req('POST', '/guest/login', { email: GUEST.email, password: GUEST.password }, { anonymous: true })).json?.token;
+  if (!guestToken) {
+    console.error('Prüf-Gastkonto konnte weder angelegt noch angemeldet werden.');
+    process.exit(1);
+  }
+
   const created = { vouchers: [], tableId: null };
-  const guestPoints = async () => (await req('GET', `/state?branch=${B}`)).json?.guest?.points ?? 0;
-  const guestRedeemed = async () => (await req('GET', `/state?branch=${B}`)).json?.guest?.redeemed ?? [];
+  // Der Punktestand des GASTES — also mit dessen Token gelesen, nicht mit dem
+  // des Personals.
+  const guestPoints = async () => (await req('GET', `/state?branch=${B}`, undefined, { auth: false })).json?.guest?.points ?? 0;
+  const guestRedeemed = async () => (await req('GET', `/state?branch=${B}`, undefined, { auth: false })).json?.guest?.redeemed ?? [];
 
   async function addVoucher(title, points, branchIds = undefined) {
     const res = await req('POST', '/vouchers', {
@@ -144,10 +165,11 @@ async function main() {
 
     for (let i = 0; i < 5 && await guestPoints() < min; i++) {
       await req('POST', `/branches/${B}/tables/${table.number}/order`, { cart: { [dish.id]: 1 } });
+      // Bewerten als GAST — nur so landen die Punkte auf seinem Konto.
       await req('POST', `/branches/${B}/tables/${table.number}/review`, {
         dishRatings: [{ dishId: dish.id, stars: 5 }],
         overall: { service: 5, ambience: 5, speed: 5 },
-      });
+      }, { auth: false });
     }
     return await guestPoints() >= min;
   }
@@ -207,7 +229,7 @@ async function main() {
 
       // Der Code ist der einzige Nachweis beim Abbrechen. Stünde er im
       // öffentlichen Zustand, könnte jeder fremde Einlösungen abräumen.
-      const anonState = (await req('GET', `/state?branch=${B}`, undefined, { auth: false }))
+      const anonState = (await req('GET', `/state?branch=${B}`, undefined, { anonymous: true }))
         .json?.redemptions ?? [];
       check('Im Zustand ohne Anmeldung steht kein einziger Code',
         anonState.every(r => r.code === undefined),
@@ -219,7 +241,7 @@ async function main() {
     // ── 2) Quittieren ─────────────────────────────────────────────
     console.log('\n2) Die Servicekraft quittiert in ihrer eigenen App');
     {
-      const anon = await req('POST', `/branches/${B}/redemptions/${offen.id}/confirm`, undefined, { auth: false });
+      const anon = await req('POST', `/branches/${B}/redemptions/${offen.id}/confirm`, undefined, { anonymous: true });
       check('Quittieren ohne Anmeldung wird mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
 
       if (branch2) {
@@ -313,6 +335,9 @@ async function main() {
     // ── 5) Was gar nicht erst eröffnet werden darf ────────────────
     console.log('\n5) Abgewiesene Eröffnungen');
     {
+      const ohneKonto = await req('POST', `/branches/${B}/vouchers/${vQuittung.id}/redeem`, {}, { anonymous: true });
+      check('Einlösen ohne Gastkonto wird mit 401 abgelehnt', ohneKonto.status === 401, `HTTP ${ohneKonto.status}`);
+
       const broke = await req('POST', `/branches/${B}/vouchers/${vTeuer.id}/redeem`, {}, { auth: false });
       check('Ohne Deckung wird mit 400 abgelehnt', broke.status === 400, `HTTP ${broke.status}`);
       check('… ohne einen Eintrag zu hinterlassen',
@@ -368,6 +393,7 @@ async function main() {
     // ── Aufräumen ────────────────────────────────────────────────
     // Läuft auch nach einem Abbruch mitten im Test. Das Löschen eines
     // Gutscheins zieht ihn auch aus dem Gastprofil.
+    if (guestToken) await req('DELETE', '/guest/me', undefined, { auth: false });
     for (const id of created.vouchers) await req('DELETE', `/vouchers/${id}`);
     if (created.tableId) await req('DELETE', `/branches/${branch.slug}/tables/${created.tableId}`);
 
