@@ -317,6 +317,11 @@ sonst wäre die Rollentrennung mit einer Einladung ausgehebelt (`POST /users`).
 `JWT_SECRET` muss in `server/.env` stehen (und in Render), sonst startet der
 Server nicht. Test-Zugänge legt `npm run server:seed` an und gibt sie aus.
 
+Punkte eines Gastkontos setzt `npm run guest-points --prefix server -- <e-mail>
+<punkte>` (ohne Argumente: alle Gastkonten). Bewusst ein Werkzeug auf der
+Kommandozeile und **keine** Route — ein Endpunkt, der Punkte vergibt, wäre
+genau die Hintertür, gegen die der Einlöse-Ablauf abgesichert ist.
+
 Passwörter vergibt sonst nur `npm run set-password --prefix server -- <e-mail>
 <passwort>` — für eingeladene Konten und für vergessene. Ohne Argumente listet
 es die Konten der Organisation samt Anmeldefähigkeit auf. Eine gewachsene

@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
     "set-password": "tsx src/setPassword.ts",
+    "guest-points": "tsx src/setGuestPoints.ts",
     "check-db": "tsx src/checkDb.ts"
   },
   "dependencies": {
