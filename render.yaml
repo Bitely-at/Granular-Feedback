@@ -14,9 +14,10 @@ services:
       # Wird er später geändert, sind alle offenen Sitzungen ungültig.
       - key: JWT_SECRET
         generateValue: true
-      # Google-Anmeldung für Gäste. Ohne Wert bleibt der Google-Knopf aus und
-      # es geht nur E-Mail mit Passwort — die Anwendung startet trotzdem.
-      - key: GOOGLE_CLIENT_ID
-        sync: false
+      # GOOGLE_CLIENT_ID (Google-Anmeldung für Gäste) steht bewusst NICHT hier,
+      # sondern nur im Render-Dashboard: eine neu hinzugefügte Variable mit
+      # `sync: false` hält den Blueprint-Abgleich an, bis jemand den Wert von
+      # Hand bestätigt — und solange geht kein Deploy mehr durch. Genau das ist
+      # einmal passiert. Optionale Werte gehören ins Dashboard.
       - key: PORT
         value: 4000

@@ -544,6 +544,25 @@ async function getFullState(
   };
 }
 
+/**
+ * Welcher Stand läuft hier eigentlich?
+ *
+ * Ohne diese Auskunft ist "ist der Deploy durch?" Rätselraten: man probiert
+ * eine Route, die es im neuen Stand gibt, und schließt aus 404 auf den alten.
+ * Genau das hat einmal eine Stunde gekostet, während Render still auf einem
+ * blockierten Blueprint-Abgleich saß. `RENDER_GIT_COMMIT` setzt Render selbst.
+ */
+const STARTED_AT = Date.now();
+app.get('/version', (_req, res) => {
+  const commit = process.env.RENDER_GIT_COMMIT ?? null;
+  res.json({
+    commit: commit ? commit.slice(0, 7) : 'unbekannt (lokal?)',
+    branch: process.env.RENDER_GIT_BRANCH ?? null,
+    startedAt: new Date(STARTED_AT).toISOString(),
+    uptimeMinutes: Math.round((Date.now() - STARTED_AT) / 60000),
+  });
+});
+
 // ── Health-Check: sagt im Klartext, ob die Datenbank steht ──
 // Bewusst ohne Mandanten-Kontext, damit er auch dann antwortet,
 // wenn noch keine Organisation angelegt ist.

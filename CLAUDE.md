@@ -263,6 +263,13 @@ der normale `mongodb+srv`-String.
   nötig: die ID kommt über `GET /guest/auth-options`.
 - `GET /health` sagt im Klartext, ob die Datenbank steht, als welcher Benutzer
   verbunden wird (Passwort maskiert) und was zu tun ist.
+- **`GET /version` sagt, welcher Stand läuft** (Commit, Branch, Startzeit).
+  Ohne das ist "ist der Deploy durch?" Rätselraten über 404er.
+- **Optionale Umgebungsvariablen gehören ins Render-Dashboard, nicht in
+  `render.yaml`.** Eine neu hinzugefügte Variable mit `sync: false` hält den
+  Blueprint-Abgleich an, bis jemand den Wert von Hand bestätigt — und solange
+  geht **kein** Deploy mehr durch, während `/health` weiter fröhlich "ok"
+  meldet. Genau so lief das Backend einmal drei Commits hinterher.
 - Render Free schläft nach 15 Minuten; erster Aufruf danach 20–30 Sekunden.
 
 ## Sprache
