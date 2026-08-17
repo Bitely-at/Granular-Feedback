@@ -921,14 +921,23 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
     if (found) table = found as { _id: unknown; number: number };
   }
 
-  // Punkte reservieren: die Bedingung `points >= Preis` steckt IM Update, damit
-  // zwei gleichzeitige Einlösungen nicht denselben Punktestand ausgeben. Alle
+  // Punkte reservieren. BEIDE Bedingungen stecken IM Update — genug Punkte und
+  // dieser Gutschein noch nicht vergeben. Die Prüfungen oben sind Diagnose, kein
+  // Schutz: zwischen ihnen und hier liegt Zeit, und zwei Daumen auf demselben
+  // Gutschein kamen im Prüflauf beide durch (Punkte doppelt abgebucht). Alle
   // Gäste teilen sich (noch) ein Profil — der Fall ist real, nicht theoretisch.
   const reserved = await db.collection<GuestProfileDoc>('guestProfile').updateOne(
-    { _id: guestId, points: { $gte: voucher.points } },
+    { _id: guestId, points: { $gte: voucher.points }, redeemed: { $ne: String(voucherId) } },
     { $inc: { points: -voucher.points }, $push: { redeemed: String(voucherId) } }
   );
   if (reserved.modifiedCount === 0) {
+    // Woran es lag, steht erst jetzt fest: im Wettlauf verloren oder zu wenige
+    // Punkte. Der Gast bekommt denselben Satz zu lesen wie bei der Vorprüfung.
+    const profile = await db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: guestId });
+    if ((profile?.redeemed ?? []).includes(String(voucherId))) {
+      res.status(409).json({ error: 'Dieser Gutschein wurde bereits eingelöst.' });
+      return;
+    }
     res.status(400).json({ error: 'Nicht genug Punkte für diesen Gutschein.' });
     return;
   }

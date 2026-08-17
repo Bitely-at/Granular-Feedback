@@ -34,6 +34,8 @@ npm run server:seed      # Demo-Daten anlegen
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
+npm run verify:redemptions   # 44 Tests für die Gutschein-Einlösung (wartet 60 s
+                             # auf den Verfall; SKIP_EXPIRY=1 überspringt das)
 npm run build            # Produktionsbuild
 ```
 
@@ -64,6 +66,36 @@ frei ──(Kellner bucht)──> offen ──(Gast bewertet)──> abgeschloss
 - Die Bewertung wird **vor** ihren Nebenwirkungen geschrieben (Sterne, Alarme,
   Punkte). Umgekehrt würde eine abgelehnte Doppelabgabe die Statistik
   verfälschen.
+
+## Gutschein-Einlösung
+
+Ein zweiter Lebenszyklus, mit eigener Sammlung `redemptions`. Der Gast eröffnet
+per Wischgeste, quittiert wird in der **App der Servicekraft** — ein Screenshot
+erzeugt dort keinen Eintrag, deshalb muss der vierstellige Code nur den Abgleich
+mit bloßem Auge überstehen.
+
+```
+(Gast wischt) ──> offen ──(Kellner quittiert)──> eingelöst
+                    ├──(Gast bricht ab, mit Code)──> abgebrochen  → Punkte zurück
+                    └──(60 Sekunden ohne Quittung)─> verfallen    → Punkte zurück
+```
+
+- **Punkte sind ab dem Eröffnen abgebucht**, nicht erst beim Quittieren. Ohne
+  Reservierung könnten zwei Tische denselben Punktestand ausgeben — alle Gäste
+  teilen sich (noch) ein Profil.
+- **Die Regeln liegen im Update-Filter**, wie beim Doppelbewertungs-Schutz. Beim
+  Reservieren `points >= Preis` **und** `redeemed: { $ne: voucherId }`; beim
+  Quittieren `status: 'offen'` **und** `expiresAt > jetzt`; beim Abbrechen
+  zusätzlich der Code. Die Prüfungen davor sind Diagnose für eine gute
+  Fehlermeldung, kein Schutz — sie lagen im Prüflauf messbar zu früh (zwei
+  gleichzeitige Wische buchten doppelt ab).
+- **Zurückgebucht wird nur, wer den Datensatz tatsächlich umgestellt hat.** Der
+  bedingte Update ist der Anspruch auf die Rückbuchung, sonst bekäme der Gast
+  seine Punkte bei zwei gleichzeitigen Aufrufen doppelt gut.
+- **Kein Hintergrundjob**: `expireStaleRedemptions` läuft beim Laden des
+  Zustands mit — wer als Erster hinsieht, räumt ab.
+- Eingelöst wird in einer Filiale: die Route liegt unter `/branches/:branchSlug/`,
+  und ein Gutschein mit `branchIds` gilt nur dort.
 
 ## Filialen und Tischnummern
 
@@ -211,16 +243,22 @@ sonst wäre die Rollentrennung mit einer Einladung ausgehebelt (`POST /users`).
 `JWT_SECRET` muss in `server/.env` stehen (und in Render), sonst startet der
 Server nicht. Test-Zugänge legt `npm run server:seed` an und gibt sie aus.
 
+Passwörter vergibt sonst nur `npm run set-password --prefix server -- <e-mail>
+<passwort>` — für eingeladene Konten und für vergessene. Ohne Argumente listet
+es die Konten der Organisation samt Anmeldefähigkeit auf. Eine gewachsene
+Datenbank kennt womöglich andere E-Mails als das Seed-Skript; die
+Prüfskripte nehmen dafür `ADMIN_EMAIL`/`ADMIN_PASSWORD` aus der Umgebung.
+
 ## Bekannte Lücken
 
 Ein geteiltes Gastprofil für alle Gäste (`guestProfile._id: 'default'`), kein
 Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung (auch nicht auf
-`/auth/login`). Passwort-Vergabe für eingeladene Benutzer fehlt noch — bis dahin
-vergibt nur das Seed-Skript Passwörter.
+`/auth/login`).
 
 **Kein Filialpreis.** Eine Filiale kann ein Gericht führen oder nicht, aber
 nicht zu einem anderen Preis anbieten. Nachrüstbar, indem `branchIds` von einer
 Liste auf eine Zuordnung Filiale → Preis umgebaut wird.
 
-**Kein Passwort-Setzen für eingeladene Benutzer.** Wer eingeladen wird, hat
-`passwordHash: null` und kann sich nicht anmelden, bis das Seed-Skript läuft.
+**Passwort-Vergabe nur auf der Kommandozeile.** In der Oberfläche gibt es
+keinen Weg, einem eingeladenen Konto sein erstes Passwort zu geben — dafür
+`set-password` (siehe oben).

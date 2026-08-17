@@ -139,7 +139,8 @@ Organisationen existieren und was zu tun ist.
 MVP. Anmeldung, Rollen und Filialtrennung stehen; die Rechte werden
 serverseitig erzwungen, nicht nur in der Oberfläche versteckt.
 
-Offen vor dem Einsatz mit echten Kundendaten: eingeladene Benutzer können sich
-noch kein Passwort setzen (nur das Seed-Skript vergibt eines), ein geteiltes
-Gastprofil für alle Gäste, CORS offen, keine Ratenbegrenzung auf `/auth/login`.
+Offen vor dem Einsatz mit echten Kundendaten: Passwörter lassen sich nur auf
+der Kommandozeile vergeben (`npm run set-password --prefix server`), nicht in
+der Oberfläche; ein geteiltes Gastprofil für alle Gäste, CORS offen, keine
+Ratenbegrenzung auf `/auth/login`.
 Vollständige Liste in `CLAUDE.md`.
