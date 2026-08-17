@@ -197,11 +197,23 @@ async function main() {
       const inBranch = (await req('GET', `/state?branch=${B}`, undefined, { as: waiterToken }))
         .json?.redemptions?.find(r => r.id === offen?.id);
       check('Die Servicekraft sieht die Einlösung in ihrer Filiale', !!inBranch);
+      check('… mitsamt dem Code, den sie abgleichen muss', inBranch?.code === offen?.code,
+        `ist: ${inBranch?.code}`);
       if (branch2) {
         const inOther = (await req('GET', `/state?branch=${branch2.slug}`))
           .json?.redemptions?.find(r => r.id === offen?.id);
         check('… und die andere Filiale sieht sie nicht', !inOther);
       }
+
+      // Der Code ist der einzige Nachweis beim Abbrechen. Stünde er im
+      // öffentlichen Zustand, könnte jeder fremde Einlösungen abräumen.
+      const anonState = (await req('GET', `/state?branch=${B}`, undefined, { auth: false }))
+        .json?.redemptions ?? [];
+      check('Im Zustand ohne Anmeldung steht kein einziger Code',
+        anonState.every(r => r.code === undefined),
+        `${anonState.filter(r => r.code !== undefined).length} von ${anonState.length} mit Code`);
+      check('… der Eintrag selbst ist aber sichtbar (der Gast sieht seinen Stand)',
+        anonState.some(r => r.id === offen?.id));
     }
 
     // ── 2) Quittieren ─────────────────────────────────────────────

@@ -2961,6 +2961,9 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   // Immer den Server-Stand nehmen, falls vorhanden: die Servicekraft quittiert
   // in ihrer App, und das erfahren wir nur über den Zustand.
   const live = started ? store.redemptions.find(r => r.id === started.id) ?? started : null;
+  // Der Code steht NICHT im Zustand, den der Gast lädt — sonst könnte jeder
+  // fremde Einlösungen abbrechen. Er kommt aus der Antwort auf das Eröffnen.
+  const code = started?.code ?? '';
   const secondsLeft = useCountdown(live && live.status === 'offen' ? live.expiresAt : null);
 
   // Solange der Countdown läuft, regelmäßig nachfragen — sonst merkt der Gast
@@ -2983,7 +2986,7 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
 
   const cancel = async () => {
     if (live && live.status === 'offen') {
-      try { await store.cancelRedemption(branch.slug, live.id, live.code); } catch { /* egal */ }
+      try { await store.cancelRedemption(branch.slug, live.id, code); } catch { /* egal */ }
     }
     onClose();
   };
@@ -3034,10 +3037,10 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
                     style={{ transition: 'stroke-dashoffset 0.25s linear' }} />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <motion.p key={live.code} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  <motion.p key={code} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                     transition={{ type: 'spring', stiffness: 260, damping: 18 }}
                     className="text-[34px] font-bold tracking-[0.12em] text-gray-900 dark:text-white tabular-nums">
-                    {live.code}
+                    {code}
                   </motion.p>
                   <p className="text-[12px] text-gray-400 mt-0.5 tabular-nums">noch {secondsLeft} s</p>
                 </div>

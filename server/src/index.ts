@@ -80,6 +80,17 @@ function serializeUser(doc: WithId<UserDoc>) {
   return { id: String(_id), ...rest };
 }
 
+// Dieselbe Falle wie oben, mit dem Einlöse-Code: `redemptions` steckt im
+// GEMEINSAMEN Zustandsobjekt, und der Code ist der einzige Nachweis, den der
+// Gast beim Abbrechen erbringt. Stünde er im Zustand, den jeder Anonyme laden
+// kann, könnte irgendwer die laufende Einlösung eines anderen Tisches abräumen.
+// Die Servicekraft braucht ihn (Abgleich mit dem Display), der Gast bekommt
+// ihn aus der Antwort auf das Eröffnen.
+function serializeRedemption(doc: WithId<RedemptionDoc>, withCode: boolean) {
+  const { _id, code, ...rest } = doc;
+  return { id: String(_id), ...rest, ...(withCode ? { code } : {}) };
+}
+
 /**
  * Rechnet die filialweise gespeicherten Bewertungen auf die eine Filiale
  * herunter, die gerade betrachtet wird — oder summiert sie über alle für den
@@ -213,7 +224,7 @@ function scopeOf(req: OrgRequest): string | null {
  */
 function stateFor(req: OrgRequest) {
   const managesMenu = req.user?.role === 'Admin' || req.user?.role === 'Manager';
-  return getFullState(req.db!, scopeOf(req), managesMenu);
+  return getFullState(req.db!, scopeOf(req), managesMenu, !!req.user);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -426,7 +437,7 @@ async function expireStaleRedemptions(db: Db): Promise<void> {
   }
 }
 
-async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
+async function getFullState(db: Db, branchId: string | null, fullMenu = false, isStaff = false) {
   const branchFilter = branchId ? { branchId } : {};
   // Was in DIESER Filiale geführt wird: entweder überall gültig (null) oder
   // ausdrücklich für sie freigegeben. Im Ketten-Blick kommt alles.
@@ -453,7 +464,7 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
     db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
-    db.collection('redemptions').find(branchFilter).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
+    db.collection<RedemptionDoc>('redemptions').find(branchFilter).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
     db.collection<GuestProfileDoc>('guestProfile').findOne({ _id: 'default' }),
   ]);
 
@@ -474,7 +485,7 @@ async function getFullState(db: Db, branchId: string | null, fullMenu = false) {
     users: (users as WithId<UserDoc>[]).map(serializeUser),
     alerts: alerts.map(serialize),
     reviews: reviews.map(serialize),
-    redemptions: redemptions.map(serialize),
+    redemptions: redemptions.map(r => serializeRedemption(r, isStaff)),
     guest,
   };
 }

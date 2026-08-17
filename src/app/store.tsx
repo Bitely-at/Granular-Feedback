@@ -135,7 +135,10 @@ export interface Redemption {
   branchId: string;
   tableId: string | null;
   tableNumber: number | null;
-  code: string;
+  // Nur für angemeldete Aufrufer im Gesamtzustand — der Gast bekommt seinen
+  // Code aus der Antwort auf das Eröffnen und hält ihn dort fest. Sonst könnte
+  // jeder, der /state lädt, fremde Einlösungen abbrechen.
+  code?: string;
   points: number;
   status: 'offen' | 'eingelöst' | 'verfallen' | 'abgebrochen';
   createdAt: number;
