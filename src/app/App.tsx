@@ -344,6 +344,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
   const go = (s: GuestScreen) => setScreen(s);
 
+  // Woher der Gast zu den Gutscheinen kam — der Zurück-Knopf dort führte sonst
+  // immer auf den Dank-Bildschirm, auch wenn es gar keine Bewertung gab.
+  const [vouchersBack, setVouchersBack] = useState<GuestScreen>('welcome');
+  const openVouchers = (from: GuestScreen) => { setVouchersBack(from); go('vouchers'); };
+
   const handleSubmitReview = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -423,8 +428,18 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   </p>
                 </div>
                 {/* Fuß — bleibt unten, ohne den Hero zu stauchen */}
-                <div className="w-full max-w-sm mx-auto pt-4 pb-10 flex-shrink-0">
+                {/* Von hier aus muss es immer weitergehen. Ohne offene Bestellung
+                    gibt es nichts zu bewerten — dann wäre der Bildschirm ohne den
+                    Gutschein-Zugang eine Sackgasse, besonders für den, der sich
+                    gerade angemeldet hat. */}
+                <div className="w-full max-w-sm mx-auto pt-4 pb-10 flex-shrink-0 space-y-1">
                   {tableDishes.length > 0 && <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>}
+                  <button onClick={() => openVouchers('welcome')}
+                    className="w-full text-[15px] py-3 transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                    {store.guest.loggedIn
+                      ? `Deine Punkte und Gutscheine · ${store.guest.points} Pkt.`
+                      : 'Gutscheine ansehen'}
+                  </button>
                   {!store.guest.loggedIn && (
                     <button onClick={() => setAuthOpen(true)}
                       className="w-full text-[15px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-3 transition-colors">
@@ -575,9 +590,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 {unlockedVouchers.length === 0 ? (
                   <p className="text-[13px] text-gray-400 px-1">Noch kein Gutschein freigeschaltet — {nextRewardPoints - store.guest.points} Punkte fehlen.</p>
                 ) : unlockedVouchers.map(v => (
-                  <VoucherCard key={v.id} v={v} state="available" onAction={() => go('vouchers')} />
+                  <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
                 ))}
-                <button onClick={() => go('vouchers')} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">Alle Gutscheine →</button>
+                <button onClick={() => openVouchers('thanks')} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">Alle Gutscheine →</button>
               </div>
             )}
           </div>
@@ -588,7 +603,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="vouchers" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go('thanks')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => go(vouchersBack)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Gutscheine</p>
