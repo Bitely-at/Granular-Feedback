@@ -6,13 +6,15 @@ import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import {
   verifyPassword, hashPassword, signToken, verifyToken, signGuestToken, verifyGuestToken,
-  signPointsTicket, verifyPointsTicket,
+  signPointsTicket, verifyPointsTicket, signReviewTicket, verifyReviewTicket,
   type TokenPayload, type GuestTokenPayload,
 } from './auth.js';
 import { verifyGoogleIdToken, googleClientId } from './googleAuth.js';
+import { generateReviewText } from './reviewText.js';
+import { generateHighlight, scanReceipt, hasClaude, type HighlightInput } from './ai.js';
 import type {
   Organization, BrandDoc, DashboardDoc, GuestDoc, DishRatingInput, UserDoc, Branch,
-  DishDoc, RedemptionDoc,
+  DishDoc, RedemptionDoc, ReviewDoc, InsightsDoc,
 } from './types.js';
 
 const app = express();
@@ -965,7 +967,14 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     const pointsTicket = guestAccount ? null : signPointsTicket({
       reviewId: String(reviewId), points: pointsPossible, orgSlug: req.params.orgSlug!,
     });
-    res.json({ ...state, pointsEarned, pointsPossible, pointsTicket });
+    // Der Anspruch auf den KI-Rezensionstext zu GENAU dieser Bewertung. Der
+    // Text wird nicht hier erzeugt: das kostet Sekunden, die der Gast sonst vor
+    // einem hängenden „Wird gesendet…" verbringt. Der Dank-Bildschirm holt ihn
+    // mit diesem Ticket nach, sobald er steht.
+    const reviewTicket = signReviewTicket({
+      reviewId: String(reviewId), orgSlug: req.params.orgSlug!,
+    });
+    res.json({ ...state, pointsEarned, pointsPossible, pointsTicket, reviewTicket });
   } catch (err) {
     next(err);
   }
@@ -1330,6 +1339,75 @@ router.post('/guest/claim-points', async (req: OrgRequest, res) => {
 });
 
 /**
+ * Wohin der Gast seine Rezension tragen soll. Steht am Filialdatensatz ein
+ * Google-Maps-Link, gilt der; sonst ein Suchlink aus Name und Adresse. Der
+ * führt zwar nur in die Nähe des Eintrags, ist aber besser als kein Weg —
+ * und die Filiale kann den echten Link jederzeit nachtragen.
+ */
+function mapsUrlFor(brandName: string, branch: WithId<Branch> | null): string {
+  if (branch?.googleMapsUrl) return branch.googleMapsUrl;
+  const query = [brandName, branch?.name, branch?.address].filter(Boolean).join(' ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+/**
+ * Gast: der fertig formulierte Rezensionstext zu seiner gerade abgegebenen
+ * Bewertung, zum Kopieren auf Google Maps.
+ *
+ * Das Ticket ist Pflicht und ersetzt eine Anmeldung — bewerten geht ohne Konto,
+ * also muss auch das hier ohne gehen. Die Bewertungs-ID allein würde nicht
+ * genügen: sie steht für jeden lesbar im Gesamtzustand, und jeder Aufruf kostet
+ * einen Modellaufruf.
+ *
+ * Der erzeugte Text wird an der Bewertung abgelegt. Wer den Bildschirm neu lädt,
+ * bekommt denselben Text zurück statt eines zweiten, leicht anderen.
+ */
+router.post('/guest/review-text', async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const ticket = typeof req.body?.ticket === 'string' ? verifyReviewTicket(req.body.ticket) : null;
+  if (!ticket || ticket.orgSlug !== req.params.orgSlug) {
+    res.status(400).json({ error: 'Dieser Zugang gilt nicht (mehr).' });
+    return;
+  }
+  const review = await db.collection<ReviewDoc>('reviews').findOne({
+    _id: requireObjectId(ticket.reviewId, 'Bewertungs-ID'),
+  });
+  if (!review) {
+    res.status(404).json({ error: 'Bewertung wurde nicht gefunden.' });
+    return;
+  }
+
+  const [brandDoc, branch] = await Promise.all([
+    db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
+    db.collection<Branch>('branches').findOne({ _id: new ObjectId(review.branchId) }),
+  ]);
+  const brandName = brandDoc?.name ?? 'unser Restaurant';
+  const mapsUrl = mapsUrlFor(brandName, branch);
+
+  if (review.reviewText) {
+    res.json({ text: review.reviewText, mapsUrl, source: 'cache' });
+    return;
+  }
+
+  const dishDocs = await db.collection<DishDoc>('dishes').find({
+    _id: { $in: review.dishRatings.map(d => new ObjectId(d.dishId)) },
+  }).toArray();
+  const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
+
+  const result = await generateReviewText({
+    restaurantName: brandName,
+    branchName: branch?.name ?? null,
+    dishes: review.dishRatings.map(d => ({ name: nameOf(d.dishId), stars: d.stars, note: d.note })),
+    overall: review.overall,
+  });
+
+  await db.collection<ReviewDoc>('reviews').updateOne(
+    { _id: review._id }, { $set: { reviewText: result.text } }
+  );
+  res.json({ text: result.text, mapsUrl, source: result.source });
+});
+
+/**
  * Gast: eigenes Konto löschen. Wer ein Konto anlegen kann, muss es auch wieder
  * loswerden können — samt Punkten. Abgegebene Bewertungen bleiben: sie hängen
  * am Tisch, nicht am Gast, und sind für das Restaurant die eigentliche Substanz.
@@ -1516,6 +1594,233 @@ router.patch('/settings/dashboard', branchAdmin(async (req: OrgRequest, res) => 
   res.json(await stateFor(req));
 }));
 
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD-AUSWERTUNG
+//
+// Warum eine eigene Route und nicht der Gesamtzustand: der trägt nur die
+// letzten REVIEW_PAGE_SIZE Bewertungen. Für einen Verlauf über Wochen und für
+// einen Zeitraumfilter reicht das nicht — und umgekehrt gehört diese Rechnerei
+// nicht in jeden Seitenaufruf des Gastes.
+// ═══════════════════════════════════════════════════════════
+
+/** Nach einem Tag ist der Wochenrückblick von gestern. Dann wird neu geschrieben. */
+const HIGHLIGHT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Obergrenze für einen Auswertungslauf. Darüber wird der Zeitraum eingegrenzt. */
+const INSIGHT_REVIEW_CAP = 5000;
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Montag 00:00 der Woche, in der `ts` liegt — Wochen beginnen hier am Montag. */
+function weekStart(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  const day = (d.getDay() + 6) % 7; // Montag = 0
+  d.setDate(d.getDate() - day);
+  return d.getTime();
+}
+
+function optionalDate(value: unknown, field: string): number | null {
+  if (value == null || value === '') return null;
+  const ts = Date.parse(String(value));
+  if (!Number.isFinite(ts)) throw new HttpError(400, `${field} ist kein gültiges Datum.`);
+  return ts;
+}
+
+interface DishStat { id: string; name: string; sum: number; count: number }
+
+/**
+ * Alles, was das Dashboard über einen Zeitraum wissen muss, in einem Durchgang
+ * über die Bewertungen. Die Reichweite kommt wie überall aus scopeOf().
+ */
+async function collectInsights(req: OrgRequest, from: number | null, to: number | null) {
+  const db = req.db!;
+  const branchId = scopeOf(req);
+
+  const filter: Record<string, unknown> = branchId ? { branchId } : {};
+  if (from !== null || to !== null) {
+    filter.createdAt = {
+      ...(from !== null ? { $gte: from } : {}),
+      ...(to !== null ? { $lte: to } : {}),
+    };
+  }
+
+  const [reviews, dishDocs] = await Promise.all([
+    db.collection<ReviewDoc>('reviews').find(filter).sort({ createdAt: -1 }).limit(INSIGHT_REVIEW_CAP).toArray(),
+    db.collection<DishDoc>('dishes').find({}).toArray(),
+  ]);
+  const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gelöschtes Gericht';
+
+  const byDish = new Map<string, DishStat>();
+  const byWeek = new Map<number, { sum: number; ratings: number; reviews: number }>();
+  const overall = { service: 0, ambience: 0, speed: 0, count: 0 };
+  let sum = 0;
+  let ratings = 0;
+
+  for (const rv of reviews) {
+    const week = byWeek.get(weekStart(rv.createdAt)) ?? { sum: 0, ratings: 0, reviews: 0 };
+    week.reviews += 1;
+    for (const r of rv.dishRatings) {
+      if (r.stars <= 0) continue;
+      sum += r.stars;
+      ratings += 1;
+      week.sum += r.stars;
+      week.ratings += 1;
+      const stat = byDish.get(r.dishId) ?? { id: r.dishId, name: nameOf(r.dishId), sum: 0, count: 0 };
+      stat.sum += r.stars;
+      stat.count += 1;
+      byDish.set(r.dishId, stat);
+    }
+    byWeek.set(weekStart(rv.createdAt), week);
+    if (rv.overall.service > 0) {
+      overall.service += rv.overall.service;
+      overall.ambience += rv.overall.ambience;
+      overall.speed += rv.overall.speed;
+      overall.count += 1;
+    }
+  }
+
+  const dishes = [...byDish.values()]
+    .map(d => ({ id: d.id, name: d.name, avg: d.sum / d.count, count: d.count }))
+    .sort((a, b) => b.avg - a.avg);
+
+  const weeks = [...byWeek.entries()]
+    .map(([start, w]) => ({ weekStart: start, reviews: w.reviews, avg: w.ratings > 0 ? w.sum / w.ratings : 0 }))
+    .sort((a, b) => a.weekStart - b.weekStart);
+
+  return {
+    range: { from, to },
+    totals: {
+      reviews: reviews.length,
+      ratings,
+      avg: ratings > 0 ? sum / ratings : 0,
+      capped: reviews.length >= INSIGHT_REVIEW_CAP,
+    },
+    overall: overall.count === 0 ? null : {
+      service: overall.service / overall.count,
+      ambience: overall.ambience / overall.count,
+      speed: overall.speed / overall.count,
+      count: overall.count,
+    },
+    weeks,
+    dishes,
+  };
+}
+
+/** Unter welchem Schlüssel der Rückblick dieser Reichweite liegt. */
+function highlightKey(req: OrgRequest): string {
+  return scopeOf(req) ?? 'all';
+}
+
+async function storedHighlight(req: OrgRequest) {
+  const doc = await req.db!.collection<InsightsDoc>('settings').findOne({ _id: 'insights' });
+  const entry = doc?.highlights?.[highlightKey(req)];
+  if (!entry) return null;
+  return { ...entry, stale: Date.now() - entry.generatedAt > HIGHLIGHT_TTL_MS };
+}
+
+router.get('/insights', branchAdmin(async (req: OrgRequest, res) => {
+  const from = optionalDate(req.query.from, 'Von-Datum');
+  const to = optionalDate(req.query.to, 'Bis-Datum');
+  const insights = await collectInsights(req, from, to);
+  res.json({ ...insights, highlight: await storedHighlight(req), aiAvailable: hasClaude() });
+}));
+
+/**
+ * Den Wochenrückblick schreiben lassen. Getrennt von GET /insights, weil ein
+ * Modellaufruf Sekunden dauert — das Dashboard soll sofort stehen und den Text
+ * nachreichen. Ist der gespeicherte noch keinen Tag alt, wird er
+ * zurückgegeben statt neu erzeugt: ein Rückblick, der sich bei jedem Neuladen
+ * ändert, liest sich wie ein Zufallstext (und kostet jedes Mal).
+ */
+router.post('/insights/highlight', branchAdmin(async (req: OrgRequest, res) => {
+  const db = req.db!;
+  const existing = await storedHighlight(req);
+  if (existing && !existing.stale) {
+    res.json({ highlight: existing });
+    return;
+  }
+
+  const now = Date.now();
+  const [thisWeek, lastWeek, brandDoc] = await Promise.all([
+    collectInsights(req, now - WEEK_MS, now),
+    collectInsights(req, now - 2 * WEEK_MS, now - WEEK_MS),
+    db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
+  ]);
+
+  const branchId = scopeOf(req);
+  const branch = branchId
+    ? await db.collection<Branch>('branches').findOne({ _id: new ObjectId(branchId) })
+    : null;
+
+  // Nur Gerichte mit mindestens zwei Bewertungen taugen für eine Aussage;
+  // ein einzelner Stern ist Zufall, keine Tendenz.
+  const solid = thisWeek.dishes.filter(d => d.count >= 2);
+  const notes = await db.collection<ReviewDoc>('reviews')
+    .find({ ...(branchId ? { branchId } : {}), createdAt: { $gte: now - WEEK_MS } })
+    .sort({ createdAt: -1 }).limit(60).toArray();
+  const dishDocs = await db.collection<DishDoc>('dishes').find({}).toArray();
+  const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
+
+  const input: HighlightInput = {
+    restaurantName: brandDoc?.name ?? 'Das Restaurant',
+    scopeName: branch?.name ?? 'alle Filialen',
+    current: { reviews: thisWeek.totals.reviews, avg: thisWeek.totals.avg },
+    previous: { reviews: lastWeek.totals.reviews, avg: lastWeek.totals.avg },
+    best: solid.slice(0, 5),
+    worst: [...solid].reverse().slice(0, 5),
+    notes: notes.flatMap(rv => rv.dishRatings
+      .filter(d => d.note)
+      .map(d => ({ dish: nameOf(d.dishId), stars: d.stars, note: d.note!.slice(0, 240) }))
+    ).slice(0, 40),
+  };
+
+  const result = await generateHighlight(input);
+  const entry = {
+    text: result.text, generatedAt: now, source: result.source,
+    reviewCount: thisWeek.totals.reviews,
+  };
+  await db.collection<InsightsDoc>('settings').updateOne(
+    { _id: 'insights' },
+    { $set: { [`highlights.${highlightKey(req)}`]: entry } },
+    { upsert: true }
+  );
+  res.json({ highlight: { ...entry, stale: false } });
+}));
+
+/**
+ * Servicekraft: Gerichte vom Foto eines POS-Bons erkennen lassen.
+ *
+ * Schreibt nichts — die Erkennung ist ein Vorschlag, den die Servicekraft in
+ * ihrem Warenkorb prüft und selbst bucht. Alles andere wäre eine Bestellung,
+ * die niemand bestätigt hat.
+ */
+router.post('/branches/:branchSlug/scan-receipt', staffOrAdmin(withBranch(async (req: OrgRequest, res) => {
+  const image = req.body?.image;
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    throw new HttpError(400, 'Es wurde kein Bild übergeben.');
+  }
+  if (!hasClaude()) {
+    res.status(503).json({ error: 'Der Bon-Scan ist auf diesem Server nicht eingerichtet (ANTHROPIC_API_KEY fehlt).' });
+    return;
+  }
+
+  // Nur die Karte DIESER Filiale — sonst schlägt der Scan Gerichte vor, die
+  // hier gar nicht geführt werden und beim Buchen abgelehnt würden.
+  const branchId = String(req.branch!._id);
+  const dishes = await req.db!.collection<DishDoc>('dishes')
+    .find({ $or: [{ branchIds: null }, { branchIds: branchId }] }).toArray();
+
+  const hits = await scanReceipt(image, dishes.map(d => ({
+    id: String(d._id), name: d.name, price: d.price,
+  })));
+  if (hits === null) {
+    res.status(502).json({ error: 'Der Bon konnte nicht gelesen werden. Bitte noch einmal fotografieren.' });
+    return;
+  }
+  res.json({ items: hits });
+})));
+
 // ── Admin: Gerichtsfoto ersetzen ──
 router.patch('/dishes/:id/image', chainAdmin(async (req: OrgRequest, res) => {
   const { img } = req.body ?? {};
@@ -1691,6 +1996,7 @@ router.post('/branches', chainAdmin(async (req: OrgRequest, res) => {
     slug: await uniqueBranchSlug(db, name),
     name,
     address: requireText(req.body?.address, 'Adresse', 160),
+    googleMapsUrl: optionalText(req.body?.googleMapsUrl, 'Google-Maps-Link', 400) ?? null,
   });
   res.json(await stateFor(req));
 }));
@@ -1700,6 +2006,9 @@ router.patch('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
   const update: Record<string, unknown> = {};
   if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 80);
   if (req.body?.address !== undefined) update.address = requireText(req.body.address, 'Adresse', 160);
+  if (req.body?.googleMapsUrl !== undefined) {
+    update.googleMapsUrl = optionalText(req.body.googleMapsUrl, 'Google-Maps-Link', 400) ?? null;
+  }
   if (Object.keys(update).length === 0) {
     res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });
     return;

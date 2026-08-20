@@ -8,12 +8,12 @@ import {
   MoreHorizontal, Download, QrCode, Pencil, AlertTriangle, TrendingUp,
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
-  Eye, Filter, Trash2, UserPlus, Lock, Building2, ImagePlus,
+  Eye, Trash2, UserPlus, Lock, Building2, ImagePlus,
   AlertOctagon, Loader2, MessageSquare, Ticket,
 } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis, ReferenceLine, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ScatterChart, Scatter, ZAxis, ReferenceLine, Cell, ComposedChart, Bar, Line,
 } from 'recharts';
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
@@ -21,6 +21,9 @@ import {
   availableIn,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
   type Branch, type BranchScope, type Redemption,
+  // Highlight heißt auch ein DOM-Typ (CSS Custom Highlight API) — der Import
+  // hier überdeckt ihn in dieser Datei, sonst greift TypeScript zum falschen.
+  type Insights, type Highlight,
 } from './store';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
@@ -28,11 +31,6 @@ import { SwipeToRedeem } from './components/SwipeToRedeem';
 // ═══════════════════════════════════════════════════════════
 // DECORATIVE / REFERENCE DATA (kein Mandanten-Bezug)
 // ═══════════════════════════════════════════════════════════
-
-const CHART_DATA = [
-  { day: 'Mo', avg: 4.1 }, { day: 'Di', avg: 4.3 }, { day: 'Mi', avg: 3.8 },
-  { day: 'Do', avg: 4.5 }, { day: 'Fr', avg: 4.2 }, { day: 'Sa', avg: 4.6 }, { day: 'So', avg: 4.4 },
-];
 
 const PERMISSIONS = [
   { label: 'Bewertungen einsehen', admin: true, manager: true, waiter: false },
@@ -277,7 +275,18 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
 // GUEST APP
 // ═══════════════════════════════════════════════════════════
 
-type GuestScreen = 'welcome' | 'review' | 'overall' | 'thanks' | 'vouchers';
+// Kein eigener Schritt mehr für den Gesamteindruck: Service, Ambiente und
+// Tempo stehen jetzt unter den Gerichten auf DEMSELBEN Bildschirm. Zwei
+// Schritte für eine Bewertung waren einer zu viel — wer nach den Gerichten
+// „Weiter" drückte, rechnete mit dem Absenden, nicht mit einer zweiten Seite.
+type GuestScreen = 'welcome' | 'review' | 'thanks' | 'vouchers' | 'profile';
+
+/** Die drei Sammelurteile, die zu jeder Bewertung gehören. */
+const OVERALL_FIELDS = [
+  { key: 'service', label: 'Service', emoji: '🤝' },
+  { key: 'ambience', label: 'Ambiente', emoji: '✨' },
+  { key: 'speed', label: 'Schnelligkeit', emoji: '⚡' },
+] as const;
 
 function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
   const store = useStore();
@@ -301,6 +310,15 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const [authOpen, setAuthOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Die fertig formulierte Rezension zum Weitergeben. Wird NACH dem Absenden
+  // geholt: das Formulieren dauert Sekunden, und so lange soll niemand vor
+  // einem hängenden „Wird gesendet…" sitzen.
+  const [reviewText, setReviewText] = useState<{ text: string; mapsUrl: string } | null>(null);
+  const [reviewTextPending, setReviewTextPending] = useState(false);
+  const [copied, setCopied] = useState(false);
+  // Kontolöschung: zweistufig, weil sie Punkte vernichtet und nicht rückgängig ist.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Nur Tische DIESER Filiale: die Nummer allein trifft seit T-2 in jeder
   // Filiale einen anderen Tisch.
@@ -312,6 +330,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const ratedCount = tableDishes.filter(d => (ratings[d.id] ?? 0) > 0).length;
   const allRated = tableDishes.length > 0 && ratedCount >= tableDishes.length;
   const allOverall = Object.values(overall).every(v => v > 0);
+  // Der Fortschritt zählt beides: Gerichte UND Gesamteindruck. Sonst stünde der
+  // Balken bei 100 %, während der Absenden-Knopf noch gesperrt ist.
+  const overallDone = Object.values(overall).filter(v => v > 0).length;
+  const stepsTotal = tableDishes.length + OVERALL_FIELDS.length;
+  const stepsDone = ratedCount + overallDone;
 
   useEffect(() => {
     if (screen === 'thanks' && earnedPts > 0) {
@@ -357,8 +380,19 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
       const dishRatings: DishRatingInput[] = tableDishes.map(d => ({
         dishId: d.id, stars: ratings[d.id] ?? 0, note: notes[d.id]?.trim() || undefined,
       }));
-      const { earned, possible, ticket } = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
+      const { earned, possible, ticket, reviewTicket } = await store.submitReview(branch.slug, tableNumber, dishRatings, overall);
       setEarnedPts(earned);
+      // Den Rezensionstext im Hintergrund holen — der Dank-Bildschirm erscheint
+      // sofort und füllt den Block nach. Scheitert es, bleibt der Block einfach
+      // aus: die Bewertung selbst ist längst angekommen.
+      setReviewText(null);
+      if (reviewTicket) {
+        setReviewTextPending(true);
+        store.fetchReviewText(reviewTicket)
+          .then(res => setReviewText({ text: res.text, mapsUrl: res.mapsUrl }))
+          .catch(() => { /* dann eben ohne Textvorschlag */ })
+          .finally(() => setReviewTextPending(false));
+      }
       // Ohne Konto ist earned 0 — dann zeigt der Dank-Bildschirm, was mit einem
       // Konto drin wäre, und das Ticket hebt die Punkte auf, bis sich der Gast
       // anmeldet (siehe den Effekt weiter unten).
@@ -460,13 +494,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <div className="flex-1">
-                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Gerichte</p>
+                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Bewertung</p>
                 <p className="text-[12px] text-gray-400">Tisch {tableNumber} · {store.brand?.name}</p>
               </div>
-              <span className="text-[13px] text-gray-400">{ratedCount}/{tableDishes.length}</span>
+              <span className="text-[13px] text-gray-400">{stepsDone}/{stepsTotal}</span>
             </div>
             <div className="h-0.5 bg-gray-100 dark:bg-gray-800">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${tableDishes.length ? (ratedCount / tableDishes.length) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${stepsTotal ? (stepsDone / stepsTotal) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -484,51 +518,33 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               className="w-full py-3.5 text-[13px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center gap-2">
               <Plus size={14} strokeWidth={2} /> Etwas vergessen?
             </button>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4">
-            <PrimaryBtn onClick={() => go('overall')} disabled={!allRated}>Weiter →</PrimaryBtn>
-          </div>
-        </motion.div>
-      )}
 
-      {screen === 'overall' && (
-        <motion.div key="overall" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
-            <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go('review')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-                <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
-              </button>
-              <div>
-                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gesamteindruck</p>
-                <p className="text-[12px] text-gray-400">Schritt 2 von 2</p>
-              </div>
-            </div>
-            <div className="h-0.5 bg-gray-100 dark:bg-gray-800">
-              <div className="h-full rounded-full" style={{ width: '66%', backgroundColor: 'var(--ba, #16A34A)' }} />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {([
-              { key: 'service', label: 'Service', emoji: '🤝' },
-              { key: 'ambience', label: 'Ambiente', emoji: '✨' },
-              { key: 'speed', label: 'Schnelligkeit', emoji: '⚡' },
-            ] as const).map(({ key, label, emoji }) => (
-              <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{emoji}</span>
-                    <p className="text-[15px] font-medium text-gray-900 dark:text-white">{label}</p>
+            {/* Gesamteindruck — auf demselben Bildschirm wie die Gerichte, nur
+                abgesetzt. Der Gast bewertet seinen Besuch in einem Durchgang. */}
+            <div className="pt-4">
+              <p className="text-[13px] font-semibold text-gray-600 dark:text-gray-300 px-1 pb-2">
+                Und der Besuch insgesamt?
+              </p>
+              <div className="space-y-3">
+                {OVERALL_FIELDS.map(({ key, label, emoji }) => (
+                  <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{emoji}</span>
+                        <p className="text-[15px] font-medium text-gray-900 dark:text-white">{label}</p>
+                      </div>
+                      <span className="text-[12px] text-gray-400">{overall[key] > 0 ? `${overall[key]}/5` : 'Nicht bewertet'}</span>
+                    </div>
+                    <StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={30} />
                   </div>
-                  <span className="text-[12px] text-gray-400">{overall[key] > 0 ? `${overall[key]}/5` : 'Nicht bewertet'}</span>
-                </div>
-                <StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={30} />
+                ))}
               </div>
-            ))}
+            </div>
           </div>
           <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4 space-y-2">
             <p className="text-[11px] text-gray-400 text-center">Deinen Gutschein bekommst du unabhängig von deiner Bewertung.</p>
             {submitError && <p className="text-[12px] text-red-500 text-center">{submitError}</p>}
-            <PrimaryBtn onClick={handleSubmitReview} disabled={!allOverall || submitting}>
+            <PrimaryBtn onClick={handleSubmitReview} disabled={!allRated || !allOverall || submitting}>
               {submitting ? 'Wird gesendet…' : 'Absenden & Punkte sichern'}
             </PrimaryBtn>
           </div>
@@ -573,6 +589,54 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               </div>
               )}
             </div>
+            {/* Aus derselben Bewertung ein fertiger Text für Google Maps.
+                Der Gast hat sein Urteil gerade formuliert — das nochmal zu
+                tippen, damit es öffentlich sichtbar wird, macht kaum jemand.
+                Der Block erscheint erst, wenn der Text steht, und bleibt sonst
+                einfach aus. */}
+            {(reviewTextPending || reviewText) && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <MessageSquare size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
+                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Auch öffentlich teilen?</p>
+                  </div>
+                  <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                    Aus deiner Bewertung ist dieser Text entstanden — kopieren, bei Google einfügen, fertig.
+                  </p>
+                </div>
+                {reviewTextPending && !reviewText ? (
+                  <div className="space-y-2 py-1">
+                    <Sk h={12} /><Sk h={12} /><Sk h={12} w="70%" />
+                  </div>
+                ) : reviewText && (
+                  <>
+                    <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5 border border-gray-100 dark:border-gray-700">
+                      {reviewText.text}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(reviewText.text);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          } catch { /* ohne Zwischenablage bleibt das Markieren von Hand */ }
+                        }}
+                        className="flex-1 py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-1.5">
+                        {copied ? <><Check size={14} strokeWidth={2.5} /> Kopiert</> : 'Text kopieren'}
+                      </button>
+                      <a href={reviewText.mapsUrl} target="_blank" rel="noreferrer"
+                        className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white text-center transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
+                        style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                        <MapPin size={14} strokeWidth={2} /> Bei Google
+                      </a>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {!store.guest.loggedIn ? (
               <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-4">
                 <div>
@@ -635,14 +699,18 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
               </div>
             ) : (
-              <div className="flex items-center justify-between px-1 pb-1">
+              // Der Weg ins eigene Konto. Vorher stand hier nur „Angemeldet
+              // als …" mit einem Abmelden-Link — wer sein Konto ansehen oder
+              // löschen wollte, hatte keinen.
+              <button onClick={() => go('profile')}
+                className="w-full flex items-center justify-between px-1 pb-1 text-left">
                 <p className="text-[12px] text-gray-400 truncate">
                   Angemeldet als <span className="text-gray-600 dark:text-gray-300">{store.guest.name ?? store.guest.email}</span>
                 </p>
-                <button onClick={() => store.guestLogout()} className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0">
-                  Abmelden
-                </button>
-              </div>
+                <span className="text-[12px] flex-shrink-0 flex items-center gap-0.5" style={{ color: 'var(--ba)' }}>
+                  Dein Konto <ChevronLeft size={12} className="rotate-180" strokeWidth={2} />
+                </span>
+              </button>
             )}
 
             {vTab === 'Verfügbar' && (unlockedVouchers.length === 0
@@ -652,6 +720,89 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {vTab === 'Eingelöst' && (redeemedVouchers.length === 0
               ? <EmptyState icon={CheckCircle2} title="Noch nichts eingelöst" desc="Eingelöste Gutscheine erscheinen hier." />
               : redeemedVouchers.map(v => <VoucherCard key={v.id} v={v} state="redeemed" />))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* DEIN KONTO — was am Gastkonto hängt, an einer Stelle.
+          Erreichbar von der Gutscheinseite aus. Vorher gab es die Route zum
+          Löschen des eigenen Kontos zwar auf dem Server, aber keinen Weg
+          dorthin: wer ein Konto anlegen kann, muss es auch loswerden können. */}
+      {screen === 'profile' && (
+        <motion.div key="profile" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
+          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
+            <div className="flex items-center gap-2 px-4 py-3">
+              <button onClick={() => go('vouchers')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+                <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
+              </button>
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Dein Konto</p>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-[18px] font-bold flex-shrink-0" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                  {(store.guest.name ?? store.guest.email ?? '?').slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[16px] font-semibold text-gray-900 dark:text-white truncate">{store.guest.name ?? 'Gast'}</p>
+                  <p className="text-[13px] text-gray-500 dark:text-gray-400 truncate">{store.guest.email}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                {([
+                  ['Punkte', String(store.guest.points)],
+                  ['Eingelöst', String(store.guest.redeemed.length)],
+                ] as const).map(([label, value]) => (
+                  <div key={label} className="bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5">
+                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">{label}</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                Deine Punkte hängen an diesem Konto und gelten in allen Filialen von {store.brand?.name}.
+              </p>
+              <button onClick={async () => { await store.guestLogout(); go('welcome'); }}
+                className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                Abmelden
+              </button>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Konto löschen</p>
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                Punkte und eingelöste Gutscheine verfallen dabei. Deine abgegebenen
+                Bewertungen bleiben beim Restaurant — sie hängen am Tisch, nicht an dir.
+              </p>
+              {deleteError && <p className="text-[12px] text-red-500">{deleteError}</p>}
+              {confirmDelete ? (
+                <div className="flex gap-2">
+                  <SecondaryBtn onClick={() => setConfirmDelete(false)}>Abbrechen</SecondaryBtn>
+                  <button onClick={async () => {
+                      setDeleteError(null);
+                      try {
+                        await store.deleteGuestAccount();
+                        setConfirmDelete(false);
+                        go('welcome');
+                      } catch (err) {
+                        setDeleteError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+                      }
+                    }}
+                    className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white bg-red-600 hover:bg-red-700 transition-colors">
+                    Endgültig löschen
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDelete(true)}
+                  className="w-full py-3 rounded-xl text-[14px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                  Konto löschen
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
       )}
@@ -741,7 +892,7 @@ function VoucherCard({ v, state, onAction, pointsMissing }: {
 
 type WaiterScreen = 'tables' | 'detail' | 'photo';
 
-function WaiterApp({ branch }: { branch: Branch }) {
+function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
   const store = useStore();
   const [screen, setScreen] = useState<WaiterScreen>('tables');
   // Nur die Nummer festhalten, nicht den Tisch selbst: der Tisch wird bei jedem
@@ -754,8 +905,16 @@ function WaiterApp({ branch }: { branch: Branch }) {
   const [confirm, setConfirm] = useState<null | 'save' | 'close'>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [photoStep, setPhotoStep] = useState<'scan' | 'confirm'>('scan');
-  const [chips, setChips] = useState(['Spicy Tuna Roll', 'Miso Suppe', 'Asahi Bier']);
+  // Bon-Scan: aufnehmen → erkennen lassen → prüfen → in den Warenkorb.
+  // Gebucht wird NICHT automatisch: was das Modell liest, ist ein Vorschlag,
+  // und eine Bestellung, die niemand bestätigt hat, gehört nicht auf den Tisch.
+  const [photoStep, setPhotoStep] = useState<'scan' | 'working' | 'confirm'>('scan');
+  const [scanHits, setScanHits] = useState<{ dishId: string; qty: number }[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  // QR-Code des Tisches am eigenen Handy zeigen — der Gast scannt ihn direkt
+  // vom Display ab, ohne dass am Tisch ein Aufsteller stehen muss.
+  const [qrTable, setQrTable] = useState<number | null>(null);
   const cartTotal = Object.values(cart).reduce((a, b) => a + b, 0);
 
   // Alles in dieser Ansicht bezieht sich auf GENAU eine Filiale — sonst träfe
@@ -823,18 +982,33 @@ function WaiterApp({ branch }: { branch: Branch }) {
     }
   };
 
-  const handleSavePhotoScan = async () => {
-    if (activeTable) {
-      const matches = chips
-        .map(name => store.dishes.find(d => d.name === name)?.id)
-        .filter((id): id is string => Boolean(id));
-      try {
-        for (const id of matches) await store.addItemToTable(branch.slug, activeTable.number, id, 1);
-      } catch (err) {
-        setActionError(err instanceof Error ? err.message : 'Erkannte Gerichte konnten nicht gespeichert werden.');
-        return;
-      }
+  // Foto aufnehmen und lesen lassen. Verkleinert wird im Browser: ein
+  // Handy-Foto in Originalgröße wäre mehrere Megabyte, und für die Schrift
+  // auf einem Bon genügen 1600 Pixel Kantenlänge.
+  const handlePhotoFile = async (file: File) => {
+    setScanError(null);
+    setPhotoStep('working');
+    try {
+      const dataUri = await compressImageFile(file, 1600, 0.75);
+      const items = await store.scanReceipt(branch.slug, dataUri);
+      setScanHits(items);
+      setPhotoStep('confirm');
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Der Bon konnte nicht gelesen werden.');
+      setPhotoStep('scan');
     }
+  };
+
+  // Die erkannten Gerichte landen im Warenkorb, nicht auf dem Tisch — gebucht
+  // wird wie sonst auch mit „Bestellung speichern", nachdem jemand daraufgesehen hat.
+  const handleSavePhotoScan = () => {
+    setCart(p => {
+      const next = { ...p };
+      for (const hit of scanHits) next[hit.dishId] = (next[hit.dishId] ?? 0) + hit.qty;
+      return next;
+    });
+    setScanHits([]);
+    setPhotoStep('scan');
     setScreen(activeTable ? 'detail' : 'tables');
   };
 
@@ -955,11 +1129,18 @@ function WaiterApp({ branch }: { branch: Branch }) {
             </div>
           </div>
           <div className="flex-none max-h-[45vh] md:max-h-none md:w-72 min-h-0 bg-white dark:bg-gray-900 border-t md:border-t-0 md:border-l border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0">
-            <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between md:block">
-              <div>
+            <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Tisch {activeTable.number}</p>
                 <p className="text-[13px] text-gray-400">{cartTotal > 0 ? `${cartTotal} Gerichte` : 'Noch leer'}</p>
               </div>
+              {/* Den QR-Code vom eigenen Handy zeigen: der Gast scannt ihn
+                  direkt vom Display ab. Nützlich, wenn am Tisch kein Aufsteller
+                  steht oder der Code unleserlich geworden ist. */}
+              <button onClick={() => setQrTable(activeTable.number)}
+                className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex-shrink-0">
+                <QrCode size={13} strokeWidth={1.5} /> QR zeigen
+              </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
               {activeTable.items.length > 0 && (
@@ -1038,9 +1219,18 @@ function WaiterApp({ branch }: { branch: Branch }) {
             <div className="w-full max-w-lg space-y-5">
               <div>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">Bon fotografieren</p>
-                <p className="text-[15px] text-gray-500 mt-1">Fotografiere den POS-Bon — Gerichte werden automatisch erkannt.</p>
+                <p className="text-[15px] text-gray-500 mt-1">
+                  Fotografiere den POS-Bon — die Gerichte werden erkannt und in den Warenkorb gelegt.
+                  Gebucht wird erst, wenn du sie geprüft und gespeichert hast.
+                </p>
               </div>
-              <div className="bg-gray-900 rounded-2xl overflow-hidden flex items-center justify-center relative" style={{ aspectRatio: '4/3' }}>
+              {/* Am Handy öffnet capture="environment" direkt die Rückkamera,
+                  am Rechner den Dateiwähler. Beides führt zum selben Ergebnis. */}
+              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ''; }} />
+              <button onClick={() => photoInputRef.current?.click()}
+                className="w-full bg-gray-900 dark:bg-gray-800 rounded-2xl overflow-hidden flex items-center justify-center relative hover:opacity-90 transition-opacity"
+                style={{ aspectRatio: '4/3' }}>
                 <div style={{ width: '75%', height: '75%', border: '2px solid rgba(255,255,255,0.3)', borderRadius: 12, position: 'relative' }}>
                   {(['tl', 'tr', 'bl', 'br'] as const).map(c => (
                     <span key={c} style={{
@@ -1054,41 +1244,90 @@ function WaiterApp({ branch }: { branch: Branch }) {
                     }} />
                   ))}
                 </div>
-                <p style={{ position: 'absolute', bottom: 16, color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Kamerabild</p>
-              </div>
-              <button onClick={() => setPhotoStep('confirm')}
+                <span className="absolute bottom-4 text-white/40 text-[13px]">Tippen zum Aufnehmen</span>
+              </button>
+              {scanError && (
+                <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
+                  <AlertOctagon size={15} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <p className="flex-1 text-[13px] text-red-700 dark:text-red-300 leading-relaxed">{scanError}</p>
+                </div>
+              )}
+              <button onClick={() => photoInputRef.current?.click()}
                 className="w-full py-4 rounded-xl text-[15px] font-medium text-white flex items-center justify-center gap-2" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
                 <Camera size={18} strokeWidth={1.5} /> Aufnehmen
               </button>
+            </div>
+          ) : photoStep === 'working' ? (
+            <div className="w-full max-w-lg text-center space-y-4 py-10">
+              <Loader2 size={28} className="animate-spin mx-auto text-gray-400" strokeWidth={1.5} />
+              <p className="text-[15px] font-medium text-gray-900 dark:text-white">Bon wird gelesen…</p>
+              <p className="text-[13px] text-gray-500">Das dauert ein paar Sekunden.</p>
             </div>
           ) : (
             <div className="w-full max-w-lg space-y-5">
               <div>
                 <CheckCircle2 size={28} className="mb-3" style={{ color: 'var(--ba)' }} strokeWidth={1.5} />
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">Gerichte erkannt</p>
-                <p className="text-[15px] text-gray-500 mt-1">Überprüfe und bearbeite die erkannten Gerichte.</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {scanHits.length > 0 ? 'Gerichte erkannt' : 'Nichts erkannt'}
+                </p>
+                <p className="text-[15px] text-gray-500 mt-1">
+                  {scanHits.length > 0
+                    ? 'Prüfe die Liste — falsches einfach entfernen.'
+                    : 'Auf dem Bild war keine Position der Karte zu finden. Versuch es noch einmal, näher dran und heller.'}
+                </p>
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                <p className="text-[13px] text-gray-500 mb-3">Erkannte Gerichte ({chips.length})</p>
-                <div className="flex flex-wrap gap-2">
-                  {chips.map(c => (
-                    <span key={c} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-[13px] rounded-full">
-                      {c}
-                      <button onClick={() => setChips(p => p.filter(x => x !== c))} className="hover:text-gray-900 dark:hover:text-white transition-colors"><X size={12} strokeWidth={2} /></button>
-                    </span>
-                  ))}
+              {scanHits.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                  <p className="text-[13px] text-gray-500 mb-3">Erkannte Gerichte ({scanHits.length})</p>
+                  <div className="space-y-2">
+                    {scanHits.map(hit => {
+                      const dish = store.dishes.find(d => d.id === hit.dishId);
+                      if (!dish) return null;
+                      return (
+                        <div key={hit.dishId} className="flex items-center gap-3">
+                          <img src={dish.img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                          <p className="flex-1 text-[14px] text-gray-800 dark:text-gray-200 line-clamp-1">{dish.name}</p>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button onClick={() => setScanHits(p => p.flatMap(h => h.dishId !== hit.dishId ? [h] : h.qty > 1 ? [{ ...h, qty: h.qty - 1 }] : []))}
+                              className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                              <Minus size={11} strokeWidth={2} className="text-gray-600 dark:text-gray-400" />
+                            </button>
+                            <span className="text-[13px] font-semibold text-gray-800 dark:text-gray-200 w-5 text-center">{hit.qty}</span>
+                            <button onClick={() => setScanHits(p => p.map(h => h.dishId === hit.dishId ? { ...h, qty: Math.min(20, h.qty + 1) } : h))}
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                              <Plus size={11} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                          <button onClick={() => setScanHits(p => p.filter(h => h.dishId !== hit.dishId))}
+                            className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"><X size={14} strokeWidth={2} /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-              {!activeTable && <p className="text-[12px] text-gray-400">Ohne ausgewählten Tisch werden erkannte Gerichte nicht gespeichert — nur zur Ansicht.</p>}
+              )}
+              {!activeTable && scanHits.length > 0 && (
+                <p className="text-[12px] text-gray-400">
+                  Noch kein Tisch gewählt — die Gerichte landen im Warenkorb, den du beim nächsten Tisch vorfindest.
+                </p>
+              )}
               <div className="flex gap-3">
-                <SecondaryBtn onClick={() => setPhotoStep('scan')}>Neu aufnehmen</SecondaryBtn>
-                <PrimaryBtn onClick={handleSavePhotoScan}>Speichern</PrimaryBtn>
+                <SecondaryBtn onClick={() => { setScanHits([]); setPhotoStep('scan'); }}>Neu aufnehmen</SecondaryBtn>
+                {scanHits.length > 0 && (
+                  <PrimaryBtn onClick={handleSavePhotoScan}>In den Warenkorb</PrimaryBtn>
+                )}
               </div>
             </div>
           )}
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {qrTable !== null && (
+          <BigTableQR orgSlug={orgSlug} branch={branch} tableNumber={qrTable} onClose={() => setQrTable(null)} />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {confirm && (
@@ -1141,6 +1380,46 @@ function WaiterApp({ branch }: { branch: Branch }) {
 // Filiale B sind verschiedene Tische und brauchen verschiedene QR-Codes.
 function tableUrl(orgSlug: string, branchSlug: string, tableNumber: number): string {
   return `${window.location.origin}/${orgSlug}/${branchSlug}/table/${tableNumber}`;
+}
+
+/**
+ * Der QR-Code eines Tisches, groß, auf dem Handy der Servicekraft.
+ *
+ * Bewusst eine eigene Darstellung statt der Admin-Kachel: die ist 96 Pixel
+ * groß und für eine Übersicht gedacht. Zum Abscannen vom Display eines anderen
+ * Geräts braucht es Fläche und einen weißen Grund.
+ */
+function BigTableQR({ orgSlug, branch, tableNumber, onClose }: {
+  orgSlug: string; branch: Branch; tableNumber: number; onClose: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const url = tableUrl(orgSlug, branch.slug, tableNumber);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, url, { width: 560, margin: 2, color: { dark: '#111827', light: '#ffffff' } }).catch(() => {});
+  }, [url]);
+
+  return (
+    <>
+      <motion.div className="fixed inset-0 bg-black/60 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-5"
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}>
+        <div className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm text-center space-y-4">
+          <div>
+            <p className="text-[19px] font-bold text-gray-900">Tisch {tableNumber}</p>
+            <p className="text-[13px] text-gray-500">{branch.name} · zum Abscannen hinhalten</p>
+          </div>
+          <canvas ref={canvasRef} className="w-full h-auto max-w-[280px] mx-auto" />
+          <p className="text-[11px] text-gray-400 font-mono break-all">/{orgSlug}/{branch.slug}/table/{tableNumber}</p>
+          <button onClick={onClose}
+            className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
+            Schließen
+          </button>
+        </div>
+      </motion.div>
+    </>
+  );
 }
 
 function TableQRCode({ orgSlug, branchSlug, tableNumber, onDelete }: {
@@ -1504,11 +1783,17 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
 function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () => void }) {
   const store = useStore();
   const { saving, error, save } = useDialogSave(onClose);
-  const [form, setForm] = useState({ name: branch?.name ?? '', address: branch?.address ?? '' });
+  const [form, setForm] = useState({
+    name: branch?.name ?? '', address: branch?.address ?? '',
+    googleMapsUrl: branch?.googleMapsUrl ?? '',
+  });
   const valid = form.name.trim() !== '' && form.address.trim() !== '';
 
   const handleSave = () => save(async () => {
-    const payload = { name: form.name.trim(), address: form.address.trim() };
+    const payload = {
+      name: form.name.trim(), address: form.address.trim(),
+      googleMapsUrl: form.googleMapsUrl.trim() || null,
+    };
     if (branch) await store.updateBranch(branch.id, payload);
     else await store.addBranch(payload);
   });
@@ -1522,6 +1807,13 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
       <div className="space-y-3">
         <Field label="Name" value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Herrengasse" />
         <Field label="Adresse" value={form.address} onChange={v => setForm(p => ({ ...p, address: v }))} placeholder="Herrengasse 12, 8010 Graz" />
+        {/* Der Dank-Bildschirm schickt Gäste mit ihrer fertig formulierten
+            Rezension hierher. Ohne Wert entsteht ein Suchlink aus Name und
+            Adresse — der trifft meist, aber nicht immer. */}
+        <Field label="Google-Maps-Link" value={form.googleMapsUrl}
+          onChange={v => setForm(p => ({ ...p, googleMapsUrl: v }))}
+          placeholder="https://maps.app.goo.gl/…"
+          hint="Optional. Dorthin schicken wir Gäste, die ihre Bewertung öffentlich teilen wollen." />
         <DialogError message={error} />
       </div>
     </AdminModal>
@@ -1537,6 +1829,23 @@ type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'vouchers' | 'redemptions' |
 // branch === null heißt "alle Filialen": der Ketten-Admin sieht die Zahlen
 // aller Standorte zusammen. Alles Filialgebundene (Tische, QR-Codes) braucht
 // dann erst eine Auswahl.
+/** Zeiträume des Dashboards. `all` heißt: kein Filter, alles seit Beginn. */
+type RangeKey = '7' | '30' | '90' | 'all';
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: '7', label: '7 Tage' },
+  { key: '30', label: '30 Tage' },
+  { key: '90', label: '90 Tage' },
+  { key: 'all', label: 'Alles' },
+];
+
+type DishSortKey = 'name' | 'avg' | 'count' | 'price';
+
+/** Ab wann der Zeitraum zählt — ISO-Datum oder null für „alles". */
+function rangeStart(key: RangeKey): string | null {
+  if (key === 'all') return null;
+  return new Date(Date.now() - Number(key) * 24 * 60 * 60 * 1000).toISOString();
+}
+
 function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   orgSlug: string; branch: Branch | null; canSwitchBranch: boolean;
   onPick: (p: string | 'all') => void;
@@ -1559,14 +1868,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const [brandForm, setBrandForm] = useState({
     name: store.brand?.name ?? '', accent: store.brand?.accent ?? '#16A34A',
     logoImage: store.brand?.logoImage ?? null as string | null,
-    coverImage: store.brand?.coverImage ?? null as string | null,
     font: store.brand?.font ?? 'Inter',
     cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [previewStars, setPreviewStars] = useState(4);
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const coverInputRef = useRef<HTMLInputElement>(null);
   const [addTableCount, setAddTableCount] = useState(1);
   const [addingTables, setAddingTables] = useState(false);
   // Der Server liefert bereits nur die passenden Tische; im Ketten-Blick sind
@@ -1580,16 +1887,92 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
   const [branchDialog, setBranchDialog] = useState<{ branch: Branch | null } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Zeitraum des Dashboards. Kommt aus einer eigenen Auswertungsroute, nicht
+  // aus dem Gesamtzustand — der trägt nur die letzten 100 Bewertungen und
+  // taugt weder für einen Wochenverlauf noch für einen Filter.
+  const [range, setRange] = useState<RangeKey>('30');
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<Highlight | null>(null);
+  const [highlightLoading, setHighlightLoading] = useState(false);
+  // Sortierung der Gerichtstabelle unten auf dem Dashboard.
+  const [sort, setSort] = useState<{ key: DishSortKey; desc: boolean }>({ key: 'avg', desc: true });
 
   useEffect(() => {
     if (store.brand) setBrandForm({
       name: store.brand.name, accent: store.brand.accent, logoImage: store.brand.logoImage ?? null,
-      coverImage: store.brand.coverImage ?? null,
       font: store.brand.font ?? 'Inter', cardStyle: store.brand.cardStyle ?? 'standard',
     });
   }, [store.brand]);
 
   useGoogleFont(brandForm.font);
+
+  // Auswertung nachladen, sobald sich Zeitraum oder Filiale ändert. Die
+  // Filiale steckt in den Abhängigkeiten, weil der Umschalter oben zwar den
+  // Gesamtzustand neu lädt, diese Route aber nicht mitzieht.
+  useEffect(() => {
+    let cancelled = false;
+    setInsightsLoading(true);
+    setInsightsError(null);
+    store.fetchInsights(rangeStart(range), null)
+      .then(data => {
+        if (cancelled) return;
+        setInsights(data);
+        setHighlight(data.highlight);
+      })
+      .catch(err => { if (!cancelled) setInsightsError(err instanceof Error ? err.message : 'Auswertung fehlgeschlagen.'); })
+      .finally(() => { if (!cancelled) setInsightsLoading(false); });
+    return () => { cancelled = true; };
+  }, [range, branch?.id, store.fetchInsights]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Den Wochenrückblick nachreichen, sobald klar ist, dass keiner vorliegt
+  // oder der vorhandene von gestern ist. Getrennt von der Auswertung, weil ein
+  // Modellaufruf Sekunden dauert — das Dashboard soll vorher stehen.
+  useEffect(() => {
+    if (!insights || insightsLoading) return;
+    if (highlight && !highlight.stale) return;
+    let cancelled = false;
+    setHighlightLoading(true);
+    store.refreshHighlight()
+      .then(h => { if (!cancelled) setHighlight(h); })
+      .catch(() => { /* dann bleibt der Block leer — die Zahlen stehen ja */ })
+      .finally(() => { if (!cancelled) setHighlightLoading(false); });
+    return () => { cancelled = true; };
+  }, [insights, insightsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Die Auswertung ist auf den Zeitraum eingegrenzt; store.dishes trägt die
+  // Stammdaten (Preis, Kategorie, Bild). Hier kommt beides zusammen.
+  const rangedDishes = useMemo(() => (insights?.dishes ?? []).map(d => {
+    const dish = store.dishes.find(x => x.id === d.id);
+    return { ...d, price: dish?.price ?? 0, cat: dish?.cat ?? 'Speisen', img: dish?.img };
+  }), [insights, store.dishes]);
+
+  const sortedDishes = useMemo(() => {
+    const rows = [...rangedDishes];
+    rows.sort((a, b) => {
+      const factor = sort.desc ? -1 : 1;
+      if (sort.key === 'name') return factor * a.name.localeCompare(b.name, 'de');
+      return factor * ((a[sort.key] ?? 0) - (b[sort.key] ?? 0));
+    });
+    return rows;
+  }, [rangedDishes, sort]);
+
+  const toggleSort = (key: DishSortKey) =>
+    setSort(p => p.key === key ? { key, desc: !p.desc } : { key, desc: key !== 'name' });
+
+  // Wo die Matrix ihre Trennlinien zieht. Früher standen dort feste Werte
+  // (3,7 Sterne und 55 Rezensionen) — bei einem Lokal mit 40 Bewertungen lag
+  // damit ausnahmslos alles in der linken Hälfte, und die Einteilung sagte
+  // nichts mehr. Der Median teilt das Feld immer sinnvoll.
+  const matrixSplit = useMemo(() => {
+    if (rangedDishes.length === 0) return { avg: 3.5, count: 5 };
+    const middle = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+    return {
+      avg: middle(rangedDishes.map(d => d.avg)),
+      count: middle(rangedDishes.map(d => d.count)),
+    };
+  }, [rangedDishes]);
 
   const toggleMenu = (id: string) => setOpenMenus(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const hideWidget = (id: string) => {
@@ -1599,18 +1982,23 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   };
   const showAllWidgets = () => runAction(() => store.setHiddenWidgets([]));
 
-  const ratedDishes = store.dishes.filter(d => d.ratingsCount > 0);
-  const totalRatings = ratedDishes.reduce((a, d) => a + d.ratingsCount, 0);
-  const avgRating = totalRatings > 0 ? ratedDishes.reduce((a, d) => a + d.ratingsSum, 0) / totalRatings : 0;
-  const worstDish = ratedDishes.length > 0 ? [...ratedDishes].sort((a, b) => (dishAvg(a) ?? 0) - (dishAvg(b) ?? 0))[0] : null;
   const pointsRedeemed = store.vouchers.filter(v => store.guest.redeemed.includes(v.id)).reduce((a, v) => a + v.points, 0);
   const pointsIssued = store.guest.points + pointsRedeemed;
   const openOutstandingAlerts = store.alerts.filter(a => !a.resolved).length;
 
+  // Die ersten drei Kacheln beziehen sich auf den GEWÄHLTEN ZEITRAUM und
+  // kommen deshalb aus der Auswertung, nicht aus den Alltagsdaten. Alarme,
+  // Punkte und Gutscheine sind Momentaufnahmen und bleiben ungefiltert — ein
+  // offener Alarm ist offen, unabhängig davon, welche Wochen man betrachtet.
+  const rangeReviews = insights?.totals.reviews ?? 0;
+  const rangeRatings = insights?.totals.ratings ?? 0;
+  const rangeAvg = insights?.totals.avg ?? 0;
+  const rangeWorst = insights ? [...insights.dishes].filter(d => d.count >= 2).pop() ?? null : null;
+
   const kpis = [
-    { id: 'avg', label: 'Ø Bewertung', value: totalRatings > 0 ? avgRating.toFixed(1) : '—', sub: totalRatings > 0 ? undefined : 'Noch keine Bewertungen', Icon: Star },
-    { id: 'total', label: 'Bewertungen', value: String(totalRatings), Icon: BarChart3 },
-    { id: 'worst', label: 'Schlechtestes Gericht', value: worstDish?.name ?? '—', sub: worstDish ? `${(dishAvg(worstDish) ?? 0).toFixed(1)} ★` : undefined, Icon: AlertTriangle },
+    { id: 'avg', label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', sub: rangeRatings > 0 ? `aus ${rangeRatings} Gerichtsurteilen` : 'Noch keine Bewertungen', Icon: Star },
+    { id: 'total', label: 'Bewertungen', value: String(rangeReviews), sub: RANGES.find(r => r.key === range)?.label, Icon: BarChart3 },
+    { id: 'worst', label: 'Schlechtestes Gericht', value: rangeWorst?.name ?? '—', sub: rangeWorst ? `${rangeWorst.avg.toFixed(1)} ★ · ${rangeWorst.count} Bewertungen` : undefined, Icon: AlertTriangle },
     { id: 'alerts', label: 'Offene Alarme', value: String(openOutstandingAlerts), Icon: RefreshCw },
     { id: 'pts', label: 'Punkte ausgegeben', value: String(pointsIssued), sub: `${pointsRedeemed} eingelöst`, Icon: Zap },
     { id: 'vouchers', label: 'Eingelöste Gutscheine', value: String(store.guest.redeemed.length), Icon: CheckCircle2 },
@@ -1622,20 +2010,24 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   // Die Filialleitung bekommt das Menü, um Gerichte für ihre Filiale an- und
   // abzuschalten — die Stammkarte selbst (anlegen, umbenennen, löschen) bleibt
   // ihr auf der Seite verwehrt. Gutscheine sind reine Kettensache.
+  //
+  // Die Reihenfolge folgt dem, was jemand mit wenig Zeit zuerst braucht:
+  // Dashboard, Gutscheine, Menü, Benutzer, Einstellungen. Zwei Seiten sind
+  // bewusst NICHT mehr im Menü, weil sie Nachschlagewerke sind und keine
+  // täglichen Anlaufstellen: die einzelnen Bewertungen hängen als Knopf am
+  // Dashboard, die vergangenen Einlösungen als Knopf an der Gutscheinseite.
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-    { id: 'reviews', label: 'Bewertungen', Icon: MessageSquare },
+    ...(isChainAdmin
+      ? [{ id: 'vouchers' as const, label: 'Gutscheine', Icon: Ticket }]
+      // Die Filialleitung hat keine Gutscheinseite, an der die Einlösungen
+      // hängen könnten — für sie bleiben sie ein eigener Eintrag. Es sind die
+      // Einlösungen ihrer eigenen Filiale.
+      : [{ id: 'redemptions' as const, label: 'Einlösungen', Icon: CheckCircle2 }]),
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
-    // Einlösungen sieht auch die Filialleitung — es sind ihre eigenen.
-    { id: 'redemptions', label: 'Einlösungen', Icon: CheckCircle2 },
-    ...(isChainAdmin ? [
-      { id: 'vouchers' as const, label: 'Gutscheine', Icon: Ticket },
-      // Design-Studio vorerst ausgeblendet — die Seite selbst bleibt im Code.
-      // Zum Zurückholen die folgende Zeile wieder einkommentieren:
-      // { id: 'design' as const, label: 'Design', Icon: Palette },
-    ] : []),
     { id: 'users', label: 'Benutzer', Icon: Users },
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
+    ...(isChainAdmin ? [{ id: 'design' as const, label: 'Design', Icon: Palette }] : []),
   ];
 
   // Anlegen und Freischalten in einem Zug. Getrennt wäre es eine Sackgasse:
@@ -1677,8 +2069,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
   const handleSaveBrand = async () => {
     await store.updateBrand({
-      name: brandForm.name, accent: brandForm.accent,
-      logoImage: brandForm.logoImage, coverImage: brandForm.coverImage,
+      name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
       font: brandForm.font, cardStyle: brandForm.cardStyle,
     });
     setBrandSaved(true);
@@ -1688,11 +2079,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const handleLogoFile = async (file: File) => {
     const dataUri = await compressImageFile(file, 240, 0.85);
     setBrandForm(p => ({ ...p, logoImage: dataUri }));
-  };
-
-  const handleCoverFile = async (file: File) => {
-    const dataUri = await compressImageFile(file, 960, 0.8);
-    setBrandForm(p => ({ ...p, coverImage: dataUri }));
   };
 
   const previewDish = store.dishes[0];
@@ -1875,16 +2261,16 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
               {page === 'dashboard' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-start justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</p>
                       {/* Der Server hat die Zahlen bereits auf diese Reichweite
                           eingegrenzt — die Beschriftung sagt, welche es ist. */}
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        Alle bisherigen Bewertungen · {branch ? branch.name : 'alle Filialen'}
+                        {branch ? branch.name : 'Alle Filialen'} · {RANGES.find(r => r.key === range)?.label}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       {hidden.size > 0 && (
                         <button onClick={showAllWidgets}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
@@ -1898,6 +2284,60 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                       </button>
                     </div>
                   </div>
+
+                  {/* Zeitraum und der Weg zu den einzelnen Bewertungen. Beides
+                      steht oben, weil beides die ganze Seite betrifft. */}
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                      {RANGES.map(r => (
+                        <button key={r.key} onClick={() => setRange(r.key)}
+                          className={`px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${range === r.key ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setPage('reviews')}
+                      className="flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                      <MessageSquare size={13} strokeWidth={1.5} /> Detaillierte Bewertungen
+                    </button>
+                  </div>
+
+                  {insightsError && (
+                    <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
+                      <AlertOctagon size={15} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+                      <p className="flex-1 text-[13px] text-red-700 dark:text-red-300 leading-relaxed">{insightsError}</p>
+                    </div>
+                  )}
+
+                  {/* WOCHENRÜCKBLICK — was in den letzten sieben Tagen zählte,
+                      in zwei bis vier Sätzen. Bewusst unabhängig vom Zeitraum
+                      oben: „diese Woche" ist die Frage, die sich jeden Morgen
+                      neu stellt. */}
+                  {!hidden.has('highlight') && (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 relative">
+                      {editMode && (
+                        <button onClick={() => hideWidget('highlight')} className="absolute top-3 right-3 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group">
+                          <X size={12} className="text-gray-400 group-hover:text-red-500" />
+                        </button>
+                      )}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Diese Woche</p>
+                        {highlight && (
+                          <span className="text-[11px] text-gray-400">
+                            Stand {new Date(highlight.generatedAt).toLocaleDateString('de-AT')}
+                          </span>
+                        )}
+                      </div>
+                      {highlightLoading && !highlight ? (
+                        <div className="space-y-2"><Sk h={13} /><Sk h={13} w="85%" /></div>
+                      ) : highlight ? (
+                        <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed">{highlight.text}</p>
+                      ) : (
+                        <p className="text-[13px] text-gray-400">Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.</p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {kpis.filter(k => !hidden.has(k.id)).map(kpi => (
@@ -1922,7 +2362,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                         <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center mb-3">
                           <kpi.Icon size={15} strokeWidth={1.5} className="text-gray-500 dark:text-gray-400" />
                         </div>
-                        {loading ? (
+                        {insightsLoading ? (
                           <div className="space-y-2"><Sk h={12} w="55%" /><Sk h={26} w="65%" /><Sk h={11} w="40%" /></div>
                         ) : (
                           <>
@@ -1935,12 +2375,16 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     ))}
                   </div>
 
+                  {/* VERLAUF — Anzahl Bewertungen je Woche als Balken, der
+                      Schnitt als Linie darüber. Vorher standen hier feste
+                      Beispielwerte, die mit den echten Daten nichts zu tun
+                      hatten. */}
                   {!hidden.has('chart') && (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
                       <div className="flex items-center justify-between mb-5">
                         <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Bewertungsverlauf</p>
-                          <p className="text-[12px] text-gray-400">Ø Bewertung der letzten 7 Tage (Referenzwerte)</p>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Verlauf</p>
+                          <p className="text-[12px] text-gray-400">Bewertungen je Woche · Ø Bewertung als Linie</p>
                         </div>
                         <div onClick={e => e.stopPropagation()}>
                           <button onClick={() => toggleMenu('chart')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
@@ -1953,34 +2397,161 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                           )}
                         </div>
                       </div>
-                      {loading ? <Sk h={200} /> : (
-                        <div style={{ height: 200 }}>
+                      {insightsLoading ? <Sk h={220} /> : (insights?.weeks.length ?? 0) === 0 ? (
+                        <EmptyState icon={BarChart3} title="Noch kein Verlauf"
+                          desc="Sobald in diesem Zeitraum Bewertungen eingehen, entsteht hier die Kurve." />
+                      ) : (
+                        <div style={{ height: 220 }}>
                           <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={CHART_DATA} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
-                              <defs>
-                                <linearGradient id="admin-area-grad" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="var(--ba, #16A34A)" stopOpacity={0.18} />
-                                  <stop offset="95%" stopColor="var(--ba, #16A34A)" stopOpacity={0} />
-                                </linearGradient>
-                              </defs>
+                            <ComposedChart data={(insights?.weeks ?? []).map(w => ({
+                              label: new Date(w.weekStart).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }),
+                              reviews: w.reviews,
+                              avg: Number(w.avg.toFixed(2)),
+                            }))} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                               <CartesianGrid key="grid" strokeDasharray="3 0" stroke="#f1f5f9" vertical={false} />
-                              <XAxis key="x" dataKey="day" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                              <YAxis key="y" domain={[3.5, 5]} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} width={28} />
-                              <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }} formatter={(v: number) => [v.toFixed(1), 'Ø Bewertung']} />
-                              <Area key="area" type="monotone" dataKey="avg" stroke="var(--ba, #16A34A)" strokeWidth={2} fill="url(#admin-area-grad)" dot={false} />
-                            </AreaChart>
+                              <XAxis key="x" dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                              {/* Zwei Achsen: links die Anzahl, rechts die Note.
+                                  Die Note bekommt fest 0–5, sonst wirkt eine
+                                  Schwankung von 4,2 auf 4,4 wie ein Absturz. */}
+                              <YAxis key="yl" yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+                              <YAxis key="yr" yAxisId="right" orientation="right" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={24} />
+                              <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }}
+                                formatter={(v: number, name: string) => name === 'avg' ? [v.toFixed(1), 'Ø Bewertung'] : [v, 'Bewertungen']}
+                                labelFormatter={l => `Woche ab ${l}`} />
+                              <Bar key="bars" yAxisId="left" dataKey="reviews" fill="var(--ba, #16A34A)" fillOpacity={0.22} radius={[6, 6, 0, 0]} />
+                              <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke="var(--ba, #16A34A)" strokeWidth={2} dot={{ r: 3 }} />
+                            </ComposedChart>
                           </ResponsiveContainer>
                         </div>
                       )}
                     </div>
                   )}
 
+                  {/* TOP UND FLOP als reine Textliste — nach zwei Zahlen sucht
+                      niemand in einem Diagramm. Mindestens zwei Bewertungen,
+                      sonst steht ein einzelner Zufallsstern ganz oben. */}
+                  {(!hidden.has('best') || !hidden.has('worst')) && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {([
+                        { key: 'best', title: 'Beste Gerichte', rows: rangedDishes.filter(d => d.count >= 2).slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300' },
+                        { key: 'worst', title: 'Schwächste Gerichte', rows: [...rangedDishes].filter(d => d.count >= 2).reverse().slice(0, 5), tone: 'text-red-600 dark:text-red-400' },
+                      ] as const).filter(l => !hidden.has(l.key)).map(({ key, title, rows, tone }) => (
+                        <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 relative">
+                          {editMode && (
+                            <button onClick={() => hideWidget(key)} className="absolute top-3 right-3 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group">
+                              <X size={12} className="text-gray-400 group-hover:text-red-500" />
+                            </button>
+                          )}
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white mb-3">{title}</p>
+                          {insightsLoading ? (
+                            <div className="space-y-2.5">{[...Array(4)].map((_, i) => <Sk key={i} h={14} />)}</div>
+                          ) : rows.length === 0 ? (
+                            <p className="text-[13px] text-gray-400">Noch zu wenige Bewertungen in diesem Zeitraum.</p>
+                          ) : (
+                            <ol className="space-y-2.5">
+                              {rows.map((d, i) => (
+                                <li key={d.id} className="flex items-center gap-3 text-[14px]">
+                                  <span className="w-5 text-[12px] text-gray-300 dark:text-gray-600 flex-shrink-0">{i + 1}</span>
+                                  <span className="flex-1 text-gray-800 dark:text-gray-200 truncate">{d.name}</span>
+                                  <span className="text-[12px] text-gray-400 flex-shrink-0">{d.count}×</span>
+                                  <span className={`font-semibold w-8 text-right flex-shrink-0 ${tone}`}>{d.avg.toFixed(1)}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* GERICHTS-MATRIX — vom Menü hierher gezogen: sie ist eine
+                      Auswertung, keine Verwaltung. Die Legende oben ist weg,
+                      die vier Felder darunter erklären dasselbe ausführlicher. */}
+                  {!hidden.has('matrix') && (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichts-Matrix</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">Bewertung gegen Anzahl der Rezensionen</p>
+                        </div>
+                        {editMode && (
+                          <button onClick={() => hideWidget('matrix')} className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group flex-shrink-0">
+                            <X size={12} className="text-gray-400 group-hover:text-red-500" />
+                          </button>
+                        )}
+                      </div>
+                      {insightsLoading ? <Sk h={320} /> : rangedDishes.length === 0 ? (
+                        <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich" desc="Sobald in diesem Zeitraum Bewertungen eingehen, erscheint hier die Gerichts-Matrix." />
+                      ) : (
+                        <>
+                          <div style={{ height: 320 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                                <CartesianGrid key="grid" strokeDasharray="3 3" stroke="#f1f5f9" />
+                                {/* Feste Skala 0 bis 5: eine mitwandernde Achse
+                                    lässt jede Karte gleich gut aussehen. */}
+                                <XAxis key="x" type="number" dataKey="avg" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} name="Bewertung"
+                                  tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                                  label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
+                                <YAxis key="y" type="number" dataKey="count" name="Bewertungen"
+                                  tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}
+                                  label={{ value: 'Anzahl', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
+                                <ZAxis key="z" range={[60, 60]} />
+                                <Tooltip key="tip" cursor={{ strokeDasharray: '3 3' }}
+                                  content={({ payload }) => {
+                                    if (!payload?.length) return null;
+                                    const d = payload[0].payload as { name: string; avg: number; count: number };
+                                    return (
+                                      <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-[12px]">
+                                        <p className="font-semibold text-gray-900">{d.name}</p>
+                                        <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {d.count} Bewertungen</p>
+                                      </div>
+                                    );
+                                  }} />
+                                <ReferenceLine key="refx" x={matrixSplit.avg} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
+                                <ReferenceLine key="refy" y={matrixSplit.count} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
+                                <Scatter key="scatter" data={rangedDishes} shape={(props: any) => {
+                                  const { cx, cy, payload } = props;
+                                  const avg = payload.avg ?? 0;
+                                  const count = payload.count ?? 0;
+                                  const color = avg >= matrixSplit.avg && count >= matrixSplit.count ? '#059669'
+                                    : avg >= matrixSplit.avg ? '#9ca3af'
+                                    : count >= matrixSplit.count ? '#d97706'
+                                    : '#dc2626';
+                                  return <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={2} />;
+                                }}>
+                                  {rangedDishes.map(d => <Cell key={d.id} />)}
+                                </Scatter>
+                              </ScatterChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+                            {[
+                              { q: 'Stars', desc: 'Hohe Bewertung, viele Rezensionen', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' },
+                              { q: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', color: 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800' },
+                              { q: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950' },
+                              { q: 'Problemfälle', desc: 'Niedrige Bewertung, wenige Rezensionen', color: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950' },
+                            ].map(q => (
+                              <div key={q.q} className={`rounded-xl px-3 py-2 ${q.color}`}>
+                                <p className="font-semibold">{q.q}</p>
+                                <p className="opacity-70 mt-0.5">{q.desc}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ALLE GERICHTE, nach jeder Spalte sortierbar. */}
                   {!hidden.has('dishes') && (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichte im Überblick</p>
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Alle Gerichte</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">Spaltenkopf antippen zum Sortieren</p>
+                        </div>
                         <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                          <button className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"><Filter size={11} strokeWidth={1.5} /> Filter</button>
                           <button onClick={() => toggleMenu('dishes')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
                             <MoreHorizontal size={16} strokeWidth={1.5} />
                           </button>
@@ -1992,53 +2563,67 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                           )}
                         </div>
                       </div>
-                      {loading ? (
+                      {insightsLoading ? (
                         <div className="p-6 space-y-4">
                           {[...Array(4)].map((_, i) => <div key={i} className="flex items-center gap-4"><Sk h={36} w={36} r={8} /><div className="flex-1 space-y-2"><Sk h={13} w="40%" /><Sk h={11} w="25%" /></div><Sk h={20} w={80} r={999} /></div>)}
                         </div>
-                      ) : ratedDishes.length === 0 ? (
-                        <div className="p-6"><EmptyState icon={Star} title="Noch keine Bewertungen" desc="Sobald Gäste Gerichte bewerten, erscheinen sie hier." /></div>
+                      ) : sortedDishes.length === 0 ? (
+                        <div className="p-6"><EmptyState icon={Star} title="Noch keine Bewertungen" desc="Sobald Gäste in diesem Zeitraum Gerichte bewerten, erscheinen sie hier." /></div>
                       ) : (
                         <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                              {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Bewertungen', 'Preis'].map(h => (
-                                <th key={h} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{h}</th>
+                              <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">#</th>
+                              {([
+                                ['name', 'Gericht'], ['avg', 'Ø Bewertung'], ['count', 'Bewertungen'], ['price', 'Preis'],
+                              ] as [DishSortKey, string][]).map(([key, label]) => (
+                                <th key={key} className="text-left px-5 py-3">
+                                  <button onClick={() => toggleSort(key)}
+                                    className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${sort.key === key ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'}`}>
+                                    {label}
+                                    {sort.key === key && (sort.desc
+                                      ? <TrendingDown size={11} strokeWidth={2} />
+                                      : <TrendingUp size={11} strokeWidth={2} />)}
+                                  </button>
+                                </th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {ratedDishes.sort((a, b) => (dishAvg(a) ?? 0) - (dishAvg(b) ?? 0)).map((dish, i) => {
-                              const avg = dishAvg(dish) ?? 0;
-                              return (
-                                <tr key={dish.id} className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
-                                  <td className="px-5 py-3 text-[13px] text-gray-400 dark:text-gray-600">{i + 1}</td>
-                                  <td className="px-5 py-3">
-                                    <div className="flex items-center gap-3">
-                                      <DishImageUpload dish={dish} size={32} />
-                                      <p className="text-[14px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
+                            {sortedDishes.map((d, i) => (
+                              <tr key={d.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
+                                <td className="px-5 py-3 text-[13px] text-gray-400 dark:text-gray-600">{i + 1}</td>
+                                <td className="px-5 py-3">
+                                  <div className="flex items-center gap-3">
+                                    {d.img && <img src={d.img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
+                                    <div className="min-w-0">
+                                      <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
+                                      <p className="text-[11px] text-gray-400">{d.cat}</p>
                                     </div>
-                                  </td>
-                                  <td className="px-5 py-3">
-                                    <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">{dish.cat}</span>
-                                  </td>
-                                  <td className="px-5 py-3">
-                                    <div className="flex items-center gap-2">
-                                      <StarRating value={Math.round(avg)} size={12} />
-                                      <span className={`text-[14px] font-semibold ${avg < 3 ? 'text-red-600' : avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>{avg.toFixed(1)}</span>
-                                    </div>
-                                  </td>
-                                  <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{dish.ratingsCount}</td>
-                                  <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{dish.price.toFixed(2)} €</td>
-                                </tr>
-                              );
-                            })}
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <StarRating value={Math.round(d.avg)} size={12} />
+                                    <span className={`text-[14px] font-semibold ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>{d.avg.toFixed(1)}</span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.count}</td>
+                                <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.price.toFixed(2)} €</td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {insights?.totals.capped && (
+                    <p className="text-[12px] text-gray-400">
+                      Hinweis: Die Auswertung berücksichtigt die neuesten 5000 Bewertungen dieses Zeitraums. Grenze den Zeitraum ein, um alles zu erfassen.
+                    </p>
                   )}
                 </div>
               )}
@@ -2095,32 +2680,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                       </div>
 
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><ImagePlus size={15} strokeWidth={1.5} className="text-gray-400" /> Titelbild</p>
-                          <p className="text-[12px] text-gray-400 mt-0.5">Erscheint oben auf dem Willkommensbildschirm deiner Gäste — macht aus der Logo-Box eine echte Restaurant-Ansicht.</p>
-                        </div>
-                        <button type="button" onClick={() => coverInputRef.current?.click()}
-                          className="relative w-full h-32 rounded-xl overflow-hidden border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-                          {brandForm.coverImage ? (
-                            <img src={brandForm.coverImage} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="flex flex-col items-center gap-1.5 text-gray-400">
-                              <ImagePlus size={22} strokeWidth={1.5} />
-                              <span className="text-[12px]">Titelbild hochladen</span>
-                            </span>
-                          )}
-                        </button>
-                        <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
-                          onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
-                        {brandForm.coverImage && (
-                          <div className="flex items-center gap-3">
-                            <button onClick={() => coverInputRef.current?.click()} className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> Ersetzen</button>
-                            <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))} className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                         <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Schriftart</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                           {BRAND_FONTS.map(f => (
@@ -2156,31 +2715,26 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
                     <div className="xl:sticky xl:top-24">
                       <p className="text-[12px] text-gray-400 mb-2 uppercase tracking-wide">Live-Vorschau</p>
+                      {/* Zeigt denselben Aufbau wie der Willkommensbildschirm der
+                          Gäste — weißer Grund, Emoji-Logo, Name, Filiale —, damit
+                          die Vorschau nicht etwas verspricht, was am Tisch anders
+                          aussieht. Darunter die Gerichtskarte für das Kartenlayout. */}
                       <div className="bg-gray-200 dark:bg-gray-950 rounded-[32px] p-3 shadow-inner">
-                        <div className="relative rounded-[24px] overflow-hidden bg-[#F7F8FA] dark:bg-[#0D1117]"
+                        <div className="relative rounded-[24px] overflow-hidden bg-white dark:bg-gray-900"
                           style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': brandForm.accent } as React.CSSProperties}>
-                          {brandForm.coverImage ? (
-                            <>
-                              <img src={brandForm.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/60" />
-                            </>
-                          ) : (
-                            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ba, #16A34A) 16%, transparent), transparent 55%)' }} />
-                          )}
-                          <div className="relative flex flex-col items-center px-5 pt-24 pb-5">
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden mb-2.5 ${brandForm.coverImage ? 'bg-white/95 shadow-lg' : 'bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700'}`}>
-                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={48} textSize={22} rounded="rounded-none" />
+                          <div className="relative flex flex-col items-center px-5 pt-10 pb-5">
+                            <div className="mb-3">
+                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={44} textSize={40} rounded="rounded-xl" />
                             </div>
-                            <p className={`text-[15px] font-semibold text-center ${brandForm.coverImage ? 'text-white' : 'text-gray-900 dark:text-white'}`}
-                              style={brandForm.coverImage ? { textShadow: '0 1px 4px rgba(0,0,0,0.4)' } : undefined}>{brandForm.name || 'Dein Restaurant'}</p>
-                            <p className={`text-[11px] mb-4 ${brandForm.coverImage ? 'text-white/85' : 'text-gray-400'}`}>{branch?.name ?? store.branches[0]?.name}</p>
+                            <p className="text-[17px] font-bold text-center text-gray-900 dark:text-white leading-tight">{brandForm.name || 'Dein Restaurant'}</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-4">{branch?.name ?? store.branches[0]?.name} · Tisch 1</p>
                             {previewDish ? (
                               <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
                                 onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
                             ) : (
                               <div className="w-full h-24 rounded-xl bg-white/50 dark:bg-gray-800/50" />
                             )}
-                            <button className="w-full mt-4 py-3 rounded-xl font-medium text-white text-[14px]" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Weiter →</button>
+                            <button className="w-full mt-4 py-3 rounded-xl font-medium text-white text-[14px]" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Feedback geben</button>
                           </div>
                         </div>
                       </div>
@@ -2383,6 +2937,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
               {page === 'reviews' && (
                 <div className="space-y-5 max-w-3xl">
+                  {/* Diese Seite steht nicht mehr im Menü — sie wird vom
+                      Dashboard aus geöffnet. Ohne Rückweg wäre sie eine
+                      Sackgasse. */}
+                  <button onClick={() => setPage('dashboard')}
+                    className="flex items-center gap-1.5 text-[13px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                    <ChevronLeft size={15} strokeWidth={1.5} /> Zurück zum Dashboard
+                  </button>
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
@@ -2498,83 +3059,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6">
-                    <div className="mb-4">
-                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichts-Matrix</p>
-                      <p className="text-[12px] text-gray-400 mt-0.5">Bewertung vs. Anzahl Rezensionen</p>
-                    </div>
-                    {ratedDishes.length === 0 ? (
-                      <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich" desc="Sobald genug Bewertungen eingehen, erscheint hier die Gerichts-Matrix." />
-                    ) : (
-                      <>
-                        <div className="flex gap-4 text-[11px] text-gray-400 mb-4 flex-wrap">
-                          {[
-                            { label: 'Stars', color: 'bg-emerald-500' },
-                            { label: 'Geheimtipps', color: 'bg-gray-400' },
-                            { label: 'Verbesserungsbedarf', color: 'bg-amber-400' },
-                            { label: 'Problemfälle', color: 'bg-red-400' },
-                          ].map(q => (
-                            <span key={q.label} className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${q.color}`} />{q.label}
-                            </span>
-                          ))}
-                        </div>
-                        <div style={{ height: 320 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
-                              <CartesianGrid key="grid" strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis key="x" type="number" dataKey="avg" domain={[1, 5.2]} name="Bewertung"
-                                tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                                label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
-                              <YAxis key="y" type="number" dataKey="ratings" name="Bewertungen"
-                                tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                                label={{ value: 'Anzahl', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
-                              <ZAxis key="z" range={[60, 60]} />
-                              <Tooltip key="tip" cursor={{ strokeDasharray: '3 3' }}
-                                content={({ payload }) => {
-                                  if (!payload?.length) return null;
-                                  const d = payload[0].payload as { name: string; avg: number; ratings: number };
-                                  return (
-                                    <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-[12px]">
-                                      <p className="font-semibold text-gray-900">{d.name}</p>
-                                      <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {d.ratings} Bewertungen</p>
-                                    </div>
-                                  );
-                                }} />
-                              <ReferenceLine key="refx" x={3.7} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
-                              <ReferenceLine key="refy" y={55} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
-                              <Scatter key="scatter" data={ratedDishes.map(d => ({ name: d.name, avg: dishAvg(d) ?? 0, ratings: d.ratingsCount }))} shape={(props: any) => {
-                                const { cx, cy, payload } = props;
-                                const avg = payload.avg ?? 0;
-                                const ratings = payload.ratings ?? 0;
-                                const color = avg >= 3.7 && ratings >= 55 ? '#059669'
-                                  : avg >= 3.7 ? '#9ca3af'
-                                  : ratings >= 55 ? '#d97706'
-                                  : '#dc2626';
-                                return <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={2} />;
-                              }}>
-                                {ratedDishes.map(d => <Cell key={d.id} />)}
-                              </Scatter>
-                            </ScatterChart>
-                          </ResponsiveContainer>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
-                          {[
-                            { q: 'Stars', desc: 'Hohe Bewertung, viele Rezensionen', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' },
-                            { q: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', color: 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800' },
-                            { q: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950' },
-                            { q: 'Problemfälle', desc: 'Niedrige Bewertung, wenige Rezensionen', color: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950' },
-                          ].map(q => (
-                            <div key={q.q} className={`rounded-xl px-3 py-2 ${q.color}`}>
-                              <p className="font-semibold">{q.q}</p>
-                              <p className="opacity-70 mt-0.5">{q.desc}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
+                  {/* Die Gerichts-Matrix stand hier und liegt jetzt im
+                      Dashboard: sie ist eine Auswertung, keine Verwaltung.
+                      Das Menü ist die Karte — anlegen, ändern, ein- und
+                      ausschalten. */}
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.dishes.length === 0 ? (
                       <EmptyState icon={UtensilsCrossed} title="Noch keine Gerichte"
@@ -2661,6 +3149,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
               {page === 'redemptions' && (
                 <div className="space-y-5 max-w-4xl">
+                  {isChainAdmin && (
+                    <button onClick={() => setPage('vouchers')}
+                      className="flex items-center gap-1.5 text-[13px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                      <ChevronLeft size={15} strokeWidth={1.5} /> Zurück zu den Gutscheinen
+                    </button>
+                  )}
                   <div>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">Einlösungen</p>
                     <p className="text-[13px] text-gray-400 mt-0.5">
@@ -2739,10 +3233,19 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                         Was Gäste für ihre gesammelten Punkte einlösen können
                       </p>
                     </div>
-                    <button onClick={() => setVoucherDialog({ voucher: null })}
-                      className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
-                      <Plus size={13} strokeWidth={2} /> Gutschein
-                    </button>
+                    <div className="flex gap-2 flex-wrap">
+                      {/* Die vergangenen Einlösungen hängen hier statt im Menü:
+                          sie sind ein Nachschlagewerk zu den Gutscheinen, keine
+                          eigene tägliche Anlaufstelle. */}
+                      <button onClick={() => setPage('redemptions')}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                        <CheckCircle2 size={13} strokeWidth={1.5} /> Eingelöste ansehen
+                      </button>
+                      <button onClick={() => setVoucherDialog({ voucher: null })}
+                        className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
+                        <Plus size={13} strokeWidth={2} /> Gutschein
+                      </button>
+                    </div>
                   </div>
 
                   {store.vouchers.length === 0 ? (
@@ -3072,21 +3575,27 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     );
   }
 
+  // Die schwarze Leiste gehört zum Personalbereich: sie trägt die Kennung des
+  // angemeldeten Kontos und den Abmelden-Knopf. In der Gastansicht hat sie
+  // nichts zu suchen — dort soll das Restaurant den Bildschirm besitzen, nicht
+  // die Software, und der Gast hat weder Konto noch Abmelden.
+  const showTopBar = view !== 'guest';
+
   return (
     <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
-      <TopBar dark={dark} setDark={setDark} />
+      {showTopBar && <TopBar dark={dark} setDark={setDark} />}
 
       {view === 'guest' && branch && (
         // Mobil (der eigentliche Anwendungsfall über QR-Code): randlos, bildschirmfüllend,
         // kein Geräte-Mockup. Ab sm-Breakpoint (Desktop-Vorschau): zentrierte Karte.
-        <div className="h-[calc(100dvh-40px)] overflow-hidden sm:h-auto sm:min-h-[calc(100dvh-40px)] sm:overflow-visible bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
+        <div className="h-[100dvh] overflow-hidden sm:h-auto sm:min-h-[100dvh] sm:overflow-visible bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
           <div className="w-full h-full flex flex-col overflow-hidden sm:w-full sm:max-w-[420px] sm:h-[calc(100dvh-64px)] sm:rounded-[28px] sm:shadow-xl sm:border sm:border-gray-200 dark:sm:border-gray-800 bg-[#F7F8FA] dark:bg-[#0D1117]">
             <GuestApp branch={branch} tableNumber={tableNumber ?? 1} />
           </div>
         </div>
       )}
 
-      {view === 'waiter' && branch && <WaiterApp branch={branch} />}
+      {view === 'waiter' && branch && <WaiterApp orgSlug={orgSlug} branch={branch} />}
       {view === 'admin' && (
         <AdminApp orgSlug={orgSlug} branch={branch} canSwitchBranch={canSwitchBranch}
           onPick={onPick} />
@@ -3521,23 +4030,115 @@ function BranchPicker({ branches, onPick }: { branches: Branch[]; onPick: (slug:
   );
 }
 
+/**
+ * Wegweiser für eine Adresse ohne Tisch — /<org> oder /<org>/<filiale>.
+ *
+ * Solche Adressen entstehen, wenn jemand den QR-Link von Hand kürzt oder eine
+ * Adresse aus dem Verlauf aufruft. Vorher endete das im nackten „Seite nicht
+ * gefunden". Ein stiller Redirect auf einen Tisch wäre falsch — welcher Tisch
+ * wäre gemeint? Also eine Seite, die sagt, wo man ist, und in jede der drei
+ * Ansichten führt.
+ */
+function OrgLanding({ notFound = false }: { notFound?: boolean }) {
+  const { orgSlug, branchSlug } = useParams<{ orgSlug: string; branchSlug?: string }>();
+  if (!orgSlug) return <Navigate to="/" replace />;
+  return (
+    <StoreProvider orgSlug={orgSlug} scope={branchSlug ?? 'self'} audience="guest">
+      <LandingChrome orgSlug={orgSlug} branchSlug={branchSlug ?? null} notFound={notFound} />
+    </StoreProvider>
+  );
+}
+
+function LandingChrome({ orgSlug, branchSlug, notFound }: {
+  orgSlug: string; branchSlug: string | null; notFound: boolean;
+}) {
+  const store = useStore();
+  useGoogleFont(store.brand?.font);
+  const branch = branchSlug ? store.branches.find(b => b.slug === branchSlug) ?? null : null;
+
+  if (store.loading) return <FullScreenMessage>Lädt…</FullScreenMessage>;
+
+  const links: { to: string; label: string; desc: string; Icon: React.ElementType }[] = [
+    ...(branch ? [{
+      to: `/${orgSlug}/${branch.slug}/table/1`,
+      label: 'Feedback geben',
+      desc: `Als Gast an einem Tisch in ${branch.name}. Am Tisch führt der QR-Code direkt zur richtigen Nummer.`,
+      Icon: Star,
+    }] : []),
+    { to: `/${orgSlug}/staff`, label: 'Servicekraft', desc: 'Bestellungen buchen, Tische schließen, Gutscheine quittieren.', Icon: UtensilsCrossed },
+    { to: `/${orgSlug}/admin`, label: 'Verwaltung', desc: 'Dashboard, Menü, Gutscheine, Benutzer, Einstellungen.', Icon: LayoutDashboard },
+  ];
+
+  return (
+    <div className="min-h-[100dvh] bg-[#F7F8FA] dark:bg-[#0D1117] flex items-center justify-center p-6"
+      style={{ fontFamily: `'${store.brand?.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand?.accent } as React.CSSProperties}>
+      <div className="w-full max-w-md">
+        <div className="text-center mb-7">
+          {store.brand && (
+            <div className="flex justify-center mb-4">
+              <BrandLogo brand={store.brand} size={56} textSize={52} rounded="rounded-2xl" />
+            </div>
+          )}
+          <p className="text-[22px] font-bold text-gray-900 dark:text-white">{store.brand?.name ?? orgSlug}</p>
+          <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-1">
+            {notFound
+              ? 'Diese Seite gibt es nicht. Hier geht es weiter:'
+              : branch ? `${branch.name} · Wohin möchtest du?` : 'Wohin möchtest du?'}
+          </p>
+        </div>
+        <div className="space-y-2.5">
+          {links.map(({ to, label, desc, Icon }) => (
+            <Link key={to} to={to}
+              className="flex items-start gap-3.5 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
+              <span className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+                <Icon size={16} strokeWidth={1.5} className="text-gray-500 dark:text-gray-400" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[15px] font-semibold text-gray-900 dark:text-white">{label}</span>
+                <span className="block text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">{desc}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/sakura-sushi/herrengasse/table/4" replace />} />
+        <Route path="/" element={<Navigate to="/sakura-sushi/herrengasse" replace />} />
         <Route path="/:orgSlug/:branchSlug/table/:tableNumber" element={<OrgShell view="guest" />} />
         <Route path="/:orgSlug/staff" element={<OrgShell view="waiter" />} />
         <Route path="/:orgSlug/admin" element={<OrgShell view="admin" />} />
-        {/* Die alte, filiallose QR-Route. Kein Redirect: ohne Filiale ist nicht
-            entscheidbar, welcher Tisch 5 gemeint ist. Eine eigene Meldung, damit
-            ein alter Ausdruck nicht wie ein kaputter Server aussieht. */}
+        {/* Die alte, filiallose QR-Route. Kein Redirect auf einen Tisch: ohne
+            Filiale ist nicht entscheidbar, welcher Tisch 5 gemeint ist. Eine
+            eigene Meldung, damit ein alter Ausdruck nicht wie ein kaputter
+            Server aussieht — mit Weg zurück statt Sackgasse. */}
         <Route path="/:orgSlug/table/:tableNumber" element={
-          <FullScreenMessage error>
+          <FullScreenMessage error action={
+            <Link to="/" className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+              Zur Startseite
+            </Link>
+          }>
             Dieser QR-Code ist veraltet — er nennt keine Filiale. Bitte verwende den neuen Code am Tisch.
           </FullScreenMessage>
         } />
-        <Route path="*" element={<FullScreenMessage error>Seite nicht gefunden.</FullScreenMessage>} />
+        {/* Adressen ohne Tisch landen auf dem Wegweiser statt im Nichts. */}
+        <Route path="/:orgSlug" element={<OrgLanding />} />
+        <Route path="/:orgSlug/:branchSlug" element={<OrgLanding />} />
+        <Route path="/:orgSlug/:branchSlug/*" element={<OrgLanding notFound />} />
+        <Route path="*" element={
+          <FullScreenMessage error action={
+            <Link to="/" className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+              Zur Startseite
+            </Link>
+          }>
+            Seite nicht gefunden.
+          </FullScreenMessage>
+        } />
       </Routes>
     </BrowserRouter>
   );

@@ -55,7 +55,12 @@ export function compressImageFile(file: File, maxDim = 480, quality = 0.78): Pro
     reader.readAsDataURL(file);
   });
 }
-export interface Branch { id: string; slug: string; name: string; address: string; }
+export interface Branch {
+  id: string; slug: string; name: string; address: string;
+  // Der Google-Maps-Eintrag dieser Filiale. Ohne Wert baut der Server einen
+  // Suchlink aus Name und Adresse — siehe mapsUrlFor in index.ts.
+  googleMapsUrl?: string | null;
+}
 
 export interface Dish {
   id: string; name: string; img: string; price: number; cat: 'Speisen' | 'Getränke';
@@ -108,7 +113,7 @@ export interface DishRatingInput { dishId: string; stars: number; note?: string;
 // ausschließlich der Server pflegt (id, ratingsSum, ratingsCount).
 export type DishInput = Pick<Dish, 'name' | 'price' | 'cat'> & { img?: string; branchIds?: string[] | null };
 export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?: string; branchIds?: string[] | null };
-export type BranchInput = Pick<Branch, 'name' | 'address'>;
+export type BranchInput = Pick<Branch, 'name' | 'address'> & { googleMapsUrl?: string | null };
 
 export interface Alert {
   id: string; branchId: string; tableId: string; tableNumber: number; dishName: string;
@@ -165,6 +170,38 @@ export interface GuestAccount {
 /** Welche Anmeldewege der Server anbietet. Google hängt an einer Client-ID. */
 export interface GuestAuthOptions {
   password: boolean; google: boolean; googleClientId: string | null;
+}
+
+/** Der fertig formulierte Rezensionstext samt Weg zum Google-Eintrag. */
+export interface ReviewTextResult {
+  text: string;
+  mapsUrl: string;
+}
+
+/** Der KI-Wochenrückblick des Dashboards. */
+export interface Highlight {
+  text: string;
+  generatedAt: number;
+  source: 'llm' | 'fallback';
+  reviewCount: number;
+  /** Älter als ein Tag — dann lohnt ein neuer. */
+  stale: boolean;
+}
+
+/**
+ * Die Dashboard-Auswertung über einen Zeitraum. Kommt aus einer eigenen Route,
+ * nicht aus dem Gesamtzustand: der trägt nur die letzten 100 Bewertungen, für
+ * einen Wochenverlauf reicht das nicht.
+ */
+export interface Insights {
+  range: { from: number | null; to: number | null };
+  totals: { reviews: number; ratings: number; avg: number; capped: boolean };
+  overall: { service: number; ambience: number; speed: number; count: number } | null;
+  weeks: { weekStart: number; reviews: number; avg: number }[];
+  dishes: { id: string; name: string; avg: number; count: number }[];
+  highlight: Highlight | null;
+  /** Ob auf dem Server ein Modell-Schlüssel hinterlegt ist. */
+  aiAvailable: boolean;
 }
 
 interface OrgState {
@@ -306,7 +343,11 @@ interface StoreApi extends OrgState {
   // Liefert, was gutgeschrieben wurde UND was möglich gewesen wäre: ohne
   // Gastkonto gibt es keine Punkte, und der Gast soll erfahren, was er
   // liegenlässt.
-  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<{ earned: number; possible: number; ticket: string | null }>;
+  submitReview: (branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }) => Promise<{ earned: number; possible: number; ticket: string | null; reviewTicket: string | null }>;
+  // Holt den KI-Rezensionstext zu einer gerade abgegebenen Bewertung. Getrennt
+  // vom Absenden, weil das Formulieren Sekunden dauert — der Gast soll nicht
+  // vor einem hängenden „Wird gesendet…" warten.
+  fetchReviewText: (ticket: string) => Promise<ReviewTextResult>;
   // Löst den Punkte-Gutschein einer Bewertung ein, die vor der Anmeldung
   // abgegeben wurde. Gibt zurück, wie viele Punkte tatsächlich ankamen.
   claimPoints: (ticket: string) => Promise<number>;
@@ -336,6 +377,13 @@ interface StoreApi extends OrgState {
   addBranch: (b: BranchInput) => Promise<void>;
   updateBranch: (id: string, b: Partial<BranchInput>) => Promise<void>;
   removeBranch: (id: string) => Promise<void>;
+  // Dashboard-Auswertung über einen Zeitraum (ISO-Datum, beide optional).
+  fetchInsights: (from: string | null, to: string | null) => Promise<Insights>;
+  // Den Wochenrückblick schreiben lassen. Ist der gespeicherte keinen Tag alt,
+  // kommt er unverändert zurück statt eines zweiten Modellaufrufs.
+  refreshHighlight: () => Promise<Highlight>;
+  // Gerichte auf dem Foto eines Bons erkennen — Vorschlag, kein Buchen.
+  scanReceipt: (branchSlug: string, image: string) => Promise<{ dishId: string; qty: number }[]>;
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -530,13 +578,21 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const submitReview = useCallback(async (
     branchSlug: string, tableNumber: number, dishRatings: DishRatingInput[], overall: { service: number; ambience: number; speed: number }
   ) => {
-    const data = await call<OrgState & { pointsEarned: number; pointsPossible: number; pointsTicket: string | null }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
+    const data = await call<OrgState & {
+      pointsEarned: number; pointsPossible: number;
+      pointsTicket: string | null; reviewTicket: string | null;
+    }>(`/branches/${branchSlug}/tables/${tableNumber}/review`, {
       method: 'POST', body: JSON.stringify({ dishRatings, overall }),
     });
-    const { pointsEarned, pointsPossible, pointsTicket, ...rest } = data;
+    const { pointsEarned, pointsPossible, pointsTicket, reviewTicket, ...rest } = data;
     setState(rest);
-    return { earned: pointsEarned, possible: pointsPossible, ticket: pointsTicket };
+    return { earned: pointsEarned, possible: pointsPossible, ticket: pointsTicket, reviewTicket };
   }, [call]);
+
+  const fetchReviewText = useCallback((ticket: string) =>
+    api<ReviewTextResult>(orgSlug, '/guest/review-text', {
+      method: 'POST', body: JSON.stringify({ ticket }),
+    }, 'guest'), [orgSlug]);
 
   const startRedemption = useCallback(async (branchSlug: string, voucherId: string, tableNumber?: number) => {
     try {
@@ -636,20 +692,44 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const updateBranch = useCallback((id: string, b: Partial<BranchInput>) => write(`/branches/${id}`, 'PATCH', b), [write]);
   const removeBranch = useCallback((id: string) => write(`/branches/${id}`, 'DELETE'), [write]);
 
+  // Auswertung und Rückblick ersetzen den Zustand NICHT — sie sind eine Sicht
+  // auf dieselben Daten, kein neuer Stand. Deshalb kein setState hier.
+  const fetchInsights = useCallback((from: string | null, to: string | null) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const query = params.toString();
+    return call<Insights>(`/insights${query ? `?${query}` : ''}`);
+  }, [call]);
+
+  const refreshHighlight = useCallback(async () => {
+    const { highlight } = await call<{ highlight: Highlight }>('/insights/highlight', { method: 'POST' });
+    return highlight;
+  }, [call]);
+
+  const scanReceipt = useCallback(async (branchSlug: string, image: string) => {
+    const { items } = await call<{ items: { dishId: string; qty: number }[] }>(
+      `/branches/${branchSlug}/scan-receipt`, { method: 'POST', body: JSON.stringify({ image }) }
+    );
+    return items;
+  }, [call]);
+
   const value = useMemo<StoreApi>(() => ({
     ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
     guestUser, guestAuthOptions: authOptions, guestRegister, guestLogin, guestGoogleLogin,
     guestLogout, deleteGuestAccount, claimPoints,
-    refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
+    refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
     startRedemption, confirmRedemption, cancelRedemption,
     setDishAvailability,
     resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
+    fetchInsights, refreshHighlight, scanReceipt,
   }), [state, orgSlug, loading, error, authUser, authLoading, login, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
-    refresh, saveTableOrder, closeTable, addItemToTable, submitReview,
-    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch]);
+    refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
+    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
+    fetchInsights, refreshHighlight, scanReceipt]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

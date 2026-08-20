@@ -54,8 +54,9 @@ In der Reihenfolge, in der sie zuletzt besprochen wurden:
    beim Wischen verschwinden? Ohne Quittung genügt ein Screenshot des
    Bestätigungsbildschirms, um denselben Gutschein mehrfach vorzuzeigen — genau
    deshalb wurde die Quittung eingeführt.
-2. **Bewertung: Service mit der Gesamtbewertung zusammenlegen** — zurückgestellt,
-   die Zielvorstellung war noch unklar.
+2. ~~**Bewertung: Service mit der Gesamtbewertung zusammenlegen**~~ — erledigt:
+   Service, Ambiente und Tempo stehen unter den Gerichten auf demselben
+   Bildschirm, der zweite Schritt ist entfallen.
 3. **Neue Restaurants anlegen** — heute nur über das Seed-Skript. Empfohlener
    erster Schritt: ein Skript `new-org` (Registry-Eintrag, Datenbank mit Indizes,
    erste Filiale, erster Kettenadmin mit Passwort). Self-Service und Bezahlung

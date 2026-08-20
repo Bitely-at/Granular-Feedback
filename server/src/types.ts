@@ -15,6 +15,13 @@ export interface Branch {
   slug: string;
   name: string;
   address: string;
+  /**
+   * Der Google-Maps-Eintrag DIESER Filiale — der Dank-Bildschirm verlinkt ihn,
+   * damit der Gast seine fertig formulierte Rezension gleich dort hinterlassen
+   * kann. Pro Filiale, weil jede ihren eigenen Eintrag hat; ohne Wert baut der
+   * Server einen Suchlink aus Name und Adresse.
+   */
+  googleMapsUrl?: string | null;
 }
 
 export interface TableItem {
@@ -85,6 +92,13 @@ export interface ReviewDoc {
   dishRatings: DishRatingInput[];
   overall: { service: number; ambience: number; speed: number };
   createdAt: number;
+  /**
+   * Der fertig formulierte Rezensionstext zu dieser Bewertung, sobald er einmal
+   * erzeugt wurde. Zwischengespeichert, weil jede Erzeugung einen Modellaufruf
+   * kostet — lädt der Gast den Dank-Bildschirm neu, bekommt er denselben Text
+   * statt eines zweiten, leicht anderen.
+   */
+  reviewText?: string | null;
 }
 
 export interface AlertDoc {
@@ -143,6 +157,26 @@ export interface BrandDoc {
 export interface DashboardDoc {
   _id?: string; // konstant 'dashboard'
   hiddenWidgets: string[];
+}
+
+/**
+ * Der KI-Wochenrückblick des Dashboards, je Reichweite einmal abgelegt
+ * (Filial-ID als Schlüssel, `'all'` für den Ketten-Blick).
+ *
+ * Warum überhaupt gespeichert: der Text kostet einen Modellaufruf. Bei jedem
+ * Seitenaufruf neu erzeugt wäre er teuer und außerdem jedes Mal etwas anders —
+ * ein Rückblick, der sich beim Neuladen ändert, liest sich wie ein Zufallstext.
+ * Erneuert wird er, wenn er älter als einen Tag ist (`HIGHLIGHT_TTL_MS`).
+ */
+export interface InsightsDoc {
+  _id?: string; // konstant 'insights'
+  highlights: Record<string, {
+    text: string;
+    generatedAt: number;
+    source: 'llm' | 'fallback';
+    /** Anzahl Bewertungen, aus denen der Text entstanden ist — für „Stand vom …". */
+    reviewCount: number;
+  }>;
 }
 
 /**

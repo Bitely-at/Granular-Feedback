@@ -9,11 +9,13 @@ bewerten die Gerichte ihrer Bestellung einzeln und erhalten dafür Punkte.
 ## Aufbau
 
 ```
-src/app/App.tsx      Gesamte Oberfläche in einer Datei (~2200 Zeilen):
+src/app/App.tsx      Gesamte Oberfläche in einer Datei (~3600 Zeilen):
                      GuestApp, WaiterApp, AdminApp, Routing
 src/app/store.tsx    Zustand + API-Aufrufe (React Context, kein Redux)
 server/src/index.ts  Express-API, alle Routen
 server/src/db.ts     Mongo-Verbindung, Indizes, Migrationen
+server/src/ai.ts     Wochenrückblick und Bon-Scan (Claude), je mit Notausgang
+server/src/reviewText.ts  Rezensionstext für den Gast, mit Vorlage als Notausgang
 server/src/seed.ts   Demo-Daten
 scripts/             Verifikationsskripte
 ```
@@ -130,6 +132,9 @@ Gutscheine als verbraucht.
   nicht erst.
 - `DELETE /guest/me` löscht das eigene Konto; abgegebene Bewertungen bleiben,
   sie hängen am Tisch und sind für das Restaurant die eigentliche Substanz.
+  Der Weg dorthin ist der Bildschirm **„Dein Konto"**, erreichbar über die
+  Gutscheinseite: Punkte, eingelöste Gutscheine, Abmelden, Löschen. Ohne ihn
+  gab es die Route zwar, aber keine Tür.
 
 ## Gutschein-Einlösung
 
@@ -221,6 +226,50 @@ nicht, sie bekommt Fremdes gar nicht erst:
   — `serializeDish` rechnet sie auf die angefragte Filiale herunter oder
   summiert für den Ketten-Blick. Die Oberfläche merkt davon nichts.
 
+## KI-Funktionen
+
+Drei Stellen fragen ein Modell (`claude-opus-5`, SDK `@anthropic-ai/sdk`):
+der **Rezensionstext** auf dem Dank-Bildschirm (`reviewText.ts`), der
+**Wochenrückblick** im Dashboard und der **Bon-Scan** der Servicekraft
+(beide `ai.ts`).
+
+- **Jede hat einen Notausgang.** Ohne `ANTHROPIC_API_KEY` — und bei jedem
+  Fehler der Schnittstelle — greift beim Rezensionstext und beim Rückblick eine
+  aus den Zahlen gerechnete Vorlage; der Bon-Scan antwortet mit 503 und sagt,
+  dass er nicht eingerichtet ist. Eine Vorführung ohne Schlüssel bleibt damit
+  vollständig benutzbar, und kein Ausfall der Schnittstelle kann eine Bewertung
+  verhindern.
+- **Was das Modell liefert, ist Vorschlag, nicht Wahrheit.** Der Bon-Scan
+  akzeptiert nur Gericht-IDs aus der übergebenen Karte und begrenzt die Menge —
+  dieselbe Regel wie bei jeder anderen Eingabe von außen. Gebucht wird nichts
+  automatisch: die erkannten Gerichte landen im Warenkorb der Servicekraft.
+- **Der Rezensionstext hängt an einem signierten Ticket** (`signReviewTicket`,
+  30 Minuten), nicht an der Bewertungs-ID. Die steht für jeden lesbar im
+  Gesamtzustand — ohne Ticket könnte jeder für jede fremde Bewertung
+  Modellaufrufe auslösen. Erzeugt wird er **nach** dem Absenden, nicht darin:
+  sonst wartet der Gast Sekunden vor einem hängenden „Wird gesendet…".
+  Der fertige Text wird an der Bewertung abgelegt — Neuladen gibt denselben.
+- **Der Wochenrückblick liegt in `settings._id: 'insights'`**, je Reichweite
+  (Filial-ID oder `'all'`) einmal, und wird erneuert, wenn er älter als einen
+  Tag ist. Ein Rückblick, der sich bei jedem Neuladen ändert, liest sich wie
+  ein Zufallstext — und kostet jedes Mal. Erzeugt wird er in einer eigenen
+  Route (`POST /insights/highlight`), damit das Dashboard sofort steht.
+
+## Dashboard-Auswertung
+
+`GET /insights?from=&to=` (branchAdmin) rechnet in einem Durchgang über die
+Bewertungen: Summen, Wochenkübel, Gerichtsschnitte, Sammelurteile.
+
+- **Warum nicht aus dem Gesamtzustand:** der trägt nur die letzten 100
+  Bewertungen (`REVIEW_PAGE_SIZE`). Für einen Wochenverlauf und einen
+  Zeitraumfilter reicht das nicht — und umgekehrt gehört diese Rechnerei nicht
+  in jeden Seitenaufruf des Gastes.
+- Begrenzt auf 5000 Bewertungen je Lauf (`INSIGHT_REVIEW_CAP`); die Antwort
+  sagt mit `totals.capped`, wenn die Grenze griff.
+- Die Trennlinien der Gerichts-Matrix sind der **Median**, keine festen Werte.
+  Vorher standen dort 3,7 Sterne und 55 Rezensionen — bei einem Lokal mit 40
+  Bewertungen lag damit ausnahmslos alles im selben Feld.
+
 ## Fallstricke
 
 **Express 4 fängt keine abgelehnten Promises.** Die Verb-Methoden des Routers
@@ -258,6 +307,10 @@ der normale `mongodb+srv`-String.
 - Frontend: Netlify (`bitelyvienna`), braucht `VITE_API_BASE_URL` **zur
   Buildzeit** — nachträglich gesetzt erfordert einen neuen Build.
 - Backend: Render (`bitely-api`), braucht `MONGODB_URI` und `JWT_SECRET`.
+- **KI-Funktionen** brauchen `ANTHROPIC_API_KEY` auf dem Server. Ohne den
+  laufen Rezensionstext und Wochenrückblick auf gerechneten Vorlagen und der
+  Bon-Scan meldet, dass er nicht eingerichtet ist — alles andere unverändert.
+  Kein neuer Frontend-Build nötig.
 - **Google-Anmeldung für Gäste** braucht `GOOGLE_CLIENT_ID` auf dem Server —
   eine OAuth-Client-ID vom Typ *Web* aus der Google Cloud Console, mit der
   Frontend-Adresse unter "Authorized JavaScript origins" (Netlify-Domain und

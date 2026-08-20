@@ -152,3 +152,30 @@ export function verifyPointsTicket(token: string): PointsTicket | null {
   if (!payload || payload.kind !== 'points') return null;
   return payload as unknown as PointsTicket;
 }
+
+/**
+ * Anspruch auf den KI-Rezensionstext zu GENAU einer Bewertung.
+ *
+ * Dieselbe Überlegung wie beim Punkte-Ticket: die Bewertungs-ID steht für jeden
+ * lesbar im Gesamtzustand. Ohne Ticket könnte jeder für jede fremde Bewertung
+ * einen Text erzeugen lassen — und jeder dieser Aufrufe kostet einen
+ * Modellaufruf. Das Ticket bekommt nur, wer die Bewertung gerade abgegeben hat.
+ */
+export interface ReviewTicket {
+  reviewId: string;
+  orgSlug: string;
+  kind: 'review';
+  exp: number;
+}
+
+export function signReviewTicket(payload: Omit<ReviewTicket, 'exp' | 'kind'>): string {
+  const full: ReviewTicket = { ...payload, kind: 'review', exp: Date.now() + TICKET_TTL_MS };
+  const body = base64url(Buffer.from(JSON.stringify(full)));
+  return `${body}.${sign(body)}`;
+}
+
+export function verifyReviewTicket(token: string): ReviewTicket | null {
+  const payload = readPayload(token);
+  if (!payload || payload.kind !== 'review') return null;
+  return payload as unknown as ReviewTicket;
+}

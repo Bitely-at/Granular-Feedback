@@ -1,4 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
+import { claudeClient } from './ai.js';
 
 // ═══════════════════════════════════════════════════════════
 // LLM-Rezensionstext
@@ -84,20 +85,13 @@ export function fallbackReviewText(input: ReviewTextInput): string {
   return parts.join(' ');
 }
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  if (!client) client = new Anthropic();
-  return client;
-}
-
 export async function generateReviewText(input: ReviewTextInput): Promise<ReviewTextResult> {
   const rated = input.dishes.filter(d => d.stars > 0);
   if (rated.length === 0) {
     return { text: fallbackReviewText(input), source: 'fallback', fallbackReason: 'Keine bewerteten Gerichte.' };
   }
 
-  const anthropic = getClient();
+  const anthropic = claudeClient();
   if (!anthropic) {
     return {
       text: fallbackReviewText(input),
