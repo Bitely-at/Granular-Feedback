@@ -493,10 +493,16 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <div className="absolute inset-0 bg-gradient-to-t from-white via-white/70 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/65" />
           </div>
 
-          <div className="relative z-10 min-h-full flex flex-col px-8 pt-32 pb-8">
+          <div className="relative z-10 min-h-full flex flex-col px-8 pt-8 pb-8">
+            {/* Das Zeichen des Lokals steht oben auf dem Bild, wie der Kopf einer
+                Karte — der Gast kennt es von der Tür, der Name in der
+                Schlagzeile ersetzt es nicht. Klein und ohne Namen daneben:
+                der steht drei Zeilen tiefer schon in voller Größe. */}
+            <BrandLogo brand={store.brand} size={44} textSize={38} rounded="rounded-xl" />
+
             {/* Der Text sitzt unten im wachsenden Teil, die Fußzeile darunter am
                 Blattrand — nicht als Anhängsel direkt unter den Knöpfen. */}
-            <div className="flex-1 flex flex-col items-start justify-end">
+            <div className="flex-1 flex flex-col items-start justify-end pt-8">
             {/* Klein und über der Schlagzeile: der Gast sitzt schon am Tisch und
                 muss nur kurz gegenprüfen, ob er den richtigen Code erwischt hat. */}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4">
@@ -617,7 +623,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
           {/* Der Empfang des Dankes: viel Weiß, ein Haken, ein Satz. Alles
               Weitere steht in eigenen Blöcken darunter. */}
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-12 pb-8">
+          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-10 pb-8">
+            {/* Wie ein Briefkopf: Zeichen und Name des Lokals, dann der Dank.
+                Der Weg des Gastes beginnt und endet beim Restaurant. */}
+            <div className="flex items-center gap-2.5 mb-8">
+              <BrandLogo brand={store.brand} size={28} textSize={24} rounded="rounded-lg" />
+              <p className="text-[13px] font-medium text-gray-500 dark:text-gray-400">{store.brand?.name}</p>
+            </div>
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 320, damping: 22 }}
               className="w-16 h-16 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
               <Check size={30} strokeWidth={3} className="text-white" />

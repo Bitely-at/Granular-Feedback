@@ -37,9 +37,14 @@ Das **Titelbild** kommt aus den Marken-Einstellungen (`coverImage`, Admin →
 Design → Titelbild). Fehlt es, bleibt eine ruhige Fläche in der Akzentfarbe
 stehen — der Bildschirm funktioniert dann, er lebt nur weniger.
 
-Kein Logo auf diesem Bildschirm: die Schlagzeile trägt den Namen des Lokals, ein
-zweites Mal daneben wäre Dekoration. Und keine Kontext-Leiste über dem Bild — sie
-würde genau die Wirkung zerstören, für die das Bild bis an den Rand läuft.
+Das **Logo** steht oben links auf dem Bild, wie der Kopf einer Karte — 44 px,
+ohne Namen daneben, der steht drei Zeilen tiefer in voller Größe. Der Gast kennt
+das Zeichen von der Tür; ein Name in einer Schlagzeile ersetzt es nicht. Auf dem
+Dank-Bildschirm kommt es klein wieder, zusammen mit dem Namen, wie ein
+Briefkopf: der Weg beginnt und endet beim Lokal.
+
+Keine Kontext-Leiste über dem Bild — sie würde genau die Wirkung zerstören, für
+die das Bild bis an den Rand läuft.
 
 ## 2. Bewerten
 
