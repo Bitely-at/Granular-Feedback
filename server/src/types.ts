@@ -182,15 +182,19 @@ export interface InsightsDoc {
 /**
  * Eine Gutschein-Einlösung am Tisch.
  *
- * Der Gast eröffnet sie, die Servicekraft quittiert sie in IHRER App — nicht
- * auf dem Display des Gastes. Genau das macht einen Screenshot wertlos: er
- * erzeugt keinen Eintrag beim Personal. Der `code` dient nur dem Abgleich mit
+ * Der Wisch entwertet sofort und endgültig: die Punkte sind weg, der Gutschein
+ * gilt als verbraucht. Danach zeigt der Gast den Bildschirm der Servicekraft,
+ * die die Ausgabe in ihrer App einträgt. Der `code` dient nur dem Abgleich mit
  * bloßem Auge, er ist kein Nachweis.
  *
- * Die Punkte sind ab dem Eröffnen abgebucht (reserviert) und werden bei
- * `verfallen`/`abgebrochen` zurückgeschrieben — sonst könnten zwei Tische
- * denselben Punktestand gleichzeitig ausgeben, weil sich alle Gäste (noch)
- * ein Profil teilen.
+ * Vorher war der Wisch nur eine Reservierung mit 60 Sekunden Frist, und erst
+ * die Quittung machte sie endgültig. Das kehrte die Beweislast um: wer nicht
+ * rechtzeitig jemanden fand, bekam die Punkte zurück, und das Personal musste
+ * unter Zeitdruck tippen.
+ *
+ * Die Statuswerte `offen`, `verfallen` und `abgebrochen` stammen aus dieser
+ * Zeit. Neue Einlösungen tragen sie nicht mehr, die alten Datensätze bleiben
+ * lesbar.
  */
 export interface RedemptionDoc {
   _id?: ObjectId;
@@ -202,9 +206,12 @@ export interface RedemptionDoc {
   guestId: string; // vorerst konstant 'default', bis es echte Gastkonten gibt
   code: string; // serverseitig erzeugt, niemals vom Client
   points: number; // Preis zum Zeitpunkt der Einlösung
-  status: 'offen' | 'eingelöst' | 'verfallen' | 'abgebrochen';
+  // 'entwertet' = gewischt, Punkte weg, Ausgabe steht noch aus.
+  // 'eingelöst'  = die Servicekraft hat die Ausgabe eingetragen.
+  status: 'entwertet' | 'eingelöst' | 'offen' | 'verfallen' | 'abgebrochen';
   createdAt: number;
-  expiresAt: number;
+  // Nur noch für Altbestand gefüllt. Eine Entwertung verfällt nicht mehr.
+  expiresAt: number | null;
   redeemedAt: number | null;
   confirmedBy: string | null; // Benutzer-ID der Servicekraft
   confirmedByName: string | null;

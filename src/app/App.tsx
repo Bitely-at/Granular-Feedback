@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis, ReferenceLine, Cell, ComposedChart, Bar, Line,
+  ScatterChart, Scatter, ZAxis, ReferenceLine, Cell, BarChart, Bar,
 } from 'recharts';
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
@@ -719,7 +719,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {vTab === 'Gesperrt' && lockedVouchers.map(v => <VoucherCard key={v.id} v={v} state="locked" pointsMissing={v.points - store.guest.points} />)}
             {vTab === 'Eingelöst' && (redeemedVouchers.length === 0
               ? <EmptyState icon={CheckCircle2} title="Noch nichts eingelöst" desc="Eingelöste Gutscheine erscheinen hier." />
-              : redeemedVouchers.map(v => <VoucherCard key={v.id} v={v} state="redeemed" />))}
+              : redeemedVouchers.map(v => {
+                  // Entwertet, aber noch nicht ausgegeben: der Code muss
+                  // erreichbar bleiben, auch wenn der Gast den Bildschirm
+                  // zwischendurch geschlossen hat.
+                  const pending = store.redemptions.find(r => r.voucherId === v.id && r.status === 'entwertet');
+                  return <VoucherCard key={v.id} v={v} state="redeemed"
+                    pendingCode={pending?.code} onAction={() => setRedeeming(v)} />;
+                }))}
           </div>
         </motion.div>
       )}
@@ -861,8 +868,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   );
 }
 
-function VoucherCard({ v, state, onAction, pointsMissing }: {
-  v: Voucher; state: 'available' | 'locked' | 'redeemed'; onAction?: () => void; pointsMissing?: number;
+function VoucherCard({ v, state, onAction, pointsMissing, pendingCode }: {
+  v: Voucher; state: 'available' | 'locked' | 'redeemed'; onAction?: () => void;
+  pointsMissing?: number;
+  // Gesetzt, wenn dieser Gutschein entwertet ist, die Servicekraft die Ausgabe
+  // aber noch nicht eingetragen hat. Dann bleibt der Code hier erreichbar.
+  pendingCode?: string;
 }) {
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden ${state !== 'available' ? 'opacity-70' : ''}`}>
@@ -879,7 +890,9 @@ function VoucherCard({ v, state, onAction, pointsMissing }: {
           <p className="text-[12px] text-gray-400">{v.points} Punkte</p>
         </div>
         {state === 'locked' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">noch {pointsMissing} Pkt.</span>}
-        {state === 'redeemed' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">Eingelöst</span>}
+        {state === 'redeemed' && (pendingCode
+          ? <button onClick={onAction} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Code {pendingCode}</button>
+          : <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">Eingelöst</span>)}
         {state === 'available' && <button onClick={onAction} className="text-[13px] font-medium px-4 py-2 rounded-xl text-white whitespace-nowrap" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Einlösen</button>}
       </div>
     </div>
@@ -934,9 +947,11 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
   };
 
   const openAlerts = store.alerts.filter(a => !a.resolved && a.branchId === branch.id);
-  const openRedemptions = store.redemptions.filter(r => r.status === 'offen');
+  // Entwertet, aber noch nicht ausgegeben. 'offen' steht mit drin, weil in der
+  // Datenbank noch Einlösungen aus der Zeit der 60-Sekunden-Frist liegen können.
+  const openRedemptions = store.redemptions.filter(r => r.status === 'entwertet' || r.status === 'offen');
 
-  // Laufende Einlösungen sind sekundenaktuell relevant — solange eine offen ist,
+  // Wartende Einlösungen sind sofort relevant — solange eine aussteht,
   // regelmäßig nachladen, damit sie erscheint, ohne dass jemand neu lädt.
   useEffect(() => {
     const iv = setInterval(() => { store.refresh(); }, openRedemptions.length > 0 ? 3000 : 12000);
@@ -965,7 +980,9 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
     }
   };
 
-  // Tisch schließen: laufende Bestellung abräumen, Tisch wieder freigeben.
+  // Tisch freigeben: laufende Bestellung abräumen, damit die nächsten Gäste
+  // einen leeren Tisch vorfinden. Zusätzlich räumt der Server nach zwei Stunden
+  // von selbst ab, siehe releaseStaleTables — daran zu denken ist Handarbeit.
   const handleCloseTable = async () => {
     if (!activeTable || saving) return;
     setSaving(true);
@@ -1027,9 +1044,9 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
           </motion.div>
         ))}
 
-        {/* Laufende Gutschein-Einlösungen. Hier — in der Kellner-App — wird
-            quittiert, nicht auf dem Display des Gastes. Genau deshalb bringt
-            ein Screenshot dem Gast nichts. */}
+        {/* Entwertete Gutscheine, deren Ausgabe noch aussteht. Der Gast hat die
+            Punkte bereits bezahlt; hier wird nur eingetragen, was tatsächlich
+            über die Theke ging. */}
         {openRedemptions.map(r => (
           <RedemptionBanner key={r.id} redemption={r} branch={branch} />
         ))}
@@ -1198,11 +1215,13 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
                   <span className="md:hidden">Speichern</span>
                   <span className="hidden md:inline">Bestellung speichern</span>
                 </button>
+                {/* Heißt "Neue Gäste", weil das der Moment ist, in dem jemand
+                    ihn drückt: der Tisch wird eingedeckt, und was die vorige
+                    Runde bestellt hat, hat darauf nichts mehr verloren. */}
                 <button onClick={() => setConfirm('close')}
                   disabled={saving || (activeTable.status === 'frei' && activeTable.items.length === 0)}
                   className="flex-1 py-3.5 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                  <span className="md:hidden">Schließen</span>
-                  <span className="hidden md:inline">Tisch schließen</span>
+                  Neue Gäste
                 </button>
               </div>
             </div>
@@ -1343,12 +1362,12 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
                   <p className="text-[18px] font-semibold text-gray-900 dark:text-white">
                     {confirm === 'save'
                       ? `Bestellung für Tisch ${activeTable?.number} speichern?`
-                      : `Tisch ${activeTable?.number} schließen?`}
+                      : `Tisch ${activeTable?.number} für neue Gäste freigeben?`}
                   </p>
                   <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
                     {confirm === 'save'
                       ? `${cartTotal} Gerichte · Die Gäste erhalten den Feedback-Link per QR-Code.`
-                      : 'Die laufende Bestellung wird abgeräumt und der Tisch wieder freigegeben. Noch nicht abgegebene Bewertungen sind damit nicht mehr möglich.'}
+                      : 'Die laufende Bestellung wird abgeräumt und der Tisch steht wieder leer. Noch nicht abgegebene Bewertungen der vorigen Gäste sind damit nicht mehr möglich.'}
                   </p>
                 </div>
                 {actionError && (
@@ -1359,7 +1378,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
                   {confirm === 'save' ? (
                     <PrimaryBtn onClick={handleSaveOrder} disabled={saving}>{saving ? 'Speichert…' : 'Speichern'}</PrimaryBtn>
                   ) : (
-                    <PrimaryBtn onClick={handleCloseTable} disabled={saving}>{saving ? 'Schließt…' : 'Schließen'}</PrimaryBtn>
+                    <PrimaryBtn onClick={handleCloseTable} disabled={saving}>{saving ? 'Räumt ab…' : 'Freigeben'}</PrimaryBtn>
                   )}
                 </div>
               </div>
@@ -1454,18 +1473,19 @@ function TableQRCode({ orgSlug, branchSlug, tableNumber, onDelete }: {
       <canvas ref={canvasRef} className="w-24 h-24 rounded-lg" />
       <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {tableNumber}</p>
       <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/{branchSlug}/table/{tableNumber}</p>
-      {/* Beide Aktionen als beschriftete Knöpfe mit Rahmen. Vorher war das
-          Löschen ein hellgraues 12-Pixel-Symbol ohne Text in der Ecke der
-          Kachel — wer es nicht kannte, fand es nicht. */}
+      {/* Der Download nimmt die Breite, das Löschen ist ein rotes Symbol
+          daneben. Rot und Mülltonne sagen dasselbe wie das Wort, brauchen aber
+          keinen Platz, und der PNG-Knopf war als schmale Hälfte zu klein zum
+          Treffen. */}
       <div className="flex items-center gap-2 w-full pt-0.5">
         <button onClick={download}
-          className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition-colors">
-          <Download size={13} strokeWidth={1.5} /> PNG
+          className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-800 transition-colors">
+          <Download size={15} strokeWidth={1.5} /> PNG
         </button>
         {onDelete && (
-          <button onClick={onDelete}
-            className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium py-1.5 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-            <Trash2 size={13} strokeWidth={1.5} /> Löschen
+          <button onClick={onDelete} title={`Tisch ${tableNumber} löschen`}
+            className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+            <Trash2 size={17} strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -2012,7 +2032,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   // ihr auf der Seite verwehrt. Gutscheine sind reine Kettensache.
   //
   // Die Reihenfolge folgt dem, was jemand mit wenig Zeit zuerst braucht:
-  // Dashboard, Gutscheine, Menü, Benutzer, Einstellungen. Zwei Seiten sind
+  // Dashboard, Gutscheine, Menü, Benutzer, Design — und ganz unten die
+  // Einstellungen. Sie stehen zuletzt, weil man sie einmal einrichtet und
+  // danach kaum wieder anfasst; Design hinter ihnen wirkte wie ein Nachtrag.
+  // Zwei Seiten sind
   // bewusst NICHT mehr im Menü, weil sie Nachschlagewerke sind und keine
   // täglichen Anlaufstellen: die einzelnen Bewertungen hängen als Knopf am
   // Dashboard, die vergangenen Einlösungen als Knopf an der Gutscheinseite.
@@ -2026,8 +2049,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
       : [{ id: 'redemptions' as const, label: 'Einlösungen', Icon: CheckCircle2 }]),
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
     { id: 'users', label: 'Benutzer', Icon: Users },
-    { id: 'settings', label: 'Einstellungen', Icon: Settings },
     ...(isChainAdmin ? [{ id: 'design' as const, label: 'Design', Icon: Palette }] : []),
+    { id: 'settings', label: 'Einstellungen', Icon: Settings },
   ];
 
   // Anlegen und Freischalten in einem Zug. Getrennt wäre es eine Sackgasse:
@@ -2375,16 +2398,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     ))}
                   </div>
 
-                  {/* VERLAUF — Anzahl Bewertungen je Woche als Balken, der
-                      Schnitt als Linie darüber. Vorher standen hier feste
-                      Beispielwerte, die mit den echten Daten nichts zu tun
-                      hatten. */}
+                  {/* VERLAUF — Anzahl Bewertungen je Woche als Balken.
+                      Der Schnitt lief hier zusätzlich als Linie mit eigener
+                      Achse mit: zwei Größen in einem Bild, von denen die eine
+                      ohnehin oben als Kennzahl steht. Die Balken allein
+                      beantworten die Frage, für die man herschaut. */}
                   {!hidden.has('chart') && (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
                       <div className="flex items-center justify-between mb-5">
                         <div>
                           <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Verlauf</p>
-                          <p className="text-[12px] text-gray-400">Bewertungen je Woche · Ø Bewertung als Linie</p>
+                          <p className="text-[12px] text-gray-400">Bewertungen je Woche</p>
                         </div>
                         <div onClick={e => e.stopPropagation()}>
                           <button onClick={() => toggleMenu('chart')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
@@ -2399,28 +2423,25 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                       </div>
                       {insightsLoading ? <Sk h={220} /> : (insights?.weeks.length ?? 0) === 0 ? (
                         <EmptyState icon={BarChart3} title="Noch kein Verlauf"
-                          desc="Sobald in diesem Zeitraum Bewertungen eingehen, entsteht hier die Kurve." />
+                          desc="Sobald in diesem Zeitraum Bewertungen eingehen, entstehen hier die Balken." />
                       ) : (
                         <div style={{ height: 220 }}>
                           <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={(insights?.weeks ?? []).map(w => ({
+                            <BarChart data={(insights?.weeks ?? []).map(w => ({
                               label: new Date(w.weekStart).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }),
                               reviews: w.reviews,
-                              avg: Number(w.avg.toFixed(2)),
                             }))} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                               <CartesianGrid key="grid" strokeDasharray="3 0" stroke="#f1f5f9" vertical={false} />
                               <XAxis key="x" dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                               {/* Zwei Achsen: links die Anzahl, rechts die Note.
                                   Die Note bekommt fest 0–5, sonst wirkt eine
                                   Schwankung von 4,2 auf 4,4 wie ein Absturz. */}
-                              <YAxis key="yl" yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
-                              <YAxis key="yr" yAxisId="right" orientation="right" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={24} />
+                              <YAxis key="yl" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                               <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }}
-                                formatter={(v: number, name: string) => name === 'avg' ? [v.toFixed(1), 'Ø Bewertung'] : [v, 'Bewertungen']}
+                                formatter={(v: number) => [v, 'Bewertungen']}
                                 labelFormatter={l => `Woche ab ${l}`} />
-                              <Bar key="bars" yAxisId="left" dataKey="reviews" fill="var(--ba, #16A34A)" fillOpacity={0.22} radius={[6, 6, 0, 0]} />
-                              <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke="var(--ba, #16A34A)" strokeWidth={2} dot={{ r: 3 }} />
-                            </ComposedChart>
+                              <Bar key="bars" dataKey="reviews" fill="var(--ba, #16A34A)" fillOpacity={0.85} radius={[6, 6, 0, 0]} />
+                            </BarChart>
                           </ResponsiveContainer>
                         </div>
                       )}
@@ -3162,41 +3183,57 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                     </p>
                   </div>
 
-                  {/* Kennzahlen: nur eingelöste zählen als Umsatzwirkung —
-                      verfallene und abgebrochene wurden zurückgebucht. */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {([
-                      ['Eingelöst', store.redemptions.filter(r => r.status === 'eingelöst').length, 'text-emerald-700 dark:text-emerald-300'],
-                      ['Punkte verbraucht', store.redemptions.filter(r => r.status === 'eingelöst').reduce((a, r) => a + r.points, 0), 'text-gray-900 dark:text-white'],
-                      ['Verfallen', store.redemptions.filter(r => r.status === 'verfallen').length, 'text-gray-500'],
-                      ['Abgebrochen', store.redemptions.filter(r => r.status === 'abgebrochen').length, 'text-gray-500'],
-                    ] as const).map(([label, value, cls]) => (
-                      <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4">
-                        <p className="text-[11px] text-gray-400 uppercase tracking-wider">{label}</p>
-                        <p className={`text-2xl font-bold mt-1 ${cls}`}>{value}</p>
+                  {/* Kennzahlen. Die Punkte sind ab dem Wischen abgebucht,
+                      also zählen sie als verbraucht, auch wenn die Ausgabe noch
+                      aussteht. Zurückgebuchtes entsteht nicht mehr neu — die
+                      Kachel erscheint nur, wenn aus der Zeit der
+                      60-Sekunden-Frist noch etwas in der Datenbank liegt. */}
+                  {(() => {
+                    const done = store.redemptions.filter(r => r.status === 'eingelöst').length;
+                    const pending = store.redemptions.filter(r => r.status === 'entwertet' || r.status === 'offen').length;
+                    const refunded = store.redemptions.filter(r => r.status === 'verfallen' || r.status === 'abgebrochen').length;
+                    const spentPoints = store.redemptions
+                      .filter(r => r.status !== 'verfallen' && r.status !== 'abgebrochen')
+                      .reduce((a, r) => a + r.points, 0);
+                    const tiles: [string, number, string][] = [
+                      ['Ausgegeben', done, 'text-emerald-700 dark:text-emerald-300'],
+                      ['Ausgabe offen', pending, 'text-amber-700 dark:text-amber-300'],
+                      ['Punkte verbraucht', spentPoints, 'text-gray-900 dark:text-white'],
+                    ];
+                    if (refunded > 0) tiles.push(['Zurückgebucht', refunded, 'text-gray-500']);
+                    return (
+                      <div className={`grid grid-cols-2 gap-3 ${refunded > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                        {tiles.map(([label, value, cls]) => (
+                          <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4">
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wider">{label}</p>
+                            <p className={`text-2xl font-bold mt-1 ${cls}`}>{value}</p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.redemptions.length === 0 ? (
                       <EmptyState icon={Ticket} title="Noch keine Einlösungen"
-                        desc="Sobald ein Gast einen Gutschein am Tisch einlöst, erscheint er hier — mit Zeitpunkt, Tisch und der Servicekraft, die quittiert hat." />
+                        desc="Sobald ein Gast einen Gutschein am Tisch entwertet, erscheint er hier — mit Zeitpunkt, Tisch und der Servicekraft, die die Ausgabe eingetragen hat." />
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                              {['Gutschein', 'Status', 'Tisch', 'Punkte', 'Wann', 'Quittiert von'].map(h => (
+                              {['Gutschein', 'Status', 'Tisch', 'Punkte', 'Wann', 'Ausgegeben von'].map(h => (
                                 <th key={h} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             {store.redemptions.map(r => {
+                              // Bernstein heißt: hier steht noch etwas aus.
+                              // 'offen' ist der Altbestand mit derselben Bedeutung.
                               const badge = r.status === 'eingelöst'
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                : r.status === 'offen'
+                                : r.status === 'entwertet' || r.status === 'offen'
                                   ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                                   : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400';
                               return (
@@ -3607,32 +3644,15 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
 // ═══════════════════════════════════════════════════════════
 // GUTSCHEIN EINLÖSEN (Gast)
 //
-// Zwei Schritte: wischen (bewusste Geste statt Tipp), dann Countdown mit
-// Code. Quittiert wird in der Kellner-App — deshalb nützt ein Screenshot
-// dieses Bildschirms nichts.
+// Der Wisch entwertet sofort: Punkte weg, Gutschein verbraucht, ohne Frist und
+// ohne Rückweg. Danach zeigt der Gast den Code der Servicekraft, die die
+// Ausgabe in ihrer App einträgt.
+//
+// Vorher lief nach dem Wischen ein Countdown über 60 Sekunden, und erst die
+// Quittung machte die Einlösung endgültig. Das setzte den Gast unter Zeitdruck
+// für etwas, das er nicht in der Hand hat: ob gerade jemand am Tisch vorbeikommt.
 // ═══════════════════════════════════════════════════════════
 
-/** Sekunden bis zum Ablauf, tickt selbstständig herunter. */
-function useCountdown(expiresAt: number | null): number {
-  const [left, setLeft] = useState(() =>
-    expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 0);
-
-  useEffect(() => {
-    if (!expiresAt) return;
-    const tick = () => setLeft(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
-    tick();
-    const iv = setInterval(tick, 250);
-    return () => clearInterval(iv);
-  }, [expiresAt]);
-
-  return left;
-}
-
-/**
- * Der Einlöse-Bildschirm: Code, Countdown-Ring, und was die Servicekraft tun
- * soll. Sobald sie in ihrer App quittiert, wechselt der Zustand von selbst —
- * `redemption` kommt aus dem Server-Zustand, nicht aus lokalem Raten.
- */
 /**
  * Lädt Googles Anmelde-Skript — aber nur, wenn der Server eine Client-ID
  * hinterlegt hat. Ohne sie erscheint der Knopf gar nicht erst, statt beim
@@ -3784,21 +3804,25 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Immer den Server-Stand nehmen, falls vorhanden: die Servicekraft quittiert
-  // in ihrer App, und das erfahren wir nur über den Zustand.
-  const live = started ? store.redemptions.find(r => r.id === started.id) ?? started : null;
-  // Der Code steht NICHT im Zustand, den der Gast lädt — sonst könnte jeder
-  // fremde Einlösungen abbrechen. Er kommt aus der Antwort auf das Eröffnen.
-  const code = started?.code ?? '';
-  const secondsLeft = useCountdown(live && live.status === 'offen' ? live.expiresAt : null);
+  // Eine bereits entwertete, aber noch nicht eingetragene Einlösung dieses
+  // Gutscheins. Damit lässt sich der Bildschirm wieder aufmachen: der Gast darf
+  // ihn schließen, ohne den Code zu verlieren, den er noch vorzeigen muss.
+  const pending = store.redemptions.find(r => r.voucherId === voucher.id && r.status === 'entwertet');
+  // Immer den Server-Stand nehmen, falls vorhanden: die Servicekraft trägt in
+  // ihrer App ein, und das erfahren wir nur über den Zustand.
+  const live = started
+    ? store.redemptions.find(r => r.id === started.id) ?? started
+    : pending ?? null;
+  const code = live?.code ?? started?.code ?? '';
+  const open = live != null && live.status === 'entwertet';
 
-  // Solange der Countdown läuft, regelmäßig nachfragen — sonst merkt der Gast
-  // nicht, dass quittiert wurde.
+  // Solange die Ausgabe aussteht, regelmäßig nachfragen — sonst merkt der Gast
+  // nicht, dass eingetragen wurde.
   useEffect(() => {
-    if (!live || live.status !== 'offen') return;
+    if (!open) return;
     const iv = setInterval(() => { store.refresh(); }, 2500);
     return () => clearInterval(iv);
-  }, [live?.id, live?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live?.id, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async () => {
     if (busy) return;
@@ -3810,20 +3834,10 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
     setBusy(false);
   };
 
-  const cancel = async () => {
-    if (live && live.status === 'offen') {
-      try { await store.cancelRedemption(branch.slug, live.id, code); } catch { /* egal */ }
-    }
-    onClose();
-  };
-
-  const total = Math.max(1, Math.round((live ? live.expiresAt - live.createdAt : 60000) / 1000));
-  const ring = live ? secondsLeft / total : 1;
-
   return (
     <>
       <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        onClick={live?.status === 'offen' ? undefined : onClose} />
+        onClick={onClose} />
       <motion.div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl z-50 max-h-[92vh] overflow-y-auto"
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}>
         <div className="p-5 pb-8">
@@ -3836,8 +3850,13 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
                 <p className="text-[19px] font-bold text-gray-900 dark:text-white">{voucher.title}</p>
                 <p className="text-[13px] text-gray-400 mt-1">{voucher.points} Punkte · {branch.name}</p>
               </div>
-              {/* Kein Erklärtext: gewischt wird vor der Servicekraft, und die
-                  Geste erklärt sich in dem Moment von selbst. */}
+              {/* Kein Erklärtext zur Geste: gewischt wird vor der Servicekraft,
+                  und der Wisch erklärt sich in dem Moment von selbst. Was er
+                  kostet, steht dagegen dabei — er ist nicht umkehrbar. */}
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center leading-relaxed max-w-[280px] mx-auto">
+                Wischen bucht die {voucher.points} Punkte sofort ab. Erst danach
+                zeigst du den Code der Servicekraft.
+              </p>
               {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
               <SwipeToRedeem onRedeem={start} redeemed={busy} />
               <button onClick={onClose} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
@@ -3846,43 +3865,38 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
             </div>
           )}
 
-          {/* ── Schritt 2: Countdown, bis die Servicekraft quittiert ── */}
-          {live?.status === 'offen' && (
+          {/* ── Schritt 2: entwertet, Code vorzeigen ── */}
+          {open && live && (
             <div className="space-y-5 text-center">
-              <div className="relative w-40 h-40 mx-auto">
-                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-                  <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" className="stroke-gray-100 dark:stroke-gray-800" />
-                  <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" strokeLinecap="round"
-                    stroke="var(--ba, #16A34A)" strokeDasharray={2 * Math.PI * 45}
-                    strokeDashoffset={2 * Math.PI * 45 * (1 - ring)}
-                    style={{ transition: 'stroke-dashoffset 0.25s linear' }} />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <motion.p key={code} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-                    className="text-[34px] font-bold tracking-[0.12em] text-gray-900 dark:text-white tabular-nums">
-                    {code}
-                  </motion.p>
-                  <p className="text-[12px] text-gray-400 mt-0.5 tabular-nums">noch {secondsLeft} s</p>
-                </div>
+              <div className="w-40 h-40 mx-auto rounded-3xl border-2 flex flex-col items-center justify-center"
+                style={{ borderColor: 'var(--ba, #16A34A)' }}>
+                <motion.p key={code} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+                  className="text-[40px] font-bold tracking-[0.12em] text-gray-900 dark:text-white tabular-nums">
+                  {code}
+                </motion.p>
+                <p className="text-[11px] text-gray-400 uppercase tracking-wider mt-1">Code</p>
               </div>
 
               <div>
                 <p className="text-[17px] font-semibold text-gray-900 dark:text-white">{live.voucherTitle}</p>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed max-w-[280px] mx-auto">
-                  Zeig diesen Bildschirm der Servicekraft. Sie bestätigt die Einlösung
-                  in ihrer eigenen App — ein Screenshot funktioniert nicht.
+                  Die {live.points} Punkte sind abgebucht. Zeig diesen Bildschirm
+                  der Servicekraft, sie gibt den Gutschein aus.
                 </p>
               </div>
 
-              <button onClick={cancel}
+              <button onClick={onClose}
                 className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
-                Doch nicht einlösen
+                Schließen
               </button>
+              <p className="text-[11px] text-gray-400">
+                Der Code bleibt unter „Eingelöst" stehen, bis die Ausgabe eingetragen ist.
+              </p>
             </div>
           )}
 
-          {/* ── Schritt 3: quittiert ── */}
+          {/* ── Schritt 3: die Servicekraft hat die Ausgabe eingetragen ── */}
           {live?.status === 'eingelöst' && (
             <div className="space-y-4 text-center py-4">
               <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 240, damping: 16 }}
@@ -3900,24 +3914,6 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
             </div>
           )}
 
-          {/* ── Verfallen oder abgebrochen ── */}
-          {live && (live.status === 'verfallen' || live.status === 'abgebrochen') && (
-            <div className="space-y-4 text-center py-4">
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 mx-auto flex items-center justify-center">
-                <Clock size={28} className="text-gray-400" strokeWidth={1.5} />
-              </div>
-              <div>
-                <p className="text-[17px] font-semibold text-gray-900 dark:text-white">
-                  {live.status === 'verfallen' ? 'Zeit abgelaufen' : 'Abgebrochen'}
-                </p>
-                <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">
-                  Deine {live.points} Punkte sind zurück auf dem Konto. Du kannst es
-                  jederzeit erneut versuchen.
-                </p>
-              </div>
-              <PrimaryBtn onClick={onClose}>Schließen</PrimaryBtn>
-            </div>
-          )}
         </div>
       </motion.div>
     </>
@@ -3925,15 +3921,14 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
 }
 
 /**
- * Laufende Einlösung in der Kellner-App. Der Code steht hier, damit die
- * Servicekraft ihn mit dem Display des Gastes vergleichen kann — quittiert
- * wird aber hier, weshalb ein Screenshot des Gastes nichts ausrichtet.
+ * Eine entwertete, noch nicht ausgegebene Einlösung in der Kellner-App. Der
+ * Code steht hier, damit die Servicekraft ihn mit dem Display des Gastes
+ * vergleichen kann. Eingetragen wird die Ausgabe hier, nicht beim Gast.
  */
 function RedemptionBanner({ redemption, branch }: { redemption: Redemption; branch: Branch }) {
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const secondsLeft = useCountdown(redemption.expiresAt);
 
   const confirm = async () => {
     if (busy) return;
@@ -3942,7 +3937,7 @@ function RedemptionBanner({ redemption, branch }: { redemption: Redemption; bran
     try {
       await store.confirmRedemption(branch.slug, redemption.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Quittieren fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : 'Eintragen fehlgeschlagen.');
     } finally {
       setBusy(false);
     }
@@ -3956,13 +3951,12 @@ function RedemptionBanner({ redemption, branch }: { redemption: Redemption; bran
         {redemption.tableNumber != null && <>Tisch {redemption.tableNumber} · </>}
         <strong>{redemption.voucherTitle}</strong> · Code{' '}
         <span className="font-mono font-bold tracking-wider">{redemption.code}</span>
-        <span className="text-emerald-700/70 dark:text-emerald-400/70 tabular-nums"> · noch {secondsLeft} s</span>
       </p>
       {error && <span className="text-[12px] text-red-600 dark:text-red-400">{error}</span>}
-      <button onClick={confirm} disabled={busy || secondsLeft === 0}
+      <button onClick={confirm} disabled={busy}
         className="flex-shrink-0 px-4 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
         style={{ backgroundColor: '#059669' }}>
-        {busy ? 'Wird quittiert…' : 'Eingelöst'}
+        {busy ? 'Wird eingetragen…' : 'Ausgegeben'}
       </button>
     </motion.div>
   );

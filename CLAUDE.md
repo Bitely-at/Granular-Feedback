@@ -39,8 +39,8 @@ npm run server:seed      # Demo-Daten anlegen
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
-npm run verify:redemptions   # 48 Tests für die Gutschein-Einlösung (wartet 60 s
-                             # auf den Verfall; SKIP_EXPIRY=1 überspringt das)
+npm run verify:redemptions   # Tests für die Gutschein-Einlösung: entwerten,
+                             # Ausgabe eintragen, Nebenläufigkeit
 npm run verify:guests    # 39 Tests für die Gastkonten
 npm run build            # Produktionsbuild
 ```
@@ -66,7 +66,7 @@ laufenden Bestellung:
 ```
 frei ──(Kellner bucht)──> offen
   ^                         |
-  └──(Gast bewertet ODER Kellner schließt)──┘
+  └──(Gast bewertet ODER Kellner gibt frei ODER zwei Stunden vergehen)──┘
 ```
 
 - `offen` heißt: es liegt eine Bestellung an, deren Bewertung noch aussteht.
@@ -80,6 +80,16 @@ frei ──(Kellner bucht)──> offen
   offene Bestellung.
 - **Bewerten räumt ab**: `items: []`, sonst zeigt der QR-Link dieselbe
   Bestellung erneut.
+- **Ein Tisch gehört den Gästen, die gerade daran sitzen.** Der Knopf in der
+  Kellner-App heißt deshalb „Neue Gäste" und nicht „schließen" — er beschreibt
+  den Moment, in dem jemand ihn drückt. Wird er vergessen, gibt
+  `releaseStaleTables` den Tisch nach `TABLE_TTL_MS` (zwei Stunden) von selbst
+  frei; wie beim Verfall der Einlösungen ohne Hintergrundjob, wer als Erster
+  den Zustand lädt, räumt ab.
+- **Das Seed-Skript legt alle Tische leer an.** Erfundene Bestellungen ließen
+  beim Vorführen nicht auseinanderhalten, was gerade gebucht wurde und was aus
+  dem Seed stammt — und wer den QR-Code eines solchen Tisches scannte, sollte
+  Gerichte bewerten, die nie jemand bestellt hat.
 - **Doppelbewertungs-Schutz liegt in der Datenbank**, nicht im Handler: ein
   eindeutiger Index auf `reviews.orderId`. Er ist *partiell*
   (`partialFilterExpression: { orderId: { $exists: true } }`), damit Bewertungen
@@ -100,7 +110,7 @@ Gutscheine als verbraucht.
   Bewertung trägt `pointsEarned: 0` **und** `pointsPossible`, damit die
   Oberfläche sagen kann, worum es geht.
 - **Einlösen setzt ein Konto voraus** (401). Ohne Konto gäbe es niemanden,
-  dem die Punkte abgezogen und bei Verfall zurückgebucht werden.
+  dem die Punkte abgezogen werden.
 - **Die Ansicht bestimmt, welches Token mitgeht** (`audience` am `StoreProvider`):
   Gastansicht = Gastkonto, Kellner/Admin = Mitarbeiterkonto. Der Header trägt nur
   eines. Wer den Admin offen hat und daneben den QR-Code am eigenen Handy öffnet,
@@ -138,31 +148,35 @@ Gutscheine als verbraucht.
 
 ## Gutschein-Einlösung
 
-Ein zweiter Lebenszyklus, mit eigener Sammlung `redemptions`. Der Gast eröffnet
-per Wischgeste, quittiert wird in der **App der Servicekraft** — ein Screenshot
-erzeugt dort keinen Eintrag, deshalb muss der vierstellige Code nur den Abgleich
-mit bloßem Auge überstehen.
+Ein zweiter Lebenszyklus, mit eigener Sammlung `redemptions`. Der Wisch des
+Gastes **entwertet sofort und endgültig**: Punkte abgebucht, Gutschein
+verbraucht. Danach zeigt er den vierstelligen Code der Servicekraft, die die
+Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Auge
+überstehen.
 
 ```
-(Gast wischt) ──> offen ──(Kellner quittiert)──> eingelöst
-                    ├──(Gast bricht ab, mit Code)──> abgebrochen  → Punkte zurück
-                    └──(60 Sekunden ohne Quittung)─> verfallen    → Punkte zurück
+(Gast wischt) ──> entwertet ──(Servicekraft trägt die Ausgabe ein)──> eingelöst
 ```
 
-- **Punkte sind ab dem Eröffnen abgebucht**, nicht erst beim Quittieren. Ohne
-  Reservierung könnten zwei Tische denselben Punktestand ausgeben — alle Gäste
-  teilen sich (noch) ein Profil.
+- **Ein Screenshot bringt nichts, weil er dasselbe kostet** wie der echte Wisch,
+  nicht weil er beim Personal keinen Eintrag erzeugt. Vorher hing der Schutz an
+  einer 60-Sekunden-Frist mit Quittung; die setzte den Gast unter Zeitdruck für
+  etwas, das er nicht in der Hand hat — ob gerade jemand am Tisch vorbeikommt.
+- **Es gibt keinen Rückweg**: keine Abbruch-Route, keinen Verfall. Er wäre genau
+  die Lücke, über die derselbe Gutschein zweimal gälte.
 - **Die Regeln liegen im Update-Filter**, wie beim Doppelbewertungs-Schutz. Beim
-  Reservieren `points >= Preis` **und** `redeemed: { $ne: voucherId }`; beim
-  Quittieren `status: 'offen'` **und** `expiresAt > jetzt`; beim Abbrechen
-  zusätzlich der Code. Die Prüfungen davor sind Diagnose für eine gute
-  Fehlermeldung, kein Schutz — sie lagen im Prüflauf messbar zu früh (zwei
-  gleichzeitige Wische buchten doppelt ab).
-- **Zurückgebucht wird nur, wer den Datensatz tatsächlich umgestellt hat.** Der
-  bedingte Update ist der Anspruch auf die Rückbuchung, sonst bekäme der Gast
-  seine Punkte bei zwei gleichzeitigen Aufrufen doppelt gut.
-- **Kein Hintergrundjob**: `expireStaleRedemptions` läuft beim Laden des
-  Zustands mit — wer als Erster hinsieht, räumt ab.
+  Abbuchen `points >= Preis` **und** `redeemed: { $ne: voucherId }`; beim
+  Eintragen `status: { $in: ['entwertet', 'offen'] }`. Die Prüfungen davor sind
+  Diagnose für eine gute Fehlermeldung, kein Schutz — sie lagen im Prüflauf
+  messbar zu früh (zwei gleichzeitige Wische buchten doppelt ab).
+- **Den Code bekommt nur, wer ihn braucht** (`serializeRedemption`): das Personal
+  zum Abgleich, und der Gast für seine EIGENEN Entwertungen. So darf er den
+  Bildschirm schließen, ohne die Zahl zu verlieren, die er vorzeigen muss — und
+  ein Fremder liest nicht mit, was am Nebentisch auf dem Handy steht.
+- **Altbestand**: `offen`, `verfallen` und `abgebrochen` stammen aus der Zeit der
+  Frist und entstehen nicht mehr neu. `expireStaleRedemptions` räumt sie
+  weiterhin beim Laden des Zustands ab — kein Hintergrundjob, wer als Erster
+  hinsieht, räumt auf.
 - Eingelöst wird in einer Filiale: die Route liegt unter `/branches/:branchSlug/`,
   und ein Gutschein mit `branchIds` gilt nur dort.
 
@@ -357,7 +371,7 @@ Drei Rollen, und der Manager ist **Filialleitung**, nicht kleiner Admin:
 | | Admin | Admin, Manager | + Kellner |
 | Filialen, Branding, Stammkarte, Gutscheine | ✅ | ❌ | ❌ |
 | Tische/QR + Verfügbarkeit der eigenen Filiale, Benutzer | ✅ | ✅ | ❌ |
-| Bestellung buchen, Tisch schließen, Alarm | ✅ | ✅ | ✅ |
+| Bestellung buchen, Tisch freigeben, Alarm | ✅ | ✅ | ✅ |
 
 Die Filialleitung sieht das Menü, ändert dort aber nur den
 Verfügbarkeits-Schalter — Name, Preis und Foto gehören der Kette.
@@ -386,15 +400,16 @@ Prüfskripte nehmen dafür `ADMIN_EMAIL`/`ADMIN_PASSWORD` aus der Umgebung.
 
 ## Bekannte Lücken
 
-Kein Auto-Close nach 30 Minuten, CORS offen, keine Ratenbegrenzung — weder auf
-`/auth/login` noch auf `/guest/login` und `/guest/register`. Gastkonten haben
+CORS offen, keine Ratenbegrenzung — weder auf `/auth/login` noch auf
+`/guest/login` und `/guest/register`. Gastkonten haben
 kein "Passwort vergessen" (dafür bräuchte es Mailversand) und kein Bestätigen
 der E-Mail; wer über Google kommt, hat beides von dort.
 
 Die alte Sammlung `guestProfile` (das von allen Gästen geteilte Profil) bleibt
 als Bestandsdaten liegen — sie wird nirgends mehr gelesen. Einlösungen aus
 dieser Zeit tragen `guestId: 'default'`; für die gibt es nichts zurückzubuchen
-(siehe `refundGuest`).
+(siehe `refundGuest`). Zurückgebucht wird ohnehin nur noch Altbestand — der
+Wisch von heute ist endgültig.
 
 **Kein Filialpreis.** Eine Filiale kann ein Gericht führen oder nicht, aber
 nicht zu einem anderen Preis anbieten. Nachrüstbar, indem `branchIds` von einer

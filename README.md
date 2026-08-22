@@ -10,7 +10,7 @@ pro Gericht, was funktioniert und was nicht.
 | Ansicht | Route | Wofür |
 |---|---|---|
 | **Gast** | `/:orgSlug/:branchSlug/table/:number` | Ziel des QR-Codes: Gerichte bewerten, Gesamteindruck, Punkte |
-| **Kellner** | `/:orgSlug/staff` | Bestellungen auf Tische buchen, Tische schließen, Alarme bei schlechten Bewertungen |
+| **Kellner** | `/:orgSlug/staff` | Bestellungen auf Tische buchen, Tische für neue Gäste freigeben, Alarme bei schlechten Bewertungen |
 | **Admin** | `/:orgSlug/admin` | Auswertungen, Bewertungen mit Freitexten, Benutzer, QR-Codes, CSV-Export |
 
 Die Filiale steht im QR-Link, weil Tischnummern nur **pro Filiale** eindeutig

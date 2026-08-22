@@ -131,9 +131,10 @@ export interface Review {
 }
 
 /**
- * Eine Gutschein-Einlösung am Tisch. `offen` heißt: der Countdown läuft, die
- * Servicekraft muss quittieren. Die Punkte sind ab dem Eröffnen abgebucht und
- * kommen bei `verfallen`/`abgebrochen` zurück.
+ * Eine Gutschein-Einlösung am Tisch. Der Wisch entwertet sofort und endgültig,
+ * die Punkte sind damit weg. `entwertet` heißt: der Gast zeigt den Bildschirm,
+ * die Ausgabe ist noch nicht eingetragen. `eingelöst` heißt: die Servicekraft
+ * hat sie eingetragen.
  */
 export interface Redemption {
   id: string;
@@ -142,14 +143,16 @@ export interface Redemption {
   branchId: string;
   tableId: string | null;
   tableNumber: number | null;
-  // Nur für angemeldete Aufrufer im Gesamtzustand — der Gast bekommt seinen
-  // Code aus der Antwort auf das Eröffnen und hält ihn dort fest. Sonst könnte
-  // jeder, der /state lädt, fremde Einlösungen abbrechen.
+  // Nur für das Personal und für die eigenen Entwertungen des angemeldeten
+  // Gastes. Wer fremd auf /state schaut, sieht die Zahl nicht.
   code?: string;
   points: number;
-  status: 'offen' | 'eingelöst' | 'verfallen' | 'abgebrochen';
+  // 'entwertet' = gewischt, Punkte weg, Ausgabe steht aus. 'eingelöst' = die
+  // Servicekraft hat sie eingetragen. Die drei anderen stammen aus der Zeit
+  // der 60-Sekunden-Frist und entstehen nicht mehr neu.
+  status: 'entwertet' | 'eingelöst' | 'offen' | 'verfallen' | 'abgebrochen';
   createdAt: number;
-  expiresAt: number;
+  expiresAt: number | null;
   redeemedAt: number | null;
   confirmedByName: string | null;
 }
@@ -356,7 +359,6 @@ interface StoreApi extends OrgState {
   startRedemption: (branchSlug: string, voucherId: string, tableNumber?: number)
     => Promise<{ ok: true; redemption: Redemption } | { ok: false; error: string }>;
   confirmRedemption: (branchSlug: string, redemptionId: string) => Promise<void>;
-  cancelRedemption: (branchSlug: string, redemptionId: string, code: string) => Promise<void>;
   // Gericht in EINER Filiale führen oder nicht — der Hebel der Filialleitung.
   setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
@@ -612,12 +614,6 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     setState(await call<OrgState>(`/branches/${branchSlug}/redemptions/${redemptionId}/confirm`, { method: 'POST' }));
   }, [call]);
 
-  const cancelRedemption = useCallback(async (branchSlug: string, redemptionId: string, code: string) => {
-    setState(await call<OrgState>(`/branches/${branchSlug}/redemptions/${redemptionId}/cancel`, {
-      method: 'POST', body: JSON.stringify({ code }),
-    }));
-  }, [call]);
-
   const setDishAvailability = useCallback(async (branchSlug: string, dishId: string, active: boolean) => {
     setState(await call<OrgState>(`/branches/${branchSlug}/dishes/${dishId}/availability`, {
       method: 'PATCH', body: JSON.stringify({ active }),
@@ -719,7 +715,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     guestUser, guestAuthOptions: authOptions, guestRegister, guestLogin, guestGoogleLogin,
     guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption, cancelRedemption,
+    startRedemption, confirmRedemption,
     setDishAvailability,
     resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
@@ -728,7 +724,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   }), [state, orgSlug, loading, error, authUser, authLoading, login, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption, cancelRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
+    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

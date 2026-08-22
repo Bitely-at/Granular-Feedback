@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * Prüft die Gutschein-Einlösung gegen einen laufenden Server: eröffnen,
- * quittieren, abbrechen, verfallen — und dass die Punkte dabei immer genau
- * einmal wandern.
+ * Prüft die Gutschein-Einlösung gegen einen laufenden Server: entwerten, die
+ * Ausgabe eintragen — und dass die Punkte dabei genau einmal wandern.
+ *
+ * Der Wisch entwertet endgültig: es gibt weder Abbrechen noch Verfall. Was
+ * diese Suite dazu geprüft hat, ist mit den Abläufen selbst entfallen; geblieben
+ * ist die Prüfung, dass der Rückweg auch wirklich zu ist.
  *
  *   node scripts/verify-redemptions.mjs
- *   SKIP_EXPIRY=1 node scripts/verify-redemptions.mjs      # ohne die 60-Sekunden-Wartezeit
  *   API_BASE=http://localhost:4000 ORG_SLUG=sakura-sushi node scripts/verify-redemptions.mjs
  *
  * Voraussetzung: der Server läuft (npm run server:dev) und wurde geseedet.
@@ -13,7 +15,7 @@
  * ACHTUNG: Das Skript schreibt in die Datenbank, auf die der Server zeigt.
  * Es legt ein eigenes Gastkonto und eigene Gutscheine (Präfix unten) an und
  * löscht beides am Ende wieder.
- * Zwei davon werden dabei aber wirklich eingelöst — die Punkte sind danach
+ * Drei davon werden dabei wirklich entwertet — die Punkte sind danach
  * verbraucht, wie bei jeder echten Einlösung auch. Reichen die Punkte des
  * Gastprofils nicht, verdient das Skript sie über den regulären
  * Bewertungsablauf; das erhöht die Sternezähler der verwendeten Gerichte.
@@ -26,8 +28,8 @@ const ORG_SLUG = process.env.ORG_SLUG ?? 'sakura-sushi';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@sakura.at';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'bitely123';
-// Kellner der ersten Filiale — quittieren soll die Servicekraft können, nicht
-// nur der Admin.
+// Kellner der ersten Filiale — die Ausgabe eintragen soll die Servicekraft
+// können, nicht nur der Admin.
 const WAITER_EMAIL = process.env.WAITER_EMAIL ?? 'kellner@sakura.at';
 // Filialleitung der ZWEITEN Filiale, für die Filialtrennung.
 const MANAGER2_EMAIL = process.env.MANAGER2_EMAIL ?? 'manager2@sakura.at';
@@ -39,9 +41,6 @@ const MANAGER2_PASSWORD = process.env.MANAGER2_PASSWORD ?? ADMIN_PASSWORD;
 // Kennzeichnet die Testdatensätze, damit sie beim Aufräumen wiedererkannt
 // werden — auch wenn das Skript vorher abgebrochen ist.
 const MARK = 'ZZ-Prüflauf';
-
-// Muss zu REDEMPTION_TTL_MS in server/src/index.ts passen.
-const TTL_MS = 60_000;
 
 // Eigenes Gastkonto: Punkte gehören seit den Gastkonten einem Konto, und
 // einlösen kann nur, wer angemeldet ist.
@@ -85,8 +84,6 @@ async function login(email, password = ADMIN_PASSWORD) {
   return res.status === 200 ? res.json.token : null;
 }
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 async function main() {
   console.log(`\nZiel: ${API_BASE}/api/${ORG_SLUG}\n`);
 
@@ -100,11 +97,11 @@ async function main() {
     console.error('  ADMIN_EMAIL=… ADMIN_PASSWORD=… node scripts/verify-redemptions.mjs');
     process.exit(1);
   }
-  // Quittieren soll die Servicekraft können. Fehlt der Zugang, läuft der Rest
+  // Eintragen soll die Servicekraft können. Fehlt der Zugang, läuft der Rest
   // mit dem Admin weiter — dann prüft dieser Teil nur weniger, statt zu scheitern.
   const waiterToken = (await login(WAITER_EMAIL, WAITER_PASSWORD)) ?? token;
   if (waiterToken === token) {
-    console.log(`Hinweis: kein Kellner-Zugang (${WAITER_EMAIL}) — quittiert wird als Admin.\n`);
+    console.log(`Hinweis: kein Kellner-Zugang (${WAITER_EMAIL}) — eingetragen wird als Admin.\n`);
   }
   const manager2Token = await login(MANAGER2_EMAIL, MANAGER2_PASSWORD);
 
@@ -175,136 +172,133 @@ async function main() {
   }
 
   try {
-    // Zwei Einlösungen gehen wirklich durch (Quittieren und Wettlauf), der Rest
-    // kommt zurück. Etwas Luft für den Fall, dass ein früherer Lauf abgebrochen ist.
+    // Drei Entwertungen gehen wirklich durch (Ausgabe, Sichtbar, Wettlauf) —
+    // zurück kommt seit dem endgültigen Wisch nichts mehr. Etwas Luft für den
+    // Fall, dass ein früherer Lauf abgebrochen ist.
     if (!await ensurePoints(4)) {
       console.error('Der Gast hat zu wenige Punkte und es ließen sich keine verdienen — Abbruch.');
       process.exit(1);
     }
 
-    const vQuittung = await addVoucher('Quittung', 1);
-    const vAbbruch = await addVoucher('Abbruch', 1);
+    const vAusgabe = await addVoucher('Ausgabe', 1);
+    const vSichtbar = await addVoucher('Sichtbar', 1);
     const vWettlauf = await addVoucher('Wettlauf', 1);
     const vTeuer = await addVoucher('Zu teuer', 100000);
-    const vVerfall = await addVoucher('Verfall', 1);
+    const vRest = await addVoucher('Rest', 1);
     const vFremd = branch2 ? await addVoucher('Nur Filiale 2', 1, [branch2.id]) : null;
 
-    // ── 1) Eröffnen ───────────────────────────────────────────────
-    console.log('1) Der Gast eröffnet die Einlösung');
-    let offen = null;
+    // ── 1) Entwerten ──────────────────────────────────────────────
+    console.log('1) Der Gast entwertet den Gutschein');
+    let entwertet = null;
     {
       const pointsBefore = await guestPoints();
-      // Ohne Anmeldung: der Gast hat kein Konto, sonst wäre der QR-Code am Tisch wertlos.
-      const open = await req('POST', `/branches/${B}/vouchers/${vQuittung.id}/redeem`, {}, { auth: false });
-      check('Eröffnen ohne Anmeldung liefert 200', open.status === 200,
+      // Nicht als Personal, sondern mit dem Token des Gastes — so wie in der
+      // Gastansicht am Tisch.
+      const open = await req('POST', `/branches/${B}/vouchers/${vAusgabe.id}/redeem`, {}, { auth: false });
+      check('Entwerten liefert 200', open.status === 200,
         `HTTP ${open.status} — ${open.json?.error ?? ''}`);
-      offen = open.json?.redemption ?? null;
+      entwertet = open.json?.redemption ?? null;
 
-      check('… mit vierstelligem Code', /^\d{4}$/.test(offen?.code ?? ''), `Code: ${offen?.code}`);
-      check('… im Zustand "offen"', offen?.status === 'offen', `ist: ${offen?.status}`);
-      check('… und einer Frist von rund 60 Sekunden',
-        offen && offen.expiresAt - offen.createdAt === TTL_MS,
-        `Frist: ${offen ? offen.expiresAt - offen.createdAt : '?'} ms`);
+      check('… mit vierstelligem Code', /^\d{4}$/.test(entwertet?.code ?? ''), `Code: ${entwertet?.code}`);
+      check('… im Zustand "entwertet"', entwertet?.status === 'entwertet', `ist: ${entwertet?.status}`);
+      check('… und ohne Frist', entwertet?.expiresAt === null, `Frist: ${entwertet?.expiresAt}`);
 
-      check('Die Punkte sind sofort reserviert', await guestPoints() === pointsBefore - vQuittung.points,
-        `${pointsBefore} → ${await guestPoints()}, erwartet ${pointsBefore - vQuittung.points}`);
+      check('Die Punkte sind sofort weg', await guestPoints() === pointsBefore - vAusgabe.points,
+        `${pointsBefore} → ${await guestPoints()}, erwartet ${pointsBefore - vAusgabe.points}`);
       check('… und der Gutschein gilt als vergeben',
-        (await guestRedeemed()).includes(vQuittung.id));
+        (await guestRedeemed()).includes(vAusgabe.id));
 
-      const again = await req('POST', `/branches/${B}/vouchers/${vQuittung.id}/redeem`, {}, { auth: false });
-      check('Zweites Eröffnen desselben Gutscheins wird mit 409 abgelehnt', again.status === 409,
+      const again = await req('POST', `/branches/${B}/vouchers/${vAusgabe.id}/redeem`, {}, { auth: false });
+      check('Zweites Entwerten desselben Gutscheins wird mit 409 abgelehnt', again.status === 409,
         `HTTP ${again.status}`);
 
-      // Die Servicekraft sieht den Eintrag in IHRER App — dort wird quittiert.
+      // Die Servicekraft sieht den Eintrag in IHRER App — dort wird die Ausgabe
+      // eingetragen.
       const inBranch = (await req('GET', `/state?branch=${B}`, undefined, { as: waiterToken }))
-        .json?.redemptions?.find(r => r.id === offen?.id);
+        .json?.redemptions?.find(r => r.id === entwertet?.id);
       check('Die Servicekraft sieht die Einlösung in ihrer Filiale', !!inBranch);
-      check('… mitsamt dem Code, den sie abgleichen muss', inBranch?.code === offen?.code,
+      check('… mitsamt dem Code, den sie abgleichen muss', inBranch?.code === entwertet?.code,
         `ist: ${inBranch?.code}`);
       if (branch2) {
         const inOther = (await req('GET', `/state?branch=${branch2.slug}`))
-          .json?.redemptions?.find(r => r.id === offen?.id);
+          .json?.redemptions?.find(r => r.id === entwertet?.id);
         check('… und die andere Filiale sieht sie nicht', !inOther);
       }
 
-      // Der Code ist der einzige Nachweis beim Abbrechen. Stünde er im
-      // öffentlichen Zustand, könnte jeder fremde Einlösungen abräumen.
+      // Wer gar nicht angemeldet ist, soll nicht mitlesen können, welche Zahl
+      // gerade am Nebentisch auf dem Handy steht.
       const anonState = (await req('GET', `/state?branch=${B}`, undefined, { anonymous: true }))
         .json?.redemptions ?? [];
       check('Im Zustand ohne Anmeldung steht kein einziger Code',
         anonState.every(r => r.code === undefined),
         `${anonState.filter(r => r.code !== undefined).length} von ${anonState.length} mit Code`);
       check('… der Eintrag selbst ist aber sichtbar (der Gast sieht seinen Stand)',
-        anonState.some(r => r.id === offen?.id));
+        anonState.some(r => r.id === entwertet?.id));
     }
 
-    // ── 2) Quittieren ─────────────────────────────────────────────
-    console.log('\n2) Die Servicekraft quittiert in ihrer eigenen App');
+    // ── 2) Ausgabe eintragen ──────────────────────────────────────
+    console.log('\n2) Die Servicekraft trägt die Ausgabe in ihrer eigenen App ein');
     {
-      const anon = await req('POST', `/branches/${B}/redemptions/${offen.id}/confirm`, undefined, { anonymous: true });
-      check('Quittieren ohne Anmeldung wird mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
+      const anon = await req('POST', `/branches/${B}/redemptions/${entwertet.id}/confirm`, undefined, { anonymous: true });
+      check('Eintragen ohne Anmeldung wird mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
 
       if (branch2) {
         // Mit der Filialleitung der zweiten Filiale, wenn es sie gibt: dann greift
         // schon die Filialbindung (403). Sonst als Admin — der darf überall hin und
         // fällt erst über die Filiale IM Update-Filter (409).
-        const foreign = await req('POST', `/branches/${branch2.slug}/redemptions/${offen.id}/confirm`,
+        const foreign = await req('POST', `/branches/${branch2.slug}/redemptions/${entwertet.id}/confirm`,
           undefined, { as: manager2Token ?? token });
-        check('Die andere Filiale kann sie nicht quittieren', foreign.status === 409 || foreign.status === 403,
+        check('Die andere Filiale kann sie nicht eintragen', foreign.status === 409 || foreign.status === 403,
           `HTTP ${foreign.status}`);
-        const stillOpen = (await req('GET', `/state?branch=${B}`)).json?.redemptions?.find(r => r.id === offen.id);
-        check('… und sie läuft danach unverändert weiter', stillOpen?.status === 'offen',
+        const stillOpen = (await req('GET', `/state?branch=${B}`)).json?.redemptions?.find(r => r.id === entwertet.id);
+        check('… und sie steht danach unverändert auf "entwertet"', stillOpen?.status === 'entwertet',
           `ist: ${stillOpen?.status}`);
       }
 
       const pointsBefore = await guestPoints();
-      const ok = await req('POST', `/branches/${B}/redemptions/${offen.id}/confirm`, undefined, { as: waiterToken });
-      check('Der Kellner quittiert mit 200', ok.status === 200, `HTTP ${ok.status} — ${ok.json?.error ?? ''}`);
+      const ok = await req('POST', `/branches/${B}/redemptions/${entwertet.id}/confirm`, undefined, { as: waiterToken });
+      check('Der Kellner trägt die Ausgabe mit 200 ein', ok.status === 200, `HTTP ${ok.status} — ${ok.json?.error ?? ''}`);
 
-      const done = ok.json?.redemptions?.find(r => r.id === offen.id);
+      const done = ok.json?.redemptions?.find(r => r.id === entwertet.id);
       check('… der Eintrag steht danach auf "eingelöst"', done?.status === 'eingelöst', `ist: ${done?.status}`);
       check('… mit Zeitpunkt', typeof done?.redeemedAt === 'number');
       check('… und dem Namen der Servicekraft', typeof done?.confirmedByName === 'string' && done.confirmedByName.length > 0,
         `ist: ${done?.confirmedByName}`);
 
-      const twice = await req('POST', `/branches/${B}/redemptions/${offen.id}/confirm`, undefined, { as: waiterToken });
-      check('Zweites Quittieren wird mit 409 abgelehnt', twice.status === 409, `HTTP ${twice.status}`);
+      const twice = await req('POST', `/branches/${B}/redemptions/${entwertet.id}/confirm`, undefined, { as: waiterToken });
+      check('Zweites Eintragen wird mit 409 abgelehnt', twice.status === 409, `HTTP ${twice.status}`);
       check('Die Punkte bleiben verbraucht', await guestPoints() === pointsBefore,
         `${pointsBefore} → ${await guestPoints()}`);
     }
 
-    // ── 3) Abbrechen ──────────────────────────────────────────────
-    console.log('\n3) Der Gast bricht einen Fehltipp ab');
+    // ── 3) Der Gast schließt den Bildschirm ───────────────────────
+    // Er hat bezahlt und muss den Code später noch vorzeigen können, wenn die
+    // Servicekraft endlich am Tisch steht. Also muss der Code in dem Zustand
+    // stehen, den SEIN Token lädt — und nur dort.
+    console.log('\n3) Der Code bleibt beim Gast erreichbar');
     {
       const pointsBefore = await guestPoints();
-      const open = await req('POST', `/branches/${B}/vouchers/${vAbbruch.id}/redeem`, {}, { auth: false });
+      const open = await req('POST', `/branches/${B}/vouchers/${vSichtbar.id}/redeem`, {}, { auth: false });
       const r = open.json?.redemption;
-      check('Eröffnen liefert 200', open.status === 200, `HTTP ${open.status} — ${open.json?.error ?? ''}`);
+      check('Entwerten liefert 200', open.status === 200, `HTTP ${open.status} — ${open.json?.error ?? ''}`);
 
-      const falscherCode = r.code === '0000' ? '1111' : '0000';
-      const wrong = await req('POST', `/branches/${B}/redemptions/${r.id}/cancel`, { code: falscherCode }, { auth: false });
-      check('Abbrechen mit falschem Code wird mit 409 abgelehnt', wrong.status === 409, `HTTP ${wrong.status}`);
-      const afterWrong = (await req('GET', `/state?branch=${B}`)).json?.redemptions?.find(x => x.id === r.id);
-      check('… die Einlösung läuft weiter', afterWrong?.status === 'offen', `ist: ${afterWrong?.status}`);
-      check('… und die Punkte bleiben reserviert', await guestPoints() === pointsBefore - vAbbruch.points);
+      const eigene = (await req('GET', `/state?branch=${B}`, undefined, { auth: false }))
+        .json?.redemptions?.find(x => x.id === r.id);
+      check('Der Gast findet seine Entwertung im Zustand wieder', !!eigene);
+      check('… mit dem Code, den er vorzeigen soll', eigene?.code === r.code, `ist: ${eigene?.code}`);
+      check('… und sie steht weiter auf "entwertet"', eigene?.status === 'entwertet', `ist: ${eigene?.status}`);
 
+      // Der Rückweg ist zu — die Route selbst ist weg, nicht nur der Knopf.
       const cancel = await req('POST', `/branches/${B}/redemptions/${r.id}/cancel`, { code: r.code }, { auth: false });
-      check('Abbrechen mit richtigem Code liefert 200', cancel.status === 200,
-        `HTTP ${cancel.status} — ${cancel.json?.error ?? ''}`);
-      check('… der Eintrag steht auf "abgebrochen"',
-        cancel.json?.redemptions?.find(x => x.id === r.id)?.status === 'abgebrochen');
-      check('… die Punkte sind zurück', await guestPoints() === pointsBefore,
+      check('Abbrechen gibt es nicht mehr', cancel.status === 404 || cancel.status === 405,
+        `HTTP ${cancel.status}`);
+      check('… die Punkte bleiben weg', await guestPoints() === pointsBefore - vSichtbar.points,
         `${pointsBefore} → ${await guestPoints()}`);
-      check('… und der Gutschein ist wieder frei', !(await guestRedeemed()).includes(vAbbruch.id));
-
-      const twice = await req('POST', `/branches/${B}/redemptions/${r.id}/cancel`, { code: r.code }, { auth: false });
-      check('Zweites Abbrechen wird mit 409 abgelehnt', twice.status === 409, `HTTP ${twice.status}`);
-      check('… und bucht die Punkte nicht ein zweites Mal zurück', await guestPoints() === pointsBefore,
-        `ist: ${await guestPoints()}, erwartet ${pointsBefore}`);
+      check('… und der Gutschein bleibt vergeben', (await guestRedeemed()).includes(vSichtbar.id));
     }
 
     // ── 4) Gleichzeitigkeit ───────────────────────────────────────
-    // Zwei Handys am selben Tisch, zwei Servicekräfte am selben Eintrag: der
+    // Zwei Handys am selben Konto, zwei Servicekräfte am selben Eintrag: der
     // Schutz liegt im Update-Filter, nicht in einer vorgelagerten Prüfung.
     console.log('\n4) Zwei gleichzeitige Anfragen');
     {
@@ -314,7 +308,7 @@ async function main() {
         req('POST', `/branches/${B}/vouchers/${vWettlauf.id}/redeem`, {}, { auth: false }),
       ]);
       const openCodes = [o1.status, o2.status].sort();
-      check('Zwei gleichzeitige Eröffnungen: genau eine wird angenommen',
+      check('Zwei gleichzeitige Entwertungen: genau eine wird angenommen',
         openCodes[0] === 200 && openCodes[1] === 409, `Antworten: ${openCodes.join(' und ')}`);
       check('… und die Punkte werden nur einmal abgebucht',
         await guestPoints() === pointsBefore - vWettlauf.points,
@@ -327,22 +321,22 @@ async function main() {
           req('POST', `/branches/${B}/redemptions/${r.id}/confirm`, undefined, { as: waiterToken }),
         ]);
         const codes = [c1.status, c2.status].sort();
-        check('Zwei gleichzeitige Quittungen: genau eine wird angenommen',
+        check('Zwei gleichzeitige Eintragungen: genau eine wird angenommen',
           codes[0] === 200 && codes[1] === 409, `Antworten: ${codes.join(' und ')}`);
       }
     }
 
-    // ── 5) Was gar nicht erst eröffnet werden darf ────────────────
-    console.log('\n5) Abgewiesene Eröffnungen');
+    // ── 5) Was gar nicht erst entwertet werden darf ───────────────
+    console.log('\n5) Abgewiesene Entwertungen');
     {
-      const ohneKonto = await req('POST', `/branches/${B}/vouchers/${vQuittung.id}/redeem`, {}, { anonymous: true });
+      const ohneKonto = await req('POST', `/branches/${B}/vouchers/${vRest.id}/redeem`, {}, { anonymous: true });
       check('Einlösen ohne Gastkonto wird mit 401 abgelehnt', ohneKonto.status === 401, `HTTP ${ohneKonto.status}`);
 
       const broke = await req('POST', `/branches/${B}/vouchers/${vTeuer.id}/redeem`, {}, { auth: false });
       check('Ohne Deckung wird mit 400 abgelehnt', broke.status === 400, `HTTP ${broke.status}`);
       check('… ohne einen Eintrag zu hinterlassen',
         !(await req('GET', `/state?branch=${B}`)).json?.redemptions
-          ?.some(r => r.voucherId === vTeuer.id && r.status === 'offen'));
+          ?.some(r => r.voucherId === vTeuer.id));
 
       if (vFremd) {
         const wrongBranch = await req('POST', `/branches/${B}/vouchers/${vFremd.id}/redeem`, {}, { auth: false });
@@ -356,39 +350,15 @@ async function main() {
       const broken = await req('POST', `/branches/${B}/vouchers/keine-id/redeem`, {}, { auth: false });
       check('Kaputte Gutschein-ID wird mit 400 abgelehnt', broken.status === 400, `HTTP ${broken.status}`);
 
-      const badTable = await req('POST', `/branches/${B}/vouchers/${vVerfall.id}/redeem`,
+      const badTable = await req('POST', `/branches/${B}/vouchers/${vRest.id}/redeem`,
         { tableNumber: 0 }, { auth: false });
       check('Ungültige Tischnummer wird mit 400 abgelehnt', badTable.status === 400, `HTTP ${badTable.status}`);
 
       const badId = await req('POST', `/branches/${B}/redemptions/keine-id/confirm`, undefined, { as: waiterToken });
-      check('Kaputte Einlösungs-ID beim Quittieren wird mit 400 abgelehnt', badId.status === 400,
+      check('Kaputte Einlösungs-ID beim Eintragen wird mit 400 abgelehnt', badId.status === 400,
         `HTTP ${badId.status}`);
     }
 
-    // ── 6) Verfall ────────────────────────────────────────────────
-    if (process.env.SKIP_EXPIRY) {
-      console.log('\n6) Verfall — übersprungen (SKIP_EXPIRY gesetzt)');
-    } else {
-      console.log(`\n6) Verfall nach ${TTL_MS / 1000} Sekunden (Wartezeit — mit SKIP_EXPIRY=1 überspringbar)`);
-      const pointsBefore = await guestPoints();
-      const open = await req('POST', `/branches/${B}/vouchers/${vVerfall.id}/redeem`, {}, { auth: false });
-      const r = open.json?.redemption;
-      check('Eröffnen liefert 200', open.status === 200, `HTTP ${open.status} — ${open.json?.error ?? ''}`);
-
-      await sleep(Math.max(0, r.expiresAt - Date.now()) + 1500);
-      // Es gibt keinen Hintergrundjob: wer als Erster den Zustand lädt, räumt ab.
-      const after = (await req('GET', `/state?branch=${B}`)).json?.redemptions?.find(x => x.id === r.id);
-      check('Nach Ablauf steht der Eintrag auf "verfallen"', after?.status === 'verfallen',
-        `ist: ${after?.status}`);
-      check('… die Punkte sind zurück', await guestPoints() === pointsBefore,
-        `${pointsBefore} → ${await guestPoints()}`);
-      check('… der Gutschein ist wieder frei', !(await guestRedeemed()).includes(vVerfall.id));
-      check('… und die Punkte kommen auch beim zweiten Laden nicht doppelt zurück',
-        await guestPoints() === pointsBefore, `ist: ${await guestPoints()}`);
-
-      const late = await req('POST', `/branches/${B}/redemptions/${r.id}/confirm`, undefined, { as: waiterToken });
-      check('Ein abgelaufener Code lässt sich nicht mehr quittieren', late.status === 409, `HTTP ${late.status}`);
-    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
     // Läuft auch nach einem Abbruch mitten im Test. Das Löschen eines

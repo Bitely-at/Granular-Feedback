@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import { ObjectId } from 'mongodb';
 import { platformDb, orgDbBySlug, closeDb } from './db.js';
 import { hashPassword } from './auth.js';
 import type { Organization, Branch, DishDoc, TableDoc, VoucherDoc, UserDoc, BrandDoc, GuestDoc } from './types.js';
@@ -82,42 +81,29 @@ async function main() {
   } else {
     console.log('Gerichte existieren bereits.');
   }
-  const dishIds = (await dishesCol.find().toArray()).map(d => d._id!.toString());
 
   const tablesCol = db.collection<TableDoc>('tables');
   // Tischnummern zählen PRO Filiale — beide Filialen fangen bei 1 an, Tisch 4
   // gibt es also zweimal, und die beiden sind verschiedene Tische.
-  const mk = (forBranchId: string) => (
-    number: number,
-    status: TableDoc['status'],
-    itemIdxQty: [number, number][],
-    minutesAgo: number | null
-  ): Omit<TableDoc, '_id'> => ({
+  //
+  // Alle Tische starten LEER. Vorher trugen fünf davon eine erfundene
+  // Bestellung, damit der Personalbildschirm nach etwas aussieht. Das kostete
+  // mehr, als es brachte: wer den QR-Code eines solchen Tisches scannte, sollte
+  // Gerichte bewerten, die nie jemand bestellt hat, und beim Vorführen war
+  // nicht auseinanderzuhalten, was gerade gebucht wurde und was aus dem Seed
+  // stammt. Gebucht wird in der Kellner-App, dort gehört es auch her.
+  const mk = (forBranchId: string) => (number: number): Omit<TableDoc, '_id'> => ({
     branchId: forBranchId,
     number,
-    status,
-    items: itemIdxQty.map(([idx, qty]) => ({ dishId: dishIds[idx], qty })),
-    openedAt: minutesAgo == null ? null : Date.now() - minutesAgo * 60000,
-    // Ein Tisch mit Gerichten trägt eine offene Bestellung; leere Tische nicht.
-    orderId: itemIdxQty.length > 0 ? new ObjectId() : null,
+    status: 'frei',
+    items: [],
+    openedAt: null,
+    orderId: null,
   });
 
   if ((await tablesCol.countDocuments({ branchId })) === 0) {
     const t = mk(branchId);
-    await tablesCol.insertMany([
-      t(1, 'frei', [], null),
-      t(2, 'offen', [[0, 2], [6, 2]], 22),
-      t(3, 'frei', [], null),
-      t(4, 'offen', [[0, 1], [1, 1], [2, 1]], 8), // Tisch 4 = Demo-Gasttisch, siehe README
-      t(5, 'frei', [], null),
-      t(6, 'offen', [[1, 3], [7, 2], [3, 2]], 45),
-      t(7, 'frei', [], null),
-      t(8, 'frei', [], null),
-      t(9, 'offen', [[2, 2], [5, 3]], 15),
-      t(10, 'frei', [], null),
-      t(11, 'offen', [[6, 3]], 33),
-      t(12, 'frei', [], null),
-    ]);
+    await tablesCol.insertMany([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(t));
     console.log(`Tische 1–12 für "${mainBranch.name}" angelegt.`);
   } else {
     console.log(`Tische für "${mainBranch.name}" existieren bereits.`);
@@ -126,15 +112,7 @@ async function main() {
   const secondBranchId = secondBranch._id!.toString();
   if ((await tablesCol.countDocuments({ branchId: secondBranchId })) === 0) {
     const t = mk(secondBranchId);
-    await tablesCol.insertMany([
-      t(1, 'frei', [], null),
-      t(2, 'offen', [[4, 2], [8, 2]], 12),
-      t(3, 'frei', [], null),
-      // Absichtlich belegt: Tisch 4 gibt es in beiden Filialen, mit anderem Inhalt.
-      t(4, 'offen', [[5, 1], [7, 1]], 30),
-      t(5, 'frei', [], null),
-      t(6, 'frei', [], null),
-    ]);
+    await tablesCol.insertMany([1, 2, 3, 4, 5, 6].map(t));
     console.log(`Tische 1–6 für "${secondBranch.name}" angelegt.`);
   } else {
     console.log(`Tische für "${secondBranch.name}" existieren bereits.`);

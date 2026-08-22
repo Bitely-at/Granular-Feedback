@@ -1,6 +1,6 @@
 # Weitermachen auf einem anderen Rechner
 
-Stand: 17. August 2026. Diese Datei ist der Einstieg nach einem Rechnerwechsel —
+Stand: 22. August 2026. Diese Datei ist der Einstieg nach einem Rechnerwechsel —
 sie sagt, was NICHT im Repository liegt, wo das Projekt gerade steht und was als
 Nächstes ansteht. Die Regeln des Systems stehen in `CLAUDE.md`, der Überblick
 für Außenstehende im Handbuch (Links unten).
@@ -33,12 +33,15 @@ lokal anlegst oder löschst, ist sofort online sichtbar.
 Fertig und live:
 
 - Gastansicht mit QR-Code je Tisch, Bewertung einzelner Gerichte, Punkte
-- Kellner-App: Bestellungen buchen, Tische schließen, Einlösungen quittieren
+- Kellner-App: Bestellungen buchen, Tische für neue Gäste freigeben, ausgegebene
+  Gutscheine eintragen
 - Admin: Menü, Gutscheine, Filialen, Tische/QR, Benutzer, Branding, Dashboard
 - Anmeldung für Personal (drei Rollen) und **echte Gastkonten** (E-Mail oder Google)
-- Gutschein-Einlösung per Wischgeste mit Code, Countdown und Quittung durch das Personal
-- Vier Prüfsuiten, alle grün: `verify:tables` (27), `verify:admin` (61),
-  `verify:redemptions` (42), `verify:guests` (39)
+- Gutschein-Einlösung per Wischgeste: der Wisch entwertet endgültig, die
+  Servicekraft trägt danach nur noch die Ausgabe ein
+- Vier Prüfsuiten: `verify:tables` (27), `verify:admin` (61), `verify:guests`
+  (39) — zuletzt alle grün. `verify:redemptions` ist nach dem Umbau der
+  Einlösung neu geschrieben und **noch nicht gegen einen Server gelaufen**.
 
 Zugänge und Rollen: siehe Handbuch. Konten auflisten:
 `npm run set-password --prefix server` (ohne Argumente).
@@ -48,12 +51,10 @@ Punkte für eine Vorführung: `npm run guest-points --prefix server -- <e-mail> 
 
 In der Reihenfolge, in der sie zuletzt besprochen wurden:
 
-1. **Wisch-Ablauf ohne Text** — umgesetzt: der Einlöse-Bildschirm zeigt beim
-   Wischen keine Erklärung mehr. **Offen ist die Grundsatzfrage dahinter:** Soll
-   die Quittung durch die Servicekraft bleiben, oder soll der Gutschein direkt
-   beim Wischen verschwinden? Ohne Quittung genügt ein Screenshot des
-   Bestätigungsbildschirms, um denselben Gutschein mehrfach vorzuzeigen — genau
-   deshalb wurde die Quittung eingeführt.
+1. ~~**Grundsatzfrage Einlösung**~~ — entschieden am 22.08.2026: Der Wisch
+   entwertet sofort und endgültig, die Servicekraft trägt danach nur noch die
+   Ausgabe ein. Der Screenshot ist damit uninteressant, weil er dieselben Punkte
+   kostet wie der echte Wisch. Die 60-Sekunden-Frist ist ersatzlos entfallen.
 2. ~~**Bewertung: Service mit der Gesamtbewertung zusammenlegen**~~ — erledigt:
    Service, Ambiente und Tempo stehen unter den Gerichten auf demselben
    Bildschirm, der zweite Schritt ist entfallen.
@@ -67,7 +68,8 @@ In der Reihenfolge, in der sie zuletzt besprochen wurden:
    Filialen. Preis skaliert am sinnvollsten pro Filiale. Bei Zahlungsverzug nur
    das Schreiben sperren — die QR-Codes hängen gedruckt an den Tischen.
 5. Kleinkram: keine Ratenbegrenzung auf den Anmelderouten, CORS offen, kein
-   "Passwort vergessen", kein Filialpreis, kein Auto-Close von Tischen.
+   "Passwort vergessen", kein Filialpreis. (Tische geben sich inzwischen nach
+   zwei Stunden von selbst frei, siehe `releaseStaleTables`.)
 
 ## 4. Betriebsfallen, die schon einmal Zeit gekostet haben
 
