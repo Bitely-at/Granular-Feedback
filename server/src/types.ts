@@ -130,6 +130,10 @@ export interface UserDoc {
   email: string;
   // null = noch kein Passwort gesetzt (offene Einladung) -> kann sich nicht anmelden.
   passwordHash: string | null;
+  // Googles Konto-ID, sobald sich dieses Konto einmal mit Google angemeldet
+  // hat. Sie ersetzt kein Passwort: der Zugang hängt weiter am Konto, das ein
+  // Admin angelegt hat — Google beweist nur, wer davor sitzt.
+  googleSub?: string | null;
   role: 'Admin' | 'Manager' | 'Kellner';
   branchId: string | null; // null = alle Filialen
   status: 'aktiv' | 'eingeladen' | 'inaktiv';

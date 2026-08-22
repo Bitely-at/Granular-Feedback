@@ -377,6 +377,14 @@ Tisch nicht.
 - **Passwörter**: `crypto.scrypt` mit Salt pro Passwort, keine externe
   Abhängigkeit. `passwordHash: null` heißt *eingeladen, kann sich nicht
   anmelden*.
+- **Google für das Personal** (`POST /auth/google`): derselbe Weg wie beim Gast,
+  mit einem entscheidenden Unterschied — hier entsteht **nie** ein Konto. Gesucht
+  wird über `googleSub` oder die E-Mail; ohne aktives Konto gibt es 403. Sonst
+  wäre jede Google-Adresse der Welt ein Zugang zu einer fremden Verwaltung.
+  Google beweist nur, wer davor sitzt; Rolle und Filiale kommen weiter aus dem
+  Konto. Weder `passwordHash` noch `googleSub` verlassen den Server
+  (`serializeUser` gibt `hasPassword`/`hasGoogle`) — `users` steckt im Zustand,
+  den auch ein Gast lädt.
 - **Rechte liegen auf dem Server**, nicht in der Oberfläche: `requireAuth(...)`
   in `index.ts` umschließt jeden geschützten Handler. Die Prüfung in `OrgChrome`
   versteckt nur, sie schützt nicht.

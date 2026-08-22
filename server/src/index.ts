@@ -86,8 +86,15 @@ function serialize<T extends WithId<Document>>(doc: T) {
 // Antwort landen. users taucht über getFullState() im GEMEINSAMEN
 // Zustandsobjekt auf, das auch der Gast lädt (siehe GET /state).
 function serializeUser(doc: WithId<UserDoc>) {
-  const { _id, passwordHash: _passwordHash, ...rest } = doc;
-  return { id: String(_id), ...rest };
+  const { _id, passwordHash, googleSub, ...rest } = doc;
+  // Weder Hash noch Googles Konto-ID gehören in eine Antwort: `users` steckt im
+  // Gesamtzustand, den auch ein Gast lädt. Was die Verwaltung braucht, ist
+  // ohnehin nur, OB es die beiden Wege gibt.
+  return {
+    id: String(_id), ...rest,
+    hasPassword: !!passwordHash,
+    hasGoogle: !!googleSub,
+  };
 }
 
 // Dieselbe Falle wie oben, mit dem Einlöse-Code: `redemptions` steckt im
@@ -1239,6 +1246,13 @@ router.get('/guest/auth-options', async (_req: OrgRequest, res) => {
   res.json({ password: true, google: !!clientId, googleClientId: clientId });
 });
 
+// Dieselbe Auskunft für die Personal-Anmeldung. Eigene Adresse, weil ein
+// Anmeldebildschirm für Mitarbeiter nichts unter `/guest/` abfragen sollte.
+router.get('/auth-options', async (_req: OrgRequest, res) => {
+  const clientId = googleClientId();
+  res.json({ password: true, google: !!clientId, googleClientId: clientId });
+});
+
 /**
  * Gast: Anmeldung mit Google.
  *
@@ -1432,6 +1446,62 @@ router.delete('/guest/me', async (req: OrgRequest, res) => {
   );
   await req.db!.collection<GuestDoc>('guests').deleteOne({ _id: guest._id });
   res.json({ ok: true });
+});
+
+/**
+ * Personal: Anmeldung mit Google.
+ *
+ * Der entscheidende Unterschied zum Gast: hier entsteht NIE ein Konto. Wer sich
+ * anmeldet, muss schon eingeladen sein — gesucht wird über Googles Konto-ID
+ * oder die E-Mail, und ohne aktives Konto bleibt es bei einer Absage. Sonst
+ * wäre jede Google-Adresse der Welt ein Zugang zur Verwaltung eines fremden
+ * Betriebs.
+ *
+ * Google beweist nur, wer vor dem Gerät sitzt. Welche Rechte daraus folgen,
+ * steht weiterhin im Konto (`role`, `branchId`), und das Token stellen wir aus.
+ */
+router.post('/auth/google', async (req: OrgRequest, res) => {
+  if (!googleClientId()) {
+    res.status(503).json({ error: 'Google-Anmeldung ist auf diesem Server nicht eingerichtet.' });
+    return;
+  }
+  const credential = typeof req.body?.credential === 'string' ? req.body.credential : '';
+  if (!credential) {
+    res.status(400).json({ error: 'Es wurde kein Google-Token übergeben.' });
+    return;
+  }
+
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(credential);
+  } catch (err) {
+    // Der Grund gehört ins Log, nicht in die Antwort.
+    console.warn('Google-Anmeldung (Personal) abgelehnt:', err instanceof Error ? err.message : err);
+    res.status(401).json({ error: 'Die Google-Anmeldung hat nicht geklappt. Bitte erneut versuchen.' });
+    return;
+  }
+
+  const users = req.db!.collection<UserDoc>('users');
+  const user = await users.findOne({ $or: [{ googleSub: identity.sub }, { email: identity.email }] });
+  if (!user || user.status !== 'aktiv') {
+    // Absichtlich derselbe Satz für "kein Konto" und "gesperrt": wer hier
+    // Adressen durchprobiert, soll nicht erfahren, welche davon existieren.
+    res.status(403).json({
+      error: `Für ${identity.email} gibt es hier kein aktives Mitarbeiterkonto. Bitte von der Verwaltung einladen lassen.`,
+    });
+    return;
+  }
+
+  // Beim ersten Mal die Konto-ID nachtragen — danach greift der Weg über sub,
+  // und eine geänderte E-Mail bei Google wirft niemanden mehr hinaus.
+  if (!user.googleSub) {
+    await users.updateOne({ _id: user._id }, { $set: { googleSub: identity.sub } });
+  }
+
+  const token = signToken({
+    sub: String(user._id), orgSlug: req.params.orgSlug!, role: user.role, branchId: user.branchId,
+  });
+  res.json({ token, user: serializeUser({ ...user, googleSub: identity.sub }) });
 });
 
 // ── Kellner: Alarm-Banner (Bewertung < 3 Sterne) als erledigt markieren ──

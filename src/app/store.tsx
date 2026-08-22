@@ -95,6 +95,9 @@ export interface Voucher {
 export interface AdminUser {
   id: string; name: string; email: string; role: 'Admin' | 'Manager' | 'Kellner';
   branchId: string | null; status: 'aktiv' | 'eingeladen' | 'inaktiv';
+  // Welche Anmeldewege dieses Konto hat. Weder Hash noch Googles Konto-ID
+  // verlassen den Server — nur die Auskunft, ob es sie gibt.
+  hasPassword?: boolean; hasGoogle?: boolean;
 }
 
 // Wer gerade angemeldet ist. null = niemand (Gastansicht oder ausgeloggt).
@@ -171,7 +174,7 @@ export interface GuestAccount {
 }
 
 /** Welche Anmeldewege der Server anbietet. Google hängt an einer Client-ID. */
-export interface GuestAuthOptions {
+export interface AuthOptions {
   password: boolean; google: boolean; googleClientId: string | null;
 }
 
@@ -328,10 +331,13 @@ interface StoreApi extends OrgState {
   authUser: AuthUser | null;
   authLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  // Personal-Anmeldung über Google. Legt kein Konto an — sie findet nur eines,
+  // das ein Admin schon eingeladen hat.
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => void;
   // Angemeldeter GAST (nicht Personal) oder null.
   guestUser: GuestAccount | null;
-  guestAuthOptions: GuestAuthOptions;
+  authOptions: AuthOptions;
   guestRegister: (email: string, name: string, password: string) => Promise<void>;
   guestLogin: (email: string, password: string) => Promise<void>;
   guestGoogleLogin: (credential: string) => Promise<void>;
@@ -421,7 +427,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [guestUser, setGuestUser] = useState<GuestAccount | null>(null);
-  const [authOptions, setAuthOptions] = useState<GuestAuthOptions>({
+  const [authOptions, setAuthOptions] = useState<AuthOptions>({
     password: true, google: false, googleClientId: null,
   });
 
@@ -510,6 +516,15 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     }, 'guest'));
   }, [orgSlug, applyGuestSession]);
 
+  const googleLogin = useCallback(async (credential: string) => {
+    const data = await api<{ token: string; user: AuthUser }>(orgSlug, '/auth/google', {
+      method: 'POST', body: JSON.stringify({ credential }),
+    });
+    writeToken(orgSlug, data.token);
+    setAuthUser(data.user);
+    await refresh();
+  }, [orgSlug, refresh]);
+
   const guestLogin = useCallback(async (email: string, password: string) => {
     await applyGuestSession(await api<{ token: string; guest: GuestAccount }>(orgSlug, '/guest/login', {
       method: 'POST', body: JSON.stringify({ email, password }),
@@ -557,7 +572,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   // hinterlegter Client-ID) — nicht der Frontend-Build.
   useEffect(() => {
     let cancelled = false;
-    api<GuestAuthOptions>(orgSlug, '/guest/auth-options')
+    api<AuthOptions>(orgSlug, '/auth-options')
       .then(opts => { if (!cancelled) setAuthOptions(opts); })
       .catch(() => { /* dann bleibt es beim Standard: nur E-Mail und Passwort */ });
     return () => { cancelled = true; };
@@ -711,8 +726,8 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   }, [call]);
 
   const value = useMemo<StoreApi>(() => ({
-    ...state, orgSlug, loading, error, authUser, authLoading, login, logout,
-    guestUser, guestAuthOptions: authOptions, guestRegister, guestLogin, guestGoogleLogin,
+    ...state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
+    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin,
     guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
     startRedemption, confirmRedemption,
@@ -721,7 +736,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt,
-  }), [state, orgSlug, loading, error, authUser, authLoading, login, logout,
+  }), [state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
     startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,

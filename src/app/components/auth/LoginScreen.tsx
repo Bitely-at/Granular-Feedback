@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Loader2, Lock } from 'lucide-react';
 import { useStore } from '../../store';
+import { useGoogleSignIn } from './googleSignIn';
 
 /**
  * Anmeldung für Mitarbeiter (Admin, Manager, Servicekraft). Steht vor
@@ -8,7 +9,7 @@ import { useStore } from '../../store';
  * Miete — die Rechte werden serverseitig erzwungen (requireAuth in index.ts).
  */
 export function LoginScreen({ title, hint }: { title: string; hint: string }) {
-  const { login, brand } = useStore();
+  const { login, googleLogin, authOptions, brand } = useStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +27,24 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
       setBusy(false);
     }
   }
+
+  // Google meldet nur an, wer schon ein Konto hat — angelegt wird hier keines.
+  // Für das Personal ist das der schnelle Weg: keine Adresse tippen, kein
+  // Passwort suchen, das ohnehin alle Konten teilen.
+  const googleRef = useGoogleSignIn(
+    authOptions.google ? authOptions.googleClientId : null,
+    async credential => {
+      setError(null);
+      setBusy(true);
+      try {
+        await googleLogin(credential);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Anmeldung mit Google fehlgeschlagen.');
+      } finally {
+        setBusy(false);
+      }
+    },
+  );
 
   return (
     <div className="min-h-[calc(100dvh-40px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
@@ -67,6 +86,20 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
             {busy && <Loader2 size={15} className="animate-spin" />}
             {busy ? 'Wird angemeldet…' : 'Anmelden'}
           </button>
+
+          {authOptions.google && (
+            <div className="pt-2">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+                <span className="text-[11px] uppercase tracking-widest text-gray-400">oder</span>
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+              </div>
+              <div className="flex justify-center"><div ref={googleRef} /></div>
+              <p className="text-[11px] text-gray-400 text-center mt-3 leading-relaxed">
+                Nur mit der Adresse, unter der dich die Verwaltung eingeladen hat.
+              </p>
+            </div>
+          )}
         </form>
       </div>
     </div>

@@ -36,7 +36,9 @@ Fertig und live:
 - Kellner-App: Bestellungen buchen, Tische für neue Gäste freigeben, ausgegebene
   Gutscheine eintragen
 - Admin: Menü, Gutscheine, Filialen, Tische/QR, Benutzer, Branding, Dashboard
-- Anmeldung für Personal (drei Rollen) und **echte Gastkonten** (E-Mail oder Google)
+- Anmeldung für Personal (drei Rollen) und **echte Gastkonten** — beide wahlweise
+  mit E-Mail/Passwort oder Google. Beim Personal meldet Google nur an, wer schon
+  eingeladen ist; ein Konto entsteht dabei nicht.
 - Gutschein-Einlösung per Wischgeste: der Wisch entwertet endgültig, die
   Servicekraft trägt danach nur noch die Ausgabe ein
 - Vier Prüfsuiten: `verify:tables` (27), `verify:admin` (61), `verify:guests`

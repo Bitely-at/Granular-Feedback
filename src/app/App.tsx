@@ -26,6 +26,7 @@ import {
   type Insights, type Highlight,
 } from './store';
 import { LoginScreen } from './components/auth/LoginScreen';
+import { useGoogleSignIn } from './components/auth/googleSignIn';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
 // ═══════════════════════════════════════════════════════════
@@ -3793,51 +3794,6 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
 // für etwas, das er nicht in der Hand hat: ob gerade jemand am Tisch vorbeikommt.
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Lädt Googles Anmelde-Skript — aber nur, wenn der Server eine Client-ID
- * hinterlegt hat. Ohne sie erscheint der Knopf gar nicht erst, statt beim
- * Antippen mit einem Fehler zu enden.
- */
-function useGoogleSignIn(clientId: string | null, onCredential: (credential: string) => void) {
-  const buttonRef = useRef<HTMLDivElement>(null);
-  // In einer Ref, damit ein neu erzeugter Callback nicht das ganze Skript neu lädt.
-  const handler = useRef(onCredential);
-  handler.current = onCredential;
-
-  useEffect(() => {
-    if (!clientId || !buttonRef.current) return;
-    let cancelled = false;
-
-    const render = () => {
-      const google = (window as unknown as { google?: any }).google;
-      if (cancelled || !google?.accounts?.id || !buttonRef.current) return;
-      google.accounts.id.initialize({
-        client_id: clientId,
-        callback: (res: { credential?: string }) => {
-          if (res.credential) handler.current(res.credential);
-        },
-      });
-      google.accounts.id.renderButton(buttonRef.current, {
-        theme: 'outline', size: 'large', width: 280, text: 'continue_with', locale: 'de',
-      });
-    };
-
-    const existing = document.querySelector<HTMLScriptElement>('script[data-google-signin]');
-    if (existing) { existing.addEventListener('load', render); render(); }
-    else {
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      script.dataset.googleSignin = 'true';
-      script.addEventListener('load', render);
-      document.head.appendChild(script);
-    }
-    return () => { cancelled = true; };
-  }, [clientId]);
-
-  return buttonRef;
-}
 
 /**
  * Anmelden oder Konto anlegen — als GAST, nicht als Personal. Die beiden
@@ -3866,7 +3822,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
   };
 
   const googleRef = useGoogleSignIn(
-    store.guestAuthOptions.google ? store.guestAuthOptions.googleClientId : null,
+    store.authOptions.google ? store.authOptions.googleClientId : null,
     credential => { run(() => store.guestGoogleLogin(credential)); }
   );
 
@@ -3893,7 +3849,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          {store.guestAuthOptions.google && (
+          {store.authOptions.google && (
             <div className="flex flex-col items-center gap-3">
               <div ref={googleRef} />
               <div className="flex items-center gap-3 w-full">
