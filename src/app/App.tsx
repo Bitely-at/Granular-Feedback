@@ -2308,17 +2308,22 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
           </button>
-          <div className="flex items-center gap-1.5 px-3 pt-3">
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Powered by</span>
-            <span className="text-[12px] font-bold tracking-tight lowercase text-gray-600 dark:text-gray-400">bitely</span>
-          </div>
         </div>
       </aside>
 
       <div className="flex-1 lg:ml-56 flex flex-col min-h-screen min-w-0">
         <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
           <div className="flex items-center justify-between gap-3 px-4 sm:px-8 h-14">
-            <div className="relative min-w-0" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Die Wortmarke steht hier und sonst nirgends in der Verwaltung:
+                  ein Strich trennt sie vom Betrieb, damit klar bleibt, wer die
+                  Software stellt und wessen Laden man gerade verwaltet. Am
+                  Handy fällt sie weg — dort ist die Zeile schon voll. */}
+              <span className="hidden sm:flex items-center gap-3 flex-shrink-0">
+                <span className="text-[14px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
+                <span className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+              </span>
+              <div className="relative min-w-0" onClick={e => e.stopPropagation()}>
               <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
                 disabled={!canSwitchBranch}
                 className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors min-w-0 disabled:hover:text-gray-700 dark:disabled:hover:text-gray-300">
@@ -2362,6 +2367,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   </motion.div>
                 )}
               </AnimatePresence>
+              </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
               <button onClick={handleRefresh} disabled={loading}
