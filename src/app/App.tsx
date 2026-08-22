@@ -1941,9 +1941,12 @@ function rangeStart(key: RangeKey): string | null {
   return new Date(Date.now() - Number(key) * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
+function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   orgSlug: string; branch: Branch | null; canSwitchBranch: boolean;
   onPick: (p: string | 'all') => void;
+  // Die Darstellung kommt von oben, weil sie für die ganze Ansicht gilt —
+  // gestellt wird sie hier, in den Einstellungen.
+  dark: boolean; setDark: (fn: (p: boolean) => boolean) => void;
 }) {
   const store = useStore();
   const [page, setPage] = useState<AdminPage>('dashboard');
@@ -1971,6 +1974,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const [previewStars, setPreviewStars] = useState(4);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  // Konto-Menü am Handy: dort ist die Seitenleiste ausgeblendet, und mit ihr
+  // der Fuß, in dem Abmelden sonst steht.
+  const [accountOpen, setAccountOpen] = useState(false);
   const [addTableCount, setAddTableCount] = useState(1);
   const [addingTables, setAddingTables] = useState(false);
   // Der Server liefert bereits nur die passenden Tische; im Ketten-Blick sind
@@ -2261,8 +2267,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); }}>
-      <aside className="hidden lg:flex w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col fixed top-10 bottom-0 z-20">
+    <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); setAccountOpen(false); }}>
+      <aside className="hidden lg:flex w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col fixed top-0 bottom-0 z-20">
         <div className="p-5 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-2.5">
             <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
@@ -2281,15 +2287,36 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
             </button>
           ))}
         </nav>
+        {/* Konto und Abmelden gehören ans Ende der Navigation, nicht in eine
+            schwarze Leiste über der ganzen Seite. Es gibt sie genau einmal —
+            vorher zweimal, und der Knopf hier hatte nicht einmal einen
+            Handler: er sah nur aus wie einer. */}
         <div className="p-3 border-t border-gray-100 dark:border-gray-800">
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+          {store.authUser && (
+            <div className="flex items-center gap-2.5 px-3 py-2">
+              <div className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
+                style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                {store.authUser.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
+                <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
+              </div>
+            </div>
+          )}
+          <button onClick={store.logout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
           </button>
+          <div className="flex items-center gap-1.5 px-3 pt-3">
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Powered by</span>
+            <span className="text-[12px] font-bold tracking-tight lowercase text-gray-600 dark:text-gray-400">bitely</span>
+          </div>
         </div>
       </aside>
 
       <div className="flex-1 lg:ml-56 flex flex-col min-h-screen min-w-0">
-        <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-10 z-10">
+        <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
           <div className="flex items-center justify-between gap-3 px-4 sm:px-8 h-14">
             <div className="relative min-w-0" onClick={e => e.stopPropagation()}>
               <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
@@ -2345,7 +2372,33 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                 <Bell size={17} strokeWidth={1.5} className="text-gray-600 dark:text-gray-400" />
                 {openOutstandingAlerts > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />}
               </button>
-              <div className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>H</div>
+              {/* Nur dort, wo die Seitenleiste fehlt. Vorher stand hier ein
+                  fester Buchstabe „H" — eine Attrappe, die aussah, als wäre
+                  jemand angemeldet, den es nicht gibt. */}
+              <div className="relative lg:hidden" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setAccountOpen(p => !p)} title="Konto"
+                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
+                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                  {store.authUser?.name.charAt(0).toUpperCase() ?? '·'}
+                </button>
+                <AnimatePresence>
+                  {accountOpen && (
+                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      className="absolute right-0 top-10 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg z-30 p-1.5">
+                      {store.authUser && (
+                        <div className="px-3 py-2">
+                          <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
+                          <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
+                        </div>
+                      )}
+                      <button onClick={store.logout}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <LogOut size={14} strokeWidth={1.5} /> Abmelden
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
           <nav className="lg:hidden flex gap-1 px-3 pb-2 overflow-x-auto">
@@ -2359,7 +2412,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
           </nav>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); }}>
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); setAccountOpen(false); }}>
           <>
               {actionError && (
                 <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3 mb-5">
@@ -3001,6 +3054,30 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
               {page === 'settings' && (
                 <div className="space-y-5 max-w-3xl">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">Einstellungen</p>
+
+                  {/* DARSTELLUNG — stand vorher als Schalter in der schwarzen
+                      Leiste über allem. Sie ist eine Einstellung wie jede
+                      andere und gehört hierher; gemerkt wird sie auch über das
+                      Neuladen hinaus, sonst wäre sie keine. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                    <div>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        {dark ? <Moon size={15} strokeWidth={1.5} className="text-gray-400" /> : <Sun size={15} strokeWidth={1.5} className="text-gray-400" />} Darstellung
+                      </p>
+                      <p className="text-[12px] text-gray-400 mt-1">
+                        Gilt für dieses Gerät. Die Gastansicht folgt weiterhin dem Restaurant, nicht dieser Wahl.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      {([['Hell', false], ['Dunkel', true]] as const).map(([label, value]) => (
+                        <button key={label} onClick={() => setDark(() => value)}
+                          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-[13px] font-medium transition-colors ${dark === value ? 'text-gray-900 dark:text-white' : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'}`}
+                          style={dark === value ? { borderColor: 'var(--ba)', backgroundColor: 'color-mix(in srgb, var(--ba) 8%, transparent)' } : {}}>
+                          {value ? <Moon size={14} strokeWidth={1.5} /> : <Sun size={14} strokeWidth={1.5} />} {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {/* Filialen anzulegen oder zu löschen ist Sache der Kette. Die
                       Filialleitung sieht ihre eigene, kann sie aber nicht ändern. */}
                   {isChainAdmin && (
@@ -3657,7 +3734,15 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   picked: string | 'all' | null; onPick: (p: string | 'all') => void;
 }) {
   const store = useStore();
-  const [dark, setDark] = useState(false);
+  // Hell oder Dunkel ist eine Einstellung, kein Bildschirmzustand — sie
+  // überlebt das Neuladen. Im Privatmodus schlägt der Zugriff fehl; dann bleibt
+  // es bei Hell, statt dass die Seite gar nicht erst startet.
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('bitely.theme') === 'dark'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('bitely.theme', dark ? 'dark' : 'light'); } catch { /* Privatmodus */ }
+  }, [dark]);
   useGoogleFont(store.brand?.font);
 
   const needsLogin = view === 'admin' || view === 'waiter';
@@ -3753,11 +3838,12 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     );
   }
 
-  // Die schwarze Leiste gehört zum Personalbereich: sie trägt die Kennung des
-  // angemeldeten Kontos und den Abmelden-Knopf. In der Gastansicht hat sie
-  // nichts zu suchen — dort soll das Restaurant den Bildschirm besitzen, nicht
-  // die Software, und der Gast hat weder Konto noch Abmelden.
-  const showTopBar = view !== 'guest';
+  // Die schwarze Leiste bleibt nur noch im Kellner-Bereich, der keine eigene
+  // Navigation hat. In der Gastansicht hat sie nichts zu suchen — dort soll das
+  // Restaurant den Bildschirm besitzen, nicht die Software. In der Verwaltung
+  // stand sie doppelt zur Seitenleiste: zwei Abmelden-Knöpfe, von denen einer
+  // nichts tat, und ein Schalter für Hell/Dunkel, der eine Einstellung ist.
+  const showTopBar = view === 'waiter';
 
   return (
     <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
@@ -3776,7 +3862,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
       {view === 'waiter' && branch && <WaiterApp orgSlug={orgSlug} branch={branch} />}
       {view === 'admin' && (
         <AdminApp orgSlug={orgSlug} branch={branch} canSwitchBranch={canSwitchBranch}
-          onPick={onPick} />
+          onPick={onPick} dark={dark} setDark={setDark} />
       )}
     </div>
   );
