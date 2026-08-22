@@ -4199,7 +4199,7 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
       desc: `Als Gast an einem Tisch in ${branch.name}. Am Tisch führt der QR-Code direkt zur richtigen Nummer.`,
       Icon: Star,
     }] : []),
-    { to: `/${orgSlug}/staff`, label: 'Servicekraft', desc: 'Bestellungen buchen, Tische schließen, Gutscheine quittieren.', Icon: UtensilsCrossed },
+    { to: `/${orgSlug}/staff`, label: 'Servicekraft', desc: 'Bestellungen buchen, Tische für neue Gäste freigeben, Gutscheine ausgeben.', Icon: UtensilsCrossed },
     { to: `/${orgSlug}/admin`, label: 'Verwaltung', desc: 'Dashboard, Menü, Gutscheine, Benutzer, Einstellungen.', Icon: LayoutDashboard },
   ];
 
