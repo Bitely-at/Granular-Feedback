@@ -180,6 +180,23 @@ Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Au
 - Eingelöst wird in einer Filiale: die Route liegt unter `/branches/:branchSlug/`,
   und ein Gutschein mit `branchIds` gilt nur dort.
 
+## Gestaltung der Gastansicht
+
+Der Maßstab ist die gedruckte Speisekarte, nicht die Umfrage: eine einzige
+Akzentfarbe, sonst Weiß, Grau und Schwarz; durchgehende Blöcke von Rand zu Rand
+statt schwebender Karten; keine Tab-Leiste, keine Attrappen. Der
+Startbildschirm trägt ein vollflächiges Titelbild (`coverImage` aus den
+Marken-Einstellungen), das nach unten in den Hintergrund ausläuft, darüber eine
+44-Pixel-Schlagzeile mit dem Namen des Lokals. Fehlt das Bild, bleibt eine
+Fläche in der Akzentfarbe stehen.
+
+Die Fußzeile „POWERED BY bitely" steht auf dem ersten und dem letzten
+Bildschirm. Sie ist der Grund, warum oben keine Bitely-Leiste mehr hängt: den
+Bildschirm besitzt das Restaurant, wir stehen im Fuß.
+
+Die ausführliche Fassung mit allen Maßen steht in `design-gastansicht.md` —
+vor Änderungen an der Gastansicht dort nachsehen.
+
 ## Filialen und Tischnummern
 
 **Eine Tischnummer ist nur innerhalb ihrer Filiale eindeutig.** Tisch 5 in

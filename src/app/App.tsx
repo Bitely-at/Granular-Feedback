@@ -9,7 +9,7 @@ import {
   TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
   Eye, Trash2, UserPlus, Lock, Building2, ImagePlus,
-  AlertOctagon, Loader2, MessageSquare, Ticket,
+  AlertOctagon, Loader2, MessageSquare, Ticket, ArrowRight,
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -76,6 +76,23 @@ function PrimaryBtn({ children, onClick, disabled, full = true, sm }: {
       style={{ backgroundColor: disabled ? '#9CA3AF' : 'var(--ba, #16A34A)' }}>
       {children}
     </button>
+  );
+}
+
+/**
+ * „POWERED BY bitely" — die Fußzeile der Gastansicht.
+ *
+ * Die schwarze Bitely-Leiste über dem Gastbildschirm ist genau deshalb
+ * verschwunden: oben gehört die Marke des Lokals hin, unsere in den Fuß. Sie
+ * steht auf dem ersten und auf dem letzten Bildschirm und schließt damit den
+ * Weg des Gastes.
+ */
+function PoweredByBitely() {
+  return (
+    <div className="w-full flex items-center justify-center gap-1.5 pt-8">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
+      <span className="text-[15px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
+    </div>
   );
 }
 
@@ -192,8 +209,13 @@ function FullScreenMessage({ children, error, action }: { children: React.ReactN
 }
 
 // ═══════════════════════════════════════════════════════════
-// GERICHTE-BEWERTUNGSKARTE — drei Layout-Varianten (Design-Studio),
+// GERICHTE-BEWERTUNGSBLOCK — drei Layout-Varianten (Design-Studio),
 // gemeinsam genutzt vom echten Gast-Flow und der Live-Vorschau im Admin.
+//
+// Keine schwebenden Karten mehr: die Blöcke laufen von Rand zu Rand und sind
+// nur durch eine Haarlinie getrennt. Eine Liste aus Karten mit Rahmen, Schatten
+// und Abstand wirkt wie ein Formular; eine Speisekarte setzt ihre Gerichte
+// untereinander und lässt das Papier die Arbeit machen.
 // ═══════════════════════════════════════════════════════════
 
 function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', onRate, onToggleExpand, onNoteChange }: {
@@ -204,31 +226,39 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
     <AnimatePresence>
       {expanded && (
         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-          <div className="px-4 pb-4">
+          <div className="px-5 pb-5">
             <textarea rows={2} value={note} onChange={e => onNoteChange(e.target.value)}
               placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Anmerkung hinzufügen… (optional)'}
-              className="w-full text-[13px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2.5 outline-none resize-none focus:border-gray-400 transition-colors" />
+              className="w-full text-[14px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-xl px-3.5 py-3 outline-none resize-none" />
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   );
 
+  // Gemeinsam: weißer Block, unten eine Haarlinie. Der letzte Block der Liste
+  // braucht keine Sonderbehandlung — darunter kommt der nächste Abschnitt.
+  const shell = 'bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800';
+
+  const chevron = (
+    <button onClick={onToggleExpand} className="p-1.5 -mt-1 -mr-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
+      <ChevronDown size={18} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+    </button>
+  );
+
   if (cardStyle === 'editorial') {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <img src={dish.img} alt={dish.name} className="w-full h-32 object-cover" />
-        <div className="p-4">
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div>
-              <p className="text-[16px] font-semibold text-gray-900 dark:text-white">{dish.name}</p>
-              <p className="text-[12px] text-gray-400">{dish.price.toFixed(2)} €</p>
+      <div className={shell}>
+        <img src={dish.img} alt={dish.name} className="w-full h-44 object-cover" />
+        <div className="px-5 py-5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[19px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
+              <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
             </div>
-            <button onClick={onToggleExpand} className="p-1.5 -mt-1 -mr-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
-              <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-            </button>
+            {chevron}
           </div>
-          <StarRating value={stars} onChange={onRate} size={26} />
+          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={30} /></div>
         </div>
         {notesBlock}
       </div>
@@ -237,16 +267,14 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
 
   if (cardStyle === 'kompakt') {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2.5 p-2.5">
-          <img src={dish.img} alt={dish.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+      <div className={shell}>
+        <div className="flex items-center gap-3.5 px-5 py-3.5">
+          <img src={dish.img} alt={dish.name} className="w-12 h-12 rounded-[12px] object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-800" />
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium text-gray-900 dark:text-white leading-tight truncate">{dish.name}</p>
-            <StarRating value={stars} onChange={onRate} size={18} />
+            <p className="text-[15px] font-medium text-gray-900 dark:text-white leading-tight truncate">{dish.name}</p>
+            <div className="mt-1 -ml-1"><StarRating value={stars} onChange={onRate} size={22} /></div>
           </div>
-          <button onClick={onToggleExpand} className="p-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
-            <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-          </button>
+          {chevron}
         </div>
         {notesBlock}
       </div>
@@ -254,17 +282,22 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-      <div className="flex gap-3 p-4">
-        <img src={dish.img} alt={dish.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
+    <div className={shell}>
+      <div className="flex gap-4 px-5 py-5">
+        <img src={dish.img} alt={dish.name} className="w-16 h-16 rounded-[14px] object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-800" />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
-          <p className="text-[12px] text-gray-400 mb-2">{dish.price.toFixed(2)} €</p>
-          <StarRating value={stars} onChange={onRate} size={24} />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[17px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
+              <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
+            </div>
+            {chevron}
+          </div>
+          {/* Große Trefferfläche: gewischt und getippt wird am Tisch, oft
+              einhändig, und ein danebengegangener Stern ist ärgerlicher als
+              ein paar Pixel mehr Platz. */}
+          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={28} /></div>
         </div>
-        <button onClick={onToggleExpand} className="self-start p-1.5 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors">
-          <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        </button>
       </div>
       {notesBlock}
     </div>
@@ -425,85 +458,103 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
     );
   }
 
-  // Auf dem Willkommensbildschirm trägt der Einleitungstext selbst die
-  // Information, ob es etwas zu bewerten gibt — dafür braucht es keine eigene
-  // Leerzustands-Box, die den Hero-Aufbau sprengen würde.
-  const welcomeText = tableDishes.length > 0
-    ? 'In unter 30 Sekunden erledigt — teile dein Feedback und sichere dir Treuepunkte.'
+  // Was hier steht, hängt daran, ob es überhaupt etwas zu bewerten gibt. Eine
+  // eigene Leerzustands-Box dafür gibt es nicht: sie würde den Aufbau aus Bild,
+  // Schlagzeile und Fuß auseinanderreißen.
+  const hasOrder = tableDishes.length > 0;
+  const welcomeText = hasOrder
+    ? 'Ein kurzes Feedback hilft uns, jeden Abend besonders zu machen. Es dauert nur eine Minute.'
     : 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald dein Service-Team Gerichte einträgt, kannst du sie hier einzeln bewerten.';
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 bg-[#F7F8FA] dark:bg-[#0D1117]">
 
       {screen === 'welcome' && (
-          <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="flex-1 min-h-0 bg-white dark:bg-gray-900">
-            {/* Scrollen übernimmt dieser Container, das Verteilen der innere mit
-                min-h-full. "flex-1 + justify-center" direkt im Scroll-Container
-                zentriert über beide Ränder hinaus, sobald der Inhalt höher wird
-                als der Bildschirm: man scrollt durch Leerraum und kommt an den
-                oberen Teil nicht mehr heran. */}
-            <div className="h-full overflow-y-auto">
-              <div className="min-h-full flex flex-col px-6">
-                {/* Hero — wächst und hält seinen Inhalt mittig */}
-                <div className="flex-1 flex flex-col items-center justify-center text-center pt-10">
-                  <div className="mb-6">
-                    <BrandLogo brand={store.brand} size={64} textSize={60} rounded="rounded-2xl" />
-                  </div>
-                  <p className="text-[26px] font-bold text-gray-900 dark:text-white leading-tight">{store.brand?.name}</p>
-                  {/* Die Tischnummer steht bewusst klein hier: der Gast sitzt
-                      bereits am Tisch und muss sie nur kurz gegenprüfen, falls
-                      er den falschen QR-Code erwischt hat. */}
-                  <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-1">
-                    {branch.name} · Tisch {tableNumber}
-                  </p>
-                  <p className="text-[16px] text-gray-600 dark:text-gray-300 max-w-[280px] mt-5 leading-relaxed">
-                    {welcomeText}
-                  </p>
-                </div>
-                {/* Fuß — bleibt unten, ohne den Hero zu stauchen */}
-                {/* Von hier aus muss es immer weitergehen. Ohne offene Bestellung
-                    gibt es nichts zu bewerten — dann wäre der Bildschirm ohne den
-                    Gutschein-Zugang eine Sackgasse, besonders für den, der sich
-                    gerade angemeldet hat. */}
-                <div className="w-full max-w-sm mx-auto pt-4 pb-10 flex-shrink-0 space-y-1">
-                  {tableDishes.length > 0 && <PrimaryBtn onClick={() => go('review')}>Feedback geben</PrimaryBtn>}
-                  <button onClick={() => openVouchers('welcome')}
-                    className="w-full text-[15px] py-3 transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
-                    {store.guest.loggedIn
-                      ? `Deine Punkte und Gutscheine · ${store.guest.points} Pkt.`
-                      : 'Gutscheine ansehen'}
-                  </button>
-                  {!store.guest.loggedIn && (
-                    <button onClick={() => setAuthOpen(true)}
-                      className="w-full text-[15px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-3 transition-colors">
-                      Anmelden, um Punkte zu sichern
-                    </button>
-                  )}
-                </div>
-              </div>
+        <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="relative flex-1 min-h-0 overflow-y-auto bg-white dark:bg-[#0D1117]">
+
+          {/* Das Titelbild läuft bis an den oberen Rand durch und verliert sich
+              nach unten im Hintergrund — deshalb steht die Tischnummer IM
+              Textblock und nicht als Leiste darüber. Fehlt das Bild (es kommt
+              aus den Marken-Einstellungen), bleibt eine ruhige Fläche in der
+              Markenfarbe stehen, statt dass der Text im Nichts hängt. */}
+          <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
+            {store.brand?.coverImage ? (
+              <img src={store.brand.coverImage} alt="" aria-hidden
+                className="w-full h-full object-cover opacity-60 dark:opacity-40 dark:grayscale" />
+            ) : (
+              <div className="w-full h-full opacity-25 dark:opacity-20"
+                style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-white via-white/90 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/80" />
+          </div>
+
+          <div className="relative z-10 min-h-full flex flex-col items-start justify-end px-8 pt-32 pb-12">
+            {/* Klein und über der Schlagzeile: der Gast sitzt schon am Tisch und
+                muss nur kurz gegenprüfen, ob er den richtigen Code erwischt hat. */}
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4">
+              {branch.name} · Tisch {tableNumber}
+            </p>
+            <h1 className="text-[44px] font-bold leading-[1.1] tracking-tight mb-4 max-w-[280px] text-gray-900 dark:text-white">
+              {hasOrder
+                ? <>Wie war dein Besuch bei {store.brand?.name}?</>
+                : <>Willkommen bei {store.brand?.name}</>}
+            </h1>
+            <p className="text-[16px] leading-relaxed max-w-[260px] text-gray-600 dark:text-gray-300">
+              {welcomeText}
+            </p>
+
+            <div className="w-full mt-10">
+              {hasOrder && (
+                <button onClick={() => go('review')}
+                  className="w-full h-[54px] rounded-[16px] shadow-lg flex items-center justify-between px-6 text-white transition-all hover:opacity-90 active:scale-[0.98]"
+                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                  <span className="text-[16px] font-medium">Feedback starten</span>
+                  <ArrowRight size={20} strokeWidth={1.75} />
+                </button>
+              )}
+              {/* Von hier aus muss es immer weitergehen. Ohne offene Bestellung
+                  gibt es nichts zu bewerten — dann wäre der Bildschirm ohne den
+                  Gutschein-Zugang eine Sackgasse, besonders für den, der sich
+                  gerade angemeldet hat. */}
+              <button onClick={() => openVouchers('welcome')}
+                className="block text-[14px] font-medium mt-5 py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+                {store.guest.loggedIn
+                  ? `Punkte & Gutscheine · ${store.guest.points} Pkt.`
+                  : 'Punkte & Gutscheine ansehen'}
+              </button>
+              {!store.guest.loggedIn && (
+                <button onClick={() => setAuthOpen(true)}
+                  className="block text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+                  Anmelden, um Punkte zu sichern
+                </button>
+              )}
             </div>
-          </motion.div>
+
+            <PoweredByBitely />
+          </div>
+        </motion.div>
       )}
 
       {screen === 'review' && (
-        <motion.div key="review" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
+        <motion.div key="review" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
+          className="flex flex-col flex-1 min-h-0 bg-gray-50 dark:bg-[#0D1117]">
+          {/* Der Bildwechsel ist Absicht: das Titelbild gehört zum Empfang, hier
+              wird gearbeitet. Ruhiger Grund, weiße Blöcke, sonst nichts. */}
+          <div className="bg-white dark:bg-gray-900 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
               <button onClick={() => go('welcome')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <div className="flex-1">
-                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Bewertung</p>
-                <p className="text-[12px] text-gray-400">Tisch {tableNumber} · {store.brand?.name}</p>
-              </div>
-              <span className="text-[13px] text-gray-400">{stepsDone}/{stepsTotal}</span>
+              <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white">Deine Gerichte</p>
+              <span className="text-[13px] text-gray-400 tabular-nums">{stepsDone}/{stepsTotal}</span>
             </div>
-            <div className="h-0.5 bg-gray-100 dark:bg-gray-800">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${stepsTotal ? (stepsDone / stepsTotal) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
+            <div className="h-[2px] bg-gray-100 dark:bg-gray-800">
+              <div className="h-full transition-all duration-500" style={{ width: `${stepsTotal ? (stepsDone / stepsTotal) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+          <div className="flex-1 overflow-y-auto">
             {tableDishes.map(dish => (
               <DishRatingCard key={dish.id} dish={dish} stars={ratings[dish.id] || 0} note={notes[dish.id] ?? ''}
                 expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
@@ -515,160 +566,179 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 onNoteChange={v => setNotes(p => ({ ...p, [dish.id]: v }))} />
             ))}
             <button onClick={() => setShowSheet(true)}
-              className="w-full py-3.5 text-[13px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center gap-2">
-              <Plus size={14} strokeWidth={2} /> Etwas vergessen?
+              className="w-full bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-4 text-[14px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors flex items-center gap-2">
+              <Plus size={15} strokeWidth={2} /> Etwas vergessen?
             </button>
 
             {/* Gesamteindruck — auf demselben Bildschirm wie die Gerichte, nur
-                abgesetzt. Der Gast bewertet seinen Besuch in einem Durchgang. */}
-            <div className="pt-4">
-              <p className="text-[13px] font-semibold text-gray-600 dark:text-gray-300 px-1 pb-2">
-                Und der Besuch insgesamt?
-              </p>
-              <div className="space-y-3">
-                {OVERALL_FIELDS.map(({ key, label, emoji }) => (
-                  <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">{emoji}</span>
-                        <p className="text-[15px] font-medium text-gray-900 dark:text-white">{label}</p>
-                      </div>
-                      <span className="text-[12px] text-gray-400">{overall[key] > 0 ? `${overall[key]}/5` : 'Nicht bewertet'}</span>
-                    </div>
-                    <StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={30} />
-                  </div>
-                ))}
+                abgesetzt. Der Gast bewertet seinen Besuch in einem Durchgang;
+                zwei Schritte waren einer zu viel. */}
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 px-5 pt-8 pb-3">
+              Und der Besuch insgesamt?
+            </p>
+            {OVERALL_FIELDS.map(({ key, label, emoji }) => (
+              <div key={key} className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-6">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[22px] text-gray-900 dark:text-white">
+                    <span className="mr-2">{emoji}</span>{label}
+                  </p>
+                  <span className="text-[13px] text-gray-400 tabular-nums">{overall[key] > 0 ? `${overall[key]}/5` : ''}</span>
+                </div>
+                <div className="-ml-1"><StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={34} /></div>
               </div>
-            </div>
+            ))}
+            <div className="h-8" />
           </div>
-          <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4 space-y-2">
+
+          <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-5 py-4 space-y-2.5">
             <p className="text-[11px] text-gray-400 text-center">Deinen Gutschein bekommst du unabhängig von deiner Bewertung.</p>
             {submitError && <p className="text-[12px] text-red-500 text-center">{submitError}</p>}
-            <PrimaryBtn onClick={handleSubmitReview} disabled={!allRated || !allOverall || submitting}>
-              {submitting ? 'Wird gesendet…' : 'Absenden & Punkte sichern'}
-            </PrimaryBtn>
+            <button onClick={handleSubmitReview} disabled={!allRated || !allOverall || submitting}
+              className="w-full h-[54px] rounded-[16px] shadow-lg flex items-center justify-between px-6 text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
+              style={{ backgroundColor: (!allRated || !allOverall || submitting) ? '#9CA3AF' : 'var(--ba, #16A34A)' }}>
+              <span className="text-[16px] font-medium">{submitting ? 'Wird gesendet…' : 'Absenden & Punkte sichern'}</span>
+              <ArrowRight size={20} strokeWidth={1.75} />
+            </button>
           </div>
         </motion.div>
       )}
 
       {screen === 'thanks' && (
-        <motion.div key="thanks" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-          <div className="p-4 space-y-4">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 text-center">
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-                className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                <Check size={28} strokeWidth={2.5} className="text-white" />
-              </motion.div>
-              <p className="text-xl font-semibold text-gray-900 dark:text-white mb-1">Vielen Dank!</p>
-              <p className="text-[13px] text-gray-500 dark:text-gray-400">Dein Feedback hilft uns, noch besser zu werden.</p>
-              {/* Ohne Konto gibt es keine Punkte — das gehört hierher gesagt,
-                  und zwar mit dem Betrag, um den es geht. Sobald der Gast
-                  angemeldet ist, verschwindet der Hinweis auf jeden Fall: er
-                  darf nicht davon abhängen, dass das Nachbuchen der Punkte
-                  glückt, sonst steht der Gast vor einem Bildschirm, der ihn zu
-                  etwas auffordert, das er gerade erledigt hat. */}
-              {missedPts > 0 && !store.guest.loggedIn ? (
-                <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-3">
-                  <p className="text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed">
-                    Deine Bewertung ist angekommen. <strong>{missedPts} Punkte</strong> warten
-                    auf ein Konto — ohne Anmeldung können wir sie niemandem gutschreiben.
-                  </p>
-                  <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden und Punkte sichern</PrimaryBtn>
-                </div>
-              ) : (
-              <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700">
-                <p className="text-[12px] text-gray-400 mb-1">Verdiente Punkte</p>
-                <p className="text-4xl font-bold mb-3" style={{ color: 'var(--ba, #16A34A)' }}>+{pts}</p>
-                <div className="bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (store.guest.points / nextRewardPoints) * 100)}%` }} transition={{ delay: 0.6, duration: 1.2 }}
-                    className="h-full rounded-full" style={{ backgroundColor: 'var(--ba, #16A34A)' }} />
-                </div>
-                <div className="flex justify-between text-[11px] text-gray-400">
-                  <span>{store.guest.points} Pkt. insgesamt</span><span>{nextRewardPoints} Pkt. = nächste Belohnung</span>
-                </div>
-              </div>
-              )}
-            </div>
-            {/* Aus derselben Bewertung ein fertiger Text für Google Maps.
-                Der Gast hat sein Urteil gerade formuliert — das nochmal zu
-                tippen, damit es öffentlich sichtbar wird, macht kaum jemand.
-                Der Block erscheint erst, wenn der Text steht, und bleibt sonst
-                einfach aus. */}
-            {(reviewTextPending || reviewText) && (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <MessageSquare size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
-                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Auch öffentlich teilen?</p>
-                  </div>
-                  <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    Aus deiner Bewertung ist dieser Text entstanden — kopieren, bei Google einfügen, fertig.
-                  </p>
-                </div>
-                {reviewTextPending && !reviewText ? (
-                  <div className="space-y-2 py-1">
-                    <Sk h={12} /><Sk h={12} /><Sk h={12} w="70%" />
-                  </div>
-                ) : reviewText && (
-                  <>
-                    <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5 border border-gray-100 dark:border-gray-700">
-                      {reviewText.text}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(reviewText.text);
-                            setCopied(true);
-                            setTimeout(() => setCopied(false), 2000);
-                          } catch { /* ohne Zwischenablage bleibt das Markieren von Hand */ }
-                        }}
-                        className="flex-1 py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-1.5">
-                        {copied ? <><Check size={14} strokeWidth={2.5} /> Kopiert</> : 'Text kopieren'}
-                      </button>
-                      <a href={reviewText.mapsUrl} target="_blank" rel="noreferrer"
-                        className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white text-center transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
-                        style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                        <MapPin size={14} strokeWidth={2} /> Bei Google
-                      </a>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+        <motion.div key="thanks" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col flex-1 min-h-0 overflow-y-auto bg-gray-50 dark:bg-[#0D1117]">
 
-            {!store.guest.loggedIn ? (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
-                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Punkte sichern</p>
-                  </div>
-                  <p className="text-[13px] text-gray-500 dark:text-gray-400">Melde dich an, um deine Punkte dauerhaft zu speichern.</p>
+          {/* Der Empfang des Dankes: viel Weiß, ein Haken, ein Satz. Alles
+              Weitere steht in eigenen Blöcken darunter. */}
+          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-12 pb-8">
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+              className="w-16 h-16 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+              <Check size={30} strokeWidth={3} className="text-white" />
+            </motion.div>
+            <p className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">Vielen Dank!</p>
+            <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed mt-1.5 max-w-[280px]">
+              Dein Feedback hilft uns, noch besser zu werden.
+            </p>
+          </div>
+
+          {/* Ohne Konto gibt es keine Punkte — das gehört hierher gesagt, und
+              zwar mit dem Betrag, um den es geht. Sobald der Gast angemeldet
+              ist, verschwindet der Hinweis auf jeden Fall: er darf nicht davon
+              abhängen, dass das Nachbuchen der Punkte glückt, sonst steht der
+              Gast vor einem Bildschirm, der ihn zu etwas auffordert, das er
+              gerade erledigt hat. */}
+          {missedPts > 0 && !store.guest.loggedIn ? (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
+              <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed">
+                Deine Bewertung ist angekommen. <strong className="text-gray-900 dark:text-white">{missedPts} Punkte</strong> warten
+                auf ein Konto — ohne Anmeldung können wir sie niemandem gutschreiben.
+              </p>
+              <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden und Punkte sichern</PrimaryBtn>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Verdiente Punkte</p>
+              <p className="text-[44px] font-bold tracking-tight leading-none mt-2 mb-5" style={{ color: 'var(--ba, #16A34A)' }}>+{pts}</p>
+              <div className="bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden mb-2">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (store.guest.points / nextRewardPoints) * 100)}%` }} transition={{ delay: 0.6, duration: 1.2 }}
+                  className="h-full rounded-full" style={{ backgroundColor: 'var(--ba, #16A34A)' }} />
+              </div>
+              <div className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400">
+                <span>{store.guest.points} Pkt. insgesamt</span><span>{nextRewardPoints} Pkt. = nächste Belohnung</span>
+              </div>
+            </div>
+          )}
+
+          {/* Aus derselben Bewertung ein fertiger Text für Google Maps.
+              Der Gast hat sein Urteil gerade formuliert — das nochmal zu
+              tippen, damit es öffentlich sichtbar wird, macht kaum jemand.
+              Der Block erscheint erst, wenn der Text steht, und bleibt sonst
+              einfach aus. */}
+          {(reviewTextPending || reviewText) && (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare size={16} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
+                  <p className="text-[17px] font-medium text-gray-900 dark:text-white">Auch öffentlich teilen?</p>
                 </div>
-                <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
-                <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-                  Ohne Konto kannst du weiterhin alles bewerten — die Punkte dafür
-                  werden aber nirgends gutgeschrieben.
+                <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  Aus deiner Bewertung ist dieser Text entstanden — kopieren, bei Google einfügen, fertig.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-[13px] font-semibold text-gray-600 dark:text-gray-300 px-1">Deine Gutscheine</p>
-                {unlockedVouchers.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 px-1">Noch kein Gutschein freigeschaltet — {nextRewardPoints - store.guest.points} Punkte fehlen.</p>
-                ) : unlockedVouchers.map(v => (
-                  <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
-                ))}
-                <button onClick={() => openVouchers('thanks')} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">Alle Gutscheine →</button>
+              {reviewTextPending && !reviewText ? (
+                <div className="space-y-2 py-1">
+                  <Sk h={12} /><Sk h={12} /><Sk h={12} w="70%" />
+                </div>
+              ) : reviewText && (
+                <>
+                  <p className="text-[15px] text-gray-700 dark:text-gray-200 leading-relaxed bg-gray-50 dark:bg-gray-800 rounded-2xl p-4">
+                    {reviewText.text}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(reviewText.text);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        } catch { /* ohne Zwischenablage bleibt das Markieren von Hand */ }
+                      }}
+                      className="flex-1 h-[48px] rounded-[14px] text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors flex items-center justify-center gap-1.5">
+                      {copied ? <><Check size={15} strokeWidth={2.5} /> Kopiert</> : 'Text kopieren'}
+                    </button>
+                    <a href={reviewText.mapsUrl} target="_blank" rel="noreferrer"
+                      className="flex-1 h-[48px] rounded-[14px] text-[14px] font-medium text-white text-center transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
+                      style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                      <MapPin size={15} strokeWidth={2} /> Bei Google
+                    </a>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {!store.guest.loggedIn ? (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
+                  <p className="text-[17px] font-medium text-gray-900 dark:text-white">Punkte sichern</p>
+                </div>
+                <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  Melde dich an, um deine Punkte dauerhaft zu speichern.
+                </p>
               </div>
-            )}
-            {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
-                einzige Weg zurück über das Neuladen der Seite. */}
+              <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
+              <p className="text-[12px] text-gray-400 leading-relaxed">
+                Ohne Konto kannst du weiterhin alles bewerten — die Punkte dafür
+                werden aber nirgends gutgeschrieben.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-3">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Gutscheine</p>
+              {unlockedVouchers.length === 0 ? (
+                <p className="text-[14px] text-gray-500 dark:text-gray-400">
+                  Noch kein Gutschein freigeschaltet — {nextRewardPoints - store.guest.points} Punkte fehlen.
+                </p>
+              ) : unlockedVouchers.map(v => (
+                <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
+              ))}
+              <button onClick={() => openVouchers('thanks')}
+                className="text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+                Alle Gutscheine →
+              </button>
+            </div>
+          )}
+
+          {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
+              einzige Weg zurück über das Neuladen der Seite. Darunter schließt
+              die Fußzeile den Weg des Gastes — dieselbe wie beim Empfang. */}
+          <div className="px-6 pt-6 pb-10 mt-auto">
             <button onClick={() => go('welcome')}
-              className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              className="text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
               Zurück zum Start
             </button>
+            <PoweredByBitely />
           </div>
         </motion.div>
       )}
@@ -1888,12 +1958,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const [brandForm, setBrandForm] = useState({
     name: store.brand?.name ?? '', accent: store.brand?.accent ?? '#16A34A',
     logoImage: store.brand?.logoImage ?? null as string | null,
+    coverImage: store.brand?.coverImage ?? null as string | null,
     font: store.brand?.font ?? 'Inter',
     cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [previewStars, setPreviewStars] = useState(4);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const [addTableCount, setAddTableCount] = useState(1);
   const [addingTables, setAddingTables] = useState(false);
   // Der Server liefert bereits nur die passenden Tische; im Ketten-Blick sind
@@ -1922,6 +1994,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   useEffect(() => {
     if (store.brand) setBrandForm({
       name: store.brand.name, accent: store.brand.accent, logoImage: store.brand.logoImage ?? null,
+      coverImage: store.brand.coverImage ?? null,
       font: store.brand.font ?? 'Inter', cardStyle: store.brand.cardStyle ?? 'standard',
     });
   }, [store.brand]);
@@ -2093,6 +2166,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const handleSaveBrand = async () => {
     await store.updateBrand({
       name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
+      coverImage: brandForm.coverImage,
       font: brandForm.font, cardStyle: brandForm.cardStyle,
     });
     setBrandSaved(true);
@@ -2102,6 +2176,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
   const handleLogoFile = async (file: File) => {
     const dataUri = await compressImageFile(file, 240, 0.85);
     setBrandForm(p => ({ ...p, logoImage: dataUri }));
+  };
+
+  // Das Titelbild füllt beim Gast den halben Bildschirm, darf aber nicht die
+  // 8-MB-Grenze des Servers sprengen — es liegt als Base64 im Marken-Datensatz.
+  // 1400 Pixel reichen für jedes Handy, auch bei doppelter Pixeldichte.
+  const handleCoverFile = async (file: File) => {
+    const dataUri = await compressImageFile(file, 1400, 0.8);
+    setBrandForm(p => ({ ...p, coverImage: dataUri }));
   };
 
   const previewDish = store.dishes[0];
@@ -2677,7 +2759,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                           </div>
                           <div className="flex-1 space-y-4">
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname — steht beim Gast in der Schlagzeile</p>
                               <input value={brandForm.name} onChange={e => setBrandForm(p => ({ ...p, name: e.target.value }))}
                                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                             </div>
@@ -2728,6 +2810,35 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
                         </div>
                       </div>
 
+                      {/* TITELBILD — das Bild, das beim Gast über dem halben
+                          Startbildschirm liegt. Ohne eines bleibt dort eine
+                          Fläche in der Akzentfarbe: der Bildschirm funktioniert,
+                          er lebt nur weniger. */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                            <ImagePlus size={15} strokeWidth={1.5} className="text-gray-400" /> Titelbild
+                          </p>
+                          <p className="text-[12px] text-gray-400 mt-1">
+                            Liegt beim Gast hinter der Begrüßung und läuft nach unten weich aus.
+                            Am besten ein ruhiges Bild vom Lokal — Gesichter und Schrift darauf
+                            verschwinden im Verlauf.
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => coverInputRef.current?.click()}
+                          className="w-full aspect-[16/9] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center">
+                          {brandForm.coverImage
+                            ? <img src={brandForm.coverImage} alt="Titelbild" className="w-full h-full object-cover" />
+                            : <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Upload size={12} /> Bild auswählen</span>}
+                        </button>
+                        <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
+                        {brandForm.coverImage && (
+                          <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))}
+                            className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                        )}
+                      </div>
+
                       <div className="flex items-center gap-3">
                         <PrimaryBtn full={false} sm onClick={handleSaveBrand}>Änderungen speichern</PrimaryBtn>
                         {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> Gespeichert</span>}
@@ -2736,26 +2847,51 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick }: {
 
                     <div className="xl:sticky xl:top-24">
                       <p className="text-[12px] text-gray-400 mb-2 uppercase tracking-wide">Live-Vorschau</p>
-                      {/* Zeigt denselben Aufbau wie der Willkommensbildschirm der
-                          Gäste — weißer Grund, Emoji-Logo, Name, Filiale —, damit
-                          die Vorschau nicht etwas verspricht, was am Tisch anders
-                          aussieht. Darunter die Gerichtskarte für das Kartenlayout. */}
+                      {/* Zeigt denselben Aufbau wie der Willkommensbildschirm
+                          der Gäste — Titelbild bis an den Rand, Schlagzeile mit
+                          dem Namen, Fußzeile —, damit die Vorschau nicht etwas
+                          verspricht, was am Tisch anders aussieht. Darunter der
+                          Gerichtsblock für das Listenlayout. */}
                       <div className="bg-gray-200 dark:bg-gray-950 rounded-[32px] p-3 shadow-inner">
                         <div className="relative rounded-[24px] overflow-hidden bg-white dark:bg-gray-900"
                           style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': brandForm.accent } as React.CSSProperties}>
-                          <div className="relative flex flex-col items-center px-5 pt-10 pb-5">
-                            <div className="mb-3">
-                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={44} textSize={40} rounded="rounded-xl" />
+                          <div className="relative">
+                            <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
+                              {brandForm.coverImage ? (
+                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover opacity-60" />
+                              ) : (
+                                <div className="w-full h-full opacity-25"
+                                  style={{ background: `linear-gradient(160deg, ${brandForm.accent}, transparent 70%)` }} />
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-white via-white/90 to-transparent dark:from-gray-900 dark:via-gray-900/80" />
                             </div>
-                            <p className="text-[17px] font-bold text-center text-gray-900 dark:text-white leading-tight">{brandForm.name || 'Dein Restaurant'}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-4">{branch?.name ?? store.branches[0]?.name} · Tisch 1</p>
+                            <div className="relative z-10 px-5 pt-16 pb-5">
+                              <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2">
+                                {branch?.name ?? store.branches[0]?.name} · Tisch 1
+                              </p>
+                              <p className="text-[24px] font-bold leading-[1.1] tracking-tight text-gray-900 dark:text-white max-w-[200px]">
+                                Wie war dein Besuch bei {brandForm.name || 'Dein Restaurant'}?
+                              </p>
+                              <button className="w-full h-[44px] mt-5 rounded-[14px] shadow-lg flex items-center justify-between px-4 text-white text-[14px] font-medium"
+                                style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                                Feedback starten <ArrowRight size={16} strokeWidth={1.75} />
+                              </button>
+                              <div className="flex items-center justify-center gap-1.5 pt-5">
+                                <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
+                                <span className="text-[13px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Der Gerichtsblock steht darunter, weil das Kartenlayout
+                              sonst nirgends zu sehen wäre — beim Gast liegt er einen
+                              Bildschirm weiter. */}
+                          <div className="border-t border-gray-100 dark:border-gray-800">
                             {previewDish ? (
                               <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
                                 onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
                             ) : (
-                              <div className="w-full h-24 rounded-xl bg-white/50 dark:bg-gray-800/50" />
+                              <div className="w-full h-24 bg-gray-50 dark:bg-gray-800/50" />
                             )}
-                            <button className="w-full mt-4 py-3 rounded-xl font-medium text-white text-[14px]" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Feedback geben</button>
                           </div>
                         </div>
                       </div>
