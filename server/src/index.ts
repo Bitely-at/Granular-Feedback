@@ -98,10 +98,11 @@ function serializeUser(doc: WithId<UserDoc>) {
 }
 
 // Dieselbe Falle wie oben, mit dem Einlöse-Code: `redemptions` steckt im
-// GEMEINSAMEN Zustandsobjekt, das auch jeder Anonyme laden kann. Den Code
-// bekommt nur, wer ihn braucht: die Servicekraft zum Abgleich mit dem Display,
-// und der Gast für seine EIGENEN Entwertungen. Ein Fremder soll nicht mitlesen
-// können, welche Zahl gerade am Nebentisch auf dem Handy steht.
+// GEMEINSAMEN Zustandsobjekt, das auch jeder Anonyme laden kann.
+//
+// Seit der Gast statt einer Zahl ein Häkchen sieht, wird der Code nirgends mehr
+// angezeigt — er bleibt als Kennung der Einlösung in der Datenbank und im
+// Reporting der Verwaltung. Herausgegeben wird er nur an das Personal.
 function serializeRedemption(doc: WithId<RedemptionDoc>, withCode: boolean) {
   const { _id, code, ...rest } = doc;
   return { id: String(_id), ...rest, ...(withCode ? { code } : {}) };
@@ -571,12 +572,7 @@ async function getFullState(
     users: (users as WithId<UserDoc>[]).map(serializeUser),
     alerts: alerts.map(serialize),
     reviews: reviews.map(serialize),
-    // Der Gast bekommt den Code seiner eigenen Entwertungen mit: er darf den
-    // Bildschirm schließen und später wieder aufmachen, ohne dass die Zahl
-    // verloren ist, die er der Servicekraft zeigen soll.
-    redemptions: redemptions.map(r => serializeRedemption(
-      r, isStaff || (guestAccount != null && r.guestId === String(guestAccount._id))
-    )),
+    redemptions: redemptions.map(r => serializeRedemption(r, isStaff)),
     guest,
   };
 }

@@ -19,8 +19,10 @@ Vorlage für alles, was noch dazukommt.
 ## 1. Startbildschirm (nach dem QR-Scan)
 
 Vollflächiges Titelbild, das oben am Rand beginnt und nach unten im Hintergrund
-verschwindet (hell: 60 % Deckkraft, Verlauf nach Weiß; dunkel: 40 %, entsättigt,
-Verlauf nach `#0D1117`). Darüber, linksbündig und unten sitzend:
+verschwindet (hell: 85 % Deckkraft, Verlauf nach Weiß; dunkel: 55 %, entsättigt,
+Verlauf nach `#0D1117`). Der Schleier bleibt unten dicht, weil er die Schrift
+trägt, und wird nach oben schnell durchsichtig — zu viel davon, und vom Bild
+bleibt nur eine Ahnung. Darüber, linksbündig und unten sitzend:
 
 | Element | Wie |
 |---|---|
@@ -65,6 +67,15 @@ Blocks, nicht drei Kartenformen.
   der Fortschritt zur nächsten Belohnung.
 - Dann Rezensionstext für Google, Gutscheine oder Anmeldung, ein Ausgang zurück
   zum Start — und ganz unten wieder POWERED BY **bitely**, das den Weg schließt.
+
+## Einlösen
+
+Der Wischbalken ist 64 Pixel hoch und trägt die Akzentfarbe: gewischt wird
+einhändig, am Tisch, während jemand zusieht. Danach **keine Zahl**, sondern ein
+großes Häkchen mit zwei langsam auslaufenden Ringen, dem Namen des Gutscheins
+und der Tischnummer — die Servicekraft soll aus einem Meter Entfernung sehen,
+dass es geklappt hat. Der Code, den es früher zum Abgleich gab, bewies ohnehin
+nichts: entwertet ist entwertet.
 
 ## Was bewusst offen ist
 

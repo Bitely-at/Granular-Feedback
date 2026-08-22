@@ -169,10 +169,12 @@ Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Au
   Eintragen `status: { $in: ['entwertet', 'offen'] }`. Die Prüfungen davor sind
   Diagnose für eine gute Fehlermeldung, kein Schutz — sie lagen im Prüflauf
   messbar zu früh (zwei gleichzeitige Wische buchten doppelt ab).
-- **Den Code bekommt nur, wer ihn braucht** (`serializeRedemption`): das Personal
-  zum Abgleich, und der Gast für seine EIGENEN Entwertungen. So darf er den
-  Bildschirm schließen, ohne die Zahl zu verlieren, die er vorzeigen muss — und
-  ein Fremder liest nicht mit, was am Nebentisch auf dem Handy steht.
+- **Der Code wird nirgends mehr angezeigt.** Nach dem Wisch sieht der Gast ein
+  großes Häkchen; eine vierstellige Zahl bewies nichts (entwertet ist entwertet)
+  und war aus einem Meter Entfernung nicht zu lesen. Der Code bleibt als Kennung
+  der Einlösung in der Datenbank und im Reporting und geht nur an das Personal
+  (`serializeRedemption`) — `redemptions` steckt im Zustand, den auch ein Gast
+  lädt.
 - **Altbestand**: `offen`, `verfallen` und `abgebrochen` stammen aus der Zeit der
   Frist und entstehen nicht mehr neu. `expireStaleRedemptions` räumt sie
   weiterhin beim Laden des Zustands ab — kein Hintergrundjob, wer als Erster

@@ -146,8 +146,9 @@ export interface Redemption {
   branchId: string;
   tableId: string | null;
   tableNumber: number | null;
-  // Nur für das Personal und für die eigenen Entwertungen des angemeldeten
-  // Gastes. Wer fremd auf /state schaut, sieht die Zahl nicht.
+  // Nur fürs Personal. Angezeigt wird er nirgends mehr — der Gast sieht nach
+  // dem Wisch ein Häkchen statt einer Zahl —, er bleibt die Kennung der
+  // Einlösung im Reporting der Verwaltung.
   code?: string;
   points: number;
   // 'entwertet' = gewischt, Punkte weg, Ausgabe steht aus. 'eingelöst' = die

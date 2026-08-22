@@ -482,12 +482,15 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
             {store.brand?.coverImage ? (
               <img src={store.brand.coverImage} alt="" aria-hidden
-                className="w-full h-full object-cover opacity-60 dark:opacity-40 dark:grayscale" />
+                className="w-full h-full object-cover opacity-85 dark:opacity-55 dark:grayscale" />
             ) : (
-              <div className="w-full h-full opacity-25 dark:opacity-20"
+              <div className="w-full h-full opacity-35 dark:opacity-25"
                 style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-white/90 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/80" />
+            {/* Der Schleier trägt die Schrift, deshalb bleibt er unten dicht
+                und wird nach oben schnell durchsichtig. Zu viel davon, und das
+                Bild ist nur noch eine Ahnung. */}
+            <div className="absolute inset-0 bg-gradient-to-t from-white via-white/70 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/65" />
           </div>
 
           <div className="relative z-10 min-h-full flex flex-col px-8 pt-32 pb-8">
@@ -798,9 +801,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   // Entwertet, aber noch nicht ausgegeben: der Code muss
                   // erreichbar bleiben, auch wenn der Gast den Bildschirm
                   // zwischendurch geschlossen hat.
-                  const pending = store.redemptions.find(r => r.voucherId === v.id && r.status === 'entwertet');
+                  const pending = store.redemptions.some(r => r.voucherId === v.id && r.status === 'entwertet');
                   return <VoucherCard key={v.id} v={v} state="redeemed"
-                    pendingCode={pending?.code} onAction={() => setRedeeming(v)} />;
+                    pending={pending} onAction={() => setRedeeming(v)} />;
                 }))}
           </div>
         </motion.div>
@@ -943,12 +946,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   );
 }
 
-function VoucherCard({ v, state, onAction, pointsMissing, pendingCode }: {
+function VoucherCard({ v, state, onAction, pointsMissing, pending }: {
   v: Voucher; state: 'available' | 'locked' | 'redeemed'; onAction?: () => void;
   pointsMissing?: number;
-  // Gesetzt, wenn dieser Gutschein entwertet ist, die Servicekraft die Ausgabe
-  // aber noch nicht eingetragen hat. Dann bleibt der Code hier erreichbar.
-  pendingCode?: string;
+  // Wahr, wenn dieser Gutschein entwertet ist, die Servicekraft die Ausgabe
+  // aber noch nicht eingetragen hat. Dann führt die Karte zurück auf den
+  // Bildschirm, den der Gast vorzeigt.
+  pending?: boolean;
 }) {
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden ${state !== 'available' ? 'opacity-70' : ''}`}>
@@ -965,8 +969,8 @@ function VoucherCard({ v, state, onAction, pointsMissing, pendingCode }: {
           <p className="text-[12px] text-gray-400">{v.points} Punkte</p>
         </div>
         {state === 'locked' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">noch {pointsMissing} Pkt.</span>}
-        {state === 'redeemed' && (pendingCode
-          ? <button onClick={onAction} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Code {pendingCode}</button>
+        {state === 'redeemed' && (pending
+          ? <button onClick={onAction} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Vorzeigen</button>
           : <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">Eingelöst</span>)}
         {state === 'available' && <button onClick={onAction} className="text-[13px] font-medium px-4 py-2 rounded-xl text-white whitespace-nowrap" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Einlösen</button>}
       </div>
@@ -4001,7 +4005,6 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   const live = started
     ? store.redemptions.find(r => r.id === started.id) ?? started
     : pending ?? null;
-  const code = live?.code ?? started?.code ?? '';
   const open = live != null && live.status === 'entwertet';
 
   // Solange die Ausgabe aussteht, regelmäßig nachfragen — sonst merkt der Gast
@@ -4053,34 +4056,60 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
             </div>
           )}
 
-          {/* ── Schritt 2: entwertet, Code vorzeigen ── */}
+          {/* ── Schritt 2: entwertet — das Zeichen, das die Servicekraft sieht ──
+              Vorher stand hier eine vierstellige Zahl zum Abgleich. Sie hat nie
+              etwas bewiesen (der Gutschein ist ohnehin schon entwertet), war
+              aber das Erste, was der Gast vorzeigte — und aus einem Meter
+              Entfernung nicht zu lesen. Ein großes, ruhig pulsierendes Zeichen
+              beantwortet die einzige Frage, die am Tisch zählt: hat es
+              geklappt? */}
           {open && live && (
-            <div className="space-y-5 text-center">
-              <div className="w-40 h-40 mx-auto rounded-3xl border-2 flex flex-col items-center justify-center"
-                style={{ borderColor: 'var(--ba, #16A34A)' }}>
-                <motion.p key={code} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-                  className="text-[40px] font-bold tracking-[0.12em] text-gray-900 dark:text-white tabular-nums">
-                  {code}
-                </motion.p>
-                <p className="text-[11px] text-gray-400 uppercase tracking-wider mt-1">Code</p>
+            <div className="space-y-6 text-center">
+              <div className="relative w-48 h-48 mx-auto flex items-center justify-center">
+                {/* Zwei Ringe, die langsam nach außen laufen: sichtbar, ohne zu
+                    blinken — der Bildschirm liegt womöglich eine Weile auf dem
+                    Tisch, bis jemand vorbeikommt. */}
+                {[0, 1].map(i => (
+                  <motion.span key={i} className="absolute rounded-full"
+                    style={{ width: 176, height: 176, backgroundColor: 'var(--ba, #16A34A)' }}
+                    initial={{ scale: 0.7, opacity: 0.22 }}
+                    animate={{ scale: [0.7, 1.05], opacity: [0.22, 0] }}
+                    transition={{ duration: 2.4, repeat: Infinity, delay: i * 1.2, ease: 'easeOut' }} />
+                ))}
+                <motion.div className="relative w-28 h-28 rounded-full flex items-center justify-center shadow-lg"
+                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}
+                  initial={{ scale: 0 }} animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 240, damping: 15 }}>
+                  <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="white"
+                    strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <motion.path d="M4 12.5l5 5L20 6.5"
+                      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
+                      transition={{ delay: 0.18, duration: 0.45, ease: 'easeOut' }} />
+                  </svg>
+                </motion.div>
               </div>
 
               <div>
-                <p className="text-[17px] font-semibold text-gray-900 dark:text-white">{live.voucherTitle}</p>
-                <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed max-w-[280px] mx-auto">
+                <p className="text-[26px] font-bold tracking-tight text-gray-900 dark:text-white">Entwertet</p>
+                <p className="text-[17px] font-medium mt-1" style={{ color: 'var(--ba, #16A34A)' }}>{live.voucherTitle}</p>
+                {live.tableNumber != null && (
+                  <p className="text-[13px] text-gray-400 mt-1">Tisch {live.tableNumber}</p>
+                )}
+                <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed max-w-[280px] mx-auto">
                   Die {live.points} Punkte sind abgebucht. Zeig diesen Bildschirm
                   der Servicekraft, sie gibt den Gutschein aus.
                 </p>
               </div>
 
-              <button onClick={onClose}
-                className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
-                Schließen
-              </button>
-              <p className="text-[11px] text-gray-400">
-                Der Code bleibt unter „Eingelöst" stehen, bis die Ausgabe eingetragen ist.
-              </p>
+              <div className="space-y-2">
+                <button onClick={onClose}
+                  className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
+                  Schließen
+                </button>
+                <p className="text-[11px] text-gray-400">
+                  Der Gutschein bleibt unter „Eingelöst" stehen, bis die Ausgabe eingetragen ist.
+                </p>
+              </div>
             </div>
           )}
 
@@ -4109,9 +4138,11 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
 }
 
 /**
- * Eine entwertete, noch nicht ausgegebene Einlösung in der Kellner-App. Der
- * Code steht hier, damit die Servicekraft ihn mit dem Display des Gastes
- * vergleichen kann. Eingetragen wird die Ausgabe hier, nicht beim Gast.
+ * Eine entwertete, noch nicht ausgegebene Einlösung in der Kellner-App.
+ *
+ * Ohne Code: der Gast sieht keinen mehr, sondern ein großes Häkchen — es gäbe
+ * also nichts zu vergleichen. Was die Servicekraft braucht, um an den richtigen
+ * Tisch zu gehen, steht ohnehin hier: Tisch und Gutschein.
  */
 function RedemptionBanner({ redemption, branch }: { redemption: Redemption; branch: Branch }) {
   const store = useStore();
@@ -4137,8 +4168,7 @@ function RedemptionBanner({ redemption, branch }: { redemption: Redemption; bran
       <Ticket size={16} className="text-emerald-700 dark:text-emerald-400 flex-shrink-0" />
       <p className="text-[13px] text-emerald-900 dark:text-emerald-200 flex-1 min-w-[200px]">
         {redemption.tableNumber != null && <>Tisch {redemption.tableNumber} · </>}
-        <strong>{redemption.voucherTitle}</strong> · Code{' '}
-        <span className="font-mono font-bold tracking-wider">{redemption.code}</span>
+        <strong>{redemption.voucherTitle}</strong>
       </p>
       {error && <span className="text-[12px] text-red-600 dark:text-red-400">{error}</span>}
       <button onClick={confirm} disabled={busy}

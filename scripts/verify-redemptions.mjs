@@ -272,10 +272,10 @@ async function main() {
     }
 
     // ── 3) Der Gast schließt den Bildschirm ───────────────────────
-    // Er hat bezahlt und muss den Code später noch vorzeigen können, wenn die
-    // Servicekraft endlich am Tisch steht. Also muss der Code in dem Zustand
-    // stehen, den SEIN Token lädt — und nur dort.
-    console.log('\n3) Der Code bleibt beim Gast erreichbar');
+    // Er darf ihn wieder aufmachen: die Entwertung steht in dem Zustand, den
+    // sein Token lädt. Der Code steht dort NICHT — angezeigt wird er nirgends
+    // mehr, und was niemand sieht, muss auch nicht herausgegeben werden.
+    console.log('\n3) Die Entwertung bleibt sichtbar, der Code nicht');
     {
       const pointsBefore = await guestPoints();
       const open = await req('POST', `/branches/${B}/vouchers/${vSichtbar.id}/redeem`, {}, { auth: false });
@@ -285,7 +285,7 @@ async function main() {
       const eigene = (await req('GET', `/state?branch=${B}`, undefined, { auth: false }))
         .json?.redemptions?.find(x => x.id === r.id);
       check('Der Gast findet seine Entwertung im Zustand wieder', !!eigene);
-      check('… mit dem Code, den er vorzeigen soll', eigene?.code === r.code, `ist: ${eigene?.code}`);
+      check('… ohne den Code, den niemand mehr vorzeigt', eigene?.code === undefined, `ist: ${eigene?.code}`);
       check('… und sie steht weiter auf "entwertet"', eigene?.status === 'entwertet', `ist: ${eigene?.status}`);
 
       // Der Rückweg ist zu — die Route selbst ist weg, nicht nur der Knopf.
