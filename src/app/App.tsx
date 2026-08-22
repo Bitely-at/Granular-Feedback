@@ -89,7 +89,7 @@ function PrimaryBtn({ children, onClick, disabled, full = true, sm }: {
  */
 function PoweredByBitely() {
   return (
-    <div className="w-full flex items-center justify-center gap-1.5 pt-8">
+    <div className="w-full flex items-center gap-1.5 mt-10 pt-5 border-t border-gray-200/70 dark:border-gray-800">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
       <span className="text-[15px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
     </div>
@@ -489,7 +489,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <div className="absolute inset-0 bg-gradient-to-t from-white via-white/90 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/80" />
           </div>
 
-          <div className="relative z-10 min-h-full flex flex-col items-start justify-end px-8 pt-32 pb-12">
+          <div className="relative z-10 min-h-full flex flex-col px-8 pt-32 pb-8">
+            {/* Der Text sitzt unten im wachsenden Teil, die Fußzeile darunter am
+                Blattrand — nicht als Anhängsel direkt unter den Knöpfen. */}
+            <div className="flex-1 flex flex-col items-start justify-end">
             {/* Klein und über der Schlagzeile: der Gast sitzt schon am Tisch und
                 muss nur kurz gegenprüfen, ob er den richtigen Code erwischt hat. */}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4">
@@ -529,6 +532,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   Anmelden, um Punkte zu sichern
                 </button>
               )}
+              </div>
             </div>
 
             <PoweredByBitely />
@@ -733,7 +737,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
               einzige Weg zurück über das Neuladen der Seite. Darunter schließt
               die Fußzeile den Weg des Gastes — dieselbe wie beim Empfang. */}
-          <div className="px-6 pt-6 pb-10 mt-auto">
+          <div className="px-6 pt-6 pb-8 mt-auto">
             <button onClick={() => go('welcome')}
               className="text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
               Zurück zum Start
