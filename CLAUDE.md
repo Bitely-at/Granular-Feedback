@@ -393,12 +393,14 @@ Was das Dashboard daraus macht:
 - **Kein Bearbeiten-Modus mehr.** Ausblendbare Kacheln versteckten Zahlen hinter
   einem Schalter, den niemand wiederfand. Was der Server dazu speichert
   (`settings/dashboard.hiddenWidgets`), bleibt unberührt liegen.
-- **Die Menü-Matrix ist ein Streudiagramm UND vier Felder darunter**, nicht
-  das eine statt des anderen. Das Diagramm zeigt die Verteilung, die keine
-  Liste zeigt; die Felder beantworten, welches Gericht wo steht — dafür stehen
-  die Namen darin. Zwischenzeitlich war das Diagramm entfernt, mit dem
-  Argument, unbeschriftete Punkte sagten nichts. Das stimmt für sich genommen,
-  ersetzt aber die Verteilung nicht.
+- **Die Menü-Matrix ist ein Streudiagramm mit einer Legende darunter.**
+  Zwischenzeitlich war das Diagramm entfernt und durch vier Felder mit den
+  Gerichtsnamen ersetzt, mit dem Argument, unbeschriftete Punkte sagten
+  nichts. Das Diagramm ist zurück: es zeigt die Verteilung, die keine Liste
+  zeigt. Welches Gericht wo liegt, sagt der Tooltip am Punkt — und darunter
+  steht ohnehin die Tabelle „Alle Gerichte". Die Namen gehören **nicht** in
+  die Legende: vier Kästchen, die zusammen die halbe Karte auflisten, stehen
+  dann direkt über der Tabelle, die genau dafür da ist.
 - **Die Schwellen sind fest und stehen als Text dabei** — **hoch = 4,0 ★ und
   mehr** (kein zweiter Median: eine mitwandernde Schwelle ließe jede Karte
   gleich gut aussehen), **viele = mehr als der Median** aller Gerichte des
@@ -406,12 +408,13 @@ Was das Dashboard daraus macht:
   Bild, sonst hätten die Felder unten keine Entsprechung darin. Die Einteilung
   steht **einmal** in `quadrantOf()` — Punktfarbe und Feld dürfen nie
   auseinanderlaufen.
-- **Die vier Felder sind die Legende**: farbiger Rahmen in der Farbe der
-  Punkte, Schrift schwarz und grau. Vorher trug jedes Feld seine eigene
-  Tönung, Schrift inklusive — heller Grund, dunklere Schrift derselben Farbe:
-  ein Kästchen aus Rot, Hellrot und Dunkelrot, das sich schlechter las als
-  eines aus einem. `auto-rows-fr` hält sie gleich hoch, sonst überragt das
-  vollste Feld die anderen und die Matrix wirkt verrutscht. Die zwei Begriffe
+- **Die Legende ist ein farbiger Punkt und eine Erklärung**, mehr nicht: kein
+  Kasten, keine Tönung, keine Namensliste. Die Schrift bleibt schwarz und
+  grau. Vorher trug jedes Feld seine eigene Tönung, Schrift inklusive — heller
+  Grund, dunklere Schrift derselben Farbe: ein Kästchen aus Rot, Hellrot und
+  Dunkelrot, das sich schlechter las als eines aus einem. Die Farbe des
+  Punktes kommt aus derselben Quelle wie die Punkte im Bild (`QUADRANTS.hex`),
+  sonst laufen Legende und Diagramm irgendwann auseinander. Die zwei Begriffe
   darüber („Hoch", „Viele") stehen in der Akzentfarbe, der Rest ist
   gewöhnlicher Text.
 

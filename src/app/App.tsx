@@ -2367,22 +2367,22 @@ const DISH_COLUMNS: [DishSortKey, string][] = [
 type QuadrantId = 'stars' | 'hidden' | 'fix' | 'watch';
 
 /**
- * Die Farbe steckt in der Umrandung, nicht in der Schrift.
+ * Die Farbe steckt im Punkt, nicht in der Schrift.
  *
- * Vorher war jedes Feld in seiner eigenen Tönung gehalten — heller Grund,
- * dunklere Schrift derselben Farbe: ein Kästchen aus Rot, Hellrot und
- * Dunkelrot, in dem der Text schlechter zu lesen war als in Schwarz. Ein
- * farbiger Rahmen sagt dasselbe und lässt die Schrift in Ruhe.
+ * Vorher war jedes Feld der Legende in seiner eigenen Tönung gehalten —
+ * heller Grund, dunklere Schrift derselben Farbe: ein Kästchen aus Rot,
+ * Hellrot und Dunkelrot, in dem der Text schlechter zu lesen war als in
+ * Schwarz. Ein farbiger Punkt sagt dasselbe und lässt die Schrift in Ruhe.
  *
- * `hex` ist dieselbe Farbe für die Punkte im Streudiagramm: ein Punkt oben
- * und sein Feld unten müssen dieselbe Farbe haben, sonst ist die Legende
- * keine.
+ * `hex` ist dieselbe Farbe wie die Punkte im Streudiagramm — und zwar
+ * wörtlich dieselbe Quelle: ein Punkt oben und seine Erklärung unten dürfen
+ * nie auseinanderlaufen, sonst ist die Legende keine.
  */
-const QUADRANTS: { id: QuadrantId; title: string; desc: string; border: string; hex: string }[] = [
-  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', border: 'border-emerald-400 dark:border-emerald-700', hex: '#10b981' },
-  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', border: 'border-gray-300 dark:border-gray-600', hex: '#9ca3af' },
-  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', border: 'border-amber-400 dark:border-amber-700', hex: '#f59e0b' },
-  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', border: 'border-red-400 dark:border-red-800', hex: '#ef4444' },
+const QUADRANTS: { id: QuadrantId; title: string; desc: string; hex: string }[] = [
+  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', hex: '#10b981' },
+  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', hex: '#9ca3af' },
+  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', hex: '#f59e0b' },
+  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', hex: '#ef4444' },
 ];
 
 /** In welches der vier Felder ein Gericht fällt — die Regel steht einmal. */
@@ -2601,16 +2601,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       };
     });
   }, [insights]);
-
-  // Die vier Felder. „Hoch" ist bewusst ein FESTER Wert (4,0) und kein
-  // zweiter Median: eine mitwandernde Schwelle ließe jede Karte gleich gut
-  // aussehen — die Hälfte läge immer oben, auch wenn nichts über 3 steht.
-  const quadrants = useMemo(() => {
-    const out: Record<QuadrantId, typeof rangedDishes> = { stars: [], hidden: [], fix: [], watch: [] };
-    for (const d of rangedDishes) out[quadrantOf(d.avg, d.count, medianCount)].push(d);
-    for (const key of Object.keys(out) as QuadrantId[]) out[key].sort((a, b) => b.count - a.count);
-    return out;
-  }, [rangedDishes, medianCount]);
 
   const openOutstandingAlerts = store.alerts.filter(a => !a.resolved).length;
 
@@ -3351,35 +3341,29 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           </ResponsiveContainer>
                         </div>
 
-                        {/* `auto-rows-fr` hält die vier Felder gleich hoch:
-                            sonst wächst das vollste und die leeren schrumpfen
-                            auf zwei Zeilen — eine Matrix mit vier verschieden
-                            großen Feldern sieht aus, als wäre sie verrutscht. */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 auto-rows-fr gap-3 mt-4">
-                          {QUADRANTS.map(q => {
-                            const rows = quadrants[q.id];
-                            return (
-                              <div key={q.id} className={`h-full rounded-2xl border ${q.border} bg-white dark:bg-gray-800 p-4`}>
-                                <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{q.title}</p>
+                        {/* Die Legende: ein Punkt in der Farbe der Punkte im
+                            Bild, daneben was er bedeutet. Kein Kasten, keine
+                            Tönung, keine Namensliste.
+
+                            Hier standen zwischenzeitlich die Gerichte selbst —
+                            vier Kästchen, die zusammen die halbe Karte noch
+                            einmal auflisteten, direkt über einer Tabelle, die
+                            genau das kann. Welches Gericht wo liegt, sagt der
+                            Tooltip am Punkt.
+
+                            Die Farbe kommt aus `hex`, derselben Quelle wie die
+                            Punkte oben: eine zweite Liste liefe irgendwann
+                            auseinander. */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 mt-4">
+                          {QUADRANTS.map(q => (
+                            <div key={q.id} className="flex items-start gap-2.5">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: q.hex }} />
+                              <div className="min-w-0">
+                                <p className="text-[12px] font-semibold text-gray-900 dark:text-white">{q.title}</p>
                                 <p className="text-[11px] text-gray-400 mt-0.5">{q.desc}</p>
-                                {rows.length === 0 ? (
-                                  <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-3">Kein Gericht in diesem Feld.</p>
-                                ) : (
-                                  <ul className="mt-3 space-y-1.5">
-                                    {rows.slice(0, 6).map(d => (
-                                      <li key={d.id} className="flex items-center gap-2 text-[13px] text-gray-800 dark:text-gray-200">
-                                        <span className="flex-1 truncate">{d.name}</span>
-                                        <span className="text-[11px] text-gray-400 flex-shrink-0 tabular-nums">{d.avg.toFixed(1)} ★ · {d.count}×</span>
-                                      </li>
-                                    ))}
-                                    {rows.length > 6 && (
-                                      <li className="text-[11px] text-gray-400">und {rows.length - 6} weitere</li>
-                                    )}
-                                  </ul>
-                                )}
                               </div>
-                            );
-                          })}
+                            </div>
+                          ))}
                         </div>
                       </>
                     )}
