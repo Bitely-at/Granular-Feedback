@@ -408,6 +408,13 @@ Was das Dashboard daraus macht:
   Bild, sonst hätten die Felder unten keine Entsprechung darin. Die Einteilung
   steht **einmal** in `quadrantOf()` — Punktfarbe und Feld dürfen nie
   auseinanderlaufen.
+- **Die Bewertungsachse zeigt ein Fenster, nicht die volle Skala** (`avgDomain`).
+  Fest 0 bis 5 klang richtig — eine mitwandernde Achse ließe jede Karte gleich
+  gut aussehen —, war aber unbrauchbar: Gerichte liegen zwischen 3 und 5, die
+  linke Hälfte blieb leer, und alle Punkte klebten ununterscheidbar am rechten
+  Rand. Drei Sperren gegen Schönfärberei: die Schwelle 4,0 liegt immer im Bild,
+  das Fenster ist nie enger als 1,5 Sterne, und die Achse ist beschriftet — man
+  sieht, dass sie nicht bei null anfängt.
 - **Die Legende ist ein farbiger Punkt und eine Erklärung**, mehr nicht: kein
   Kasten, keine Tönung, keine Namensliste. Die Schrift bleibt schwarz und
   grau. Vorher trug jedes Feld seine eigene Tönung, Schrift inklusive — heller

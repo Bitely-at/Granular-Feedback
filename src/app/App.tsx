@@ -2570,6 +2570,44 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     return xs[Math.floor(xs.length / 2)];
   }, [rangedDishes]);
 
+  /**
+   * Welchen Ausschnitt der Bewertungsachse die Matrix zeigt.
+   *
+   * Fest 0 bis 5 klang richtig — eine mitwandernde Achse ließe jede Karte
+   * gleich gut aussehen — war aber in der Praxis unbrauchbar: Gerichte
+   * bewegen sich zwischen 3 und 5, und die linke Hälfte des Bildes blieb
+   * immer leer. Alle Punkte klebten am rechten Rand, ununterscheidbar.
+   *
+   * Also ein Fenster um die Gerichte herum, mit drei Sperren gegen
+   * Schönfärberei: die Schwelle 4,0 liegt immer drin (sonst hinge die
+   * gestrichelte Linie außerhalb des Bildes), es ist nie enger als 1,5 Sterne
+   * (aus 4,2 gegen 4,4 wird sonst ein Drama), und die Achse ist beschriftet —
+   * man SIEHT, dass sie nicht bei null anfängt.
+   */
+  const avgDomain = useMemo<[number, number]>(() => {
+    if (rangedDishes.length === 0) return [0, 5];
+    const values = rangedDishes.map(d => d.avg);
+    // Auf halbe Sterne, mit etwas Luft, damit kein Punkt auf der Achse sitzt.
+    let from = Math.floor((Math.min(...values) - 0.25) * 2) / 2;
+    let to = Math.ceil((Math.max(...values) + 0.25) * 2) / 2;
+    from = Math.min(from, 3.5);
+    to = Math.max(to, 4.5);
+    if (to - from < 1.5) {
+      const mid = (from + to) / 2;
+      from = mid - 0.75;
+      to = mid + 0.75;
+    }
+    return [Math.max(0, from), Math.min(5, to)];
+  }, [rangedDishes]);
+
+  /** Die Striche dazu: jeder halbe Stern im Fenster. */
+  const avgTicks = useMemo(() => {
+    const [from, to] = avgDomain;
+    const out: number[] = [];
+    for (let v = from; v <= to + 1e-9; v += 0.5) out.push(Number(v.toFixed(1)));
+    return out;
+  }, [avgDomain]);
+
   // Gerichte mit mindestens zwei Bewertungen, absteigend nach Note. Ein
   // einzelner Stern ist Zufall, keine Tendenz — Ranglisten daraus wären
   // Rauschen, das aussieht wie ein Ergebnis.
@@ -3306,10 +3344,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <ResponsiveContainer width="100%" height="100%">
                             <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
                               <CartesianGrid key="grid" strokeDasharray="3 3" stroke="#f1f5f9" />
-                              {/* Feste Skala 0 bis 5: eine mitwandernde Achse
-                                  ließe jede Karte gleich gut aussehen. */}
-                              <XAxis key="x" type="number" dataKey="avg" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} name="Bewertung"
+                              {/* Der Ausschnitt kommt aus avgDomain — nicht
+                                  fest 0 bis 5, sonst klebt alles rechts. Die
+                                  Beschriftung sagt, wo die Achse anfängt. */}
+                              <XAxis key="x" type="number" dataKey="avg" domain={avgDomain} ticks={avgTicks} name="Bewertung"
                                 tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                                tickFormatter={(v: number) => v.toFixed(1).replace('.', ',')}
                                 label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
                               <YAxis key="y" type="number" dataKey="count" name="Bewertungen"
                                 tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}
