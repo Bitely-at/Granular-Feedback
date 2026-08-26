@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ComposedChart, Bar, Line,
+  ComposedChart, Bar, Line, ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
@@ -2367,18 +2367,30 @@ const DISH_COLUMNS: [DishSortKey, string][] = [
 type QuadrantId = 'stars' | 'hidden' | 'fix' | 'watch';
 
 /**
- * Die Farbe steckt im Punkt, nicht in der Schrift. Vorher war jedes Feld in
- * seiner eigenen Tönung gehalten — heller Grund, dunklere Schrift derselben
- * Farbe: vier Kästchen, in denen der Text mal grün, mal bernstein, mal rot
- * war und dadurch schlechter zu lesen als schwarz. Ein farbiger Punkt sagt
- * dasselbe, und die Namen der Gerichte stehen in normaler Schrift.
+ * Die Farbe steckt in der Umrandung, nicht in der Schrift.
+ *
+ * Vorher war jedes Feld in seiner eigenen Tönung gehalten — heller Grund,
+ * dunklere Schrift derselben Farbe: ein Kästchen aus Rot, Hellrot und
+ * Dunkelrot, in dem der Text schlechter zu lesen war als in Schwarz. Ein
+ * farbiger Rahmen sagt dasselbe und lässt die Schrift in Ruhe.
+ *
+ * `hex` ist dieselbe Farbe für die Punkte im Streudiagramm: ein Punkt oben
+ * und sein Feld unten müssen dieselbe Farbe haben, sonst ist die Legende
+ * keine.
  */
-const QUADRANTS: { id: QuadrantId; title: string; desc: string; dot: string }[] = [
-  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', dot: 'bg-emerald-500' },
-  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', dot: 'bg-emerald-300' },
-  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', dot: 'bg-amber-500' },
-  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', dot: 'bg-red-500' },
+const QUADRANTS: { id: QuadrantId; title: string; desc: string; border: string; hex: string }[] = [
+  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', border: 'border-emerald-400 dark:border-emerald-700', hex: '#10b981' },
+  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', border: 'border-gray-300 dark:border-gray-600', hex: '#9ca3af' },
+  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', border: 'border-amber-400 dark:border-amber-700', hex: '#f59e0b' },
+  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', border: 'border-red-400 dark:border-red-800', hex: '#ef4444' },
 ];
+
+/** In welches der vier Felder ein Gericht fällt — die Regel steht einmal. */
+function quadrantOf(avg: number, count: number, medianCount: number): QuadrantId {
+  const good = avg >= 4;
+  const many = count > medianCount;
+  return good ? (many ? 'stars' : 'hidden') : (many ? 'fix' : 'watch');
+}
 
 /**
  * Wie die Einheit des Verlaufs heißt. Der Server bestimmt sie (`trendUnit`),
@@ -2595,11 +2607,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   // aussehen — die Hälfte läge immer oben, auch wenn nichts über 3 steht.
   const quadrants = useMemo(() => {
     const out: Record<QuadrantId, typeof rangedDishes> = { stars: [], hidden: [], fix: [], watch: [] };
-    for (const d of rangedDishes) {
-      const good = d.avg >= 4;
-      const many = d.count > medianCount;
-      out[good ? (many ? 'stars' : 'hidden') : (many ? 'fix' : 'watch')].push(d);
-    }
+    for (const d of rangedDishes) out[quadrantOf(d.avg, d.count, medianCount)].push(d);
     for (const key of Object.keys(out) as QuadrantId[]) out[key].sort((a, b) => b.count - a.count);
     return out;
   }, [rangedDishes, medianCount]);
@@ -3269,66 +3277,111 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     ))}
                   </div>
 
-                  {/* ══ ZEILE 5 — VIER FELDER ══
-                      Hier stand ein Streudiagramm mit zwei gestrichelten
-                      Trennlinien. Es war hübsch und unlesbar: Punkte ohne
-                      Beschriftung, die sich bei ähnlichen Werten überlagerten,
-                      und die vier Kästchen darunter erklärten Felder, die im
-                      Bild niemand zuordnen konnte. Was man tatsächlich wissen
-                      will, ist WELCHES Gericht wo steht — also stehen jetzt die
-                      Namen in den Feldern, und die Schwellen dabei.
+                  {/* ══ ZEILE 5 — MENÜ-MATRIX ══
+                      Bewertung gegen Anzahl der Rezensionen, dazu die vier
+                      Felder darunter.
 
-                      `auto-rows-fr` hält die vier Felder gleich hoch. Ohne das
-                      wuchs das Feld mit den meisten Gerichten und die leeren
-                      schrumpften auf zwei Zeilen: das Bild kippte zur vollen
-                      Seite hin und sah aus, als wäre es verrutscht — dabei ist
-                      es eine Matrix, und die hat vier gleich große Felder. */}
+                      Das Streudiagramm war einmal weg — mit dem Argument,
+                      unbeschriftete Punkte beantworteten die Frage nicht,
+                      welches Gericht wo steht. Es ist zurück, weil es die
+                      Verteilung zeigt, die keine Liste zeigt; die Frage nach
+                      dem einzelnen Gericht beantworten die Felder darunter,
+                      in denen die Namen stehen. Beides zusammen, nicht das
+                      eine STATT des anderen.
+
+                      Die Felder sind zugleich die Legende: dieselbe Farbe wie
+                      die Punkte, aber nur als Rahmen. Die Schrift bleibt
+                      schwarz und grau — ein Kästchen aus drei Rottönen las
+                      sich schlechter als eines aus einem. */}
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 sm:p-5">
                     <div className="mb-4">
-                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichte im Überblick</p>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Menü-Matrix</p>
                       {/* Die zwei Begriffe in der Akzentfarbe, der Rest normale
                           Schrift. Vorher waren beide nur ein helleres Grau im
                           Grau ringsum — ein Unterschied, den man sucht statt
-                          ihn zu sehen. */}
+                          ihn zu sehen. Die Schwellen sind zugleich die zwei
+                          gestrichelten Linien im Bild. */}
                       <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
                         <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Hoch</span> = 4,0 ★ und mehr ·{' '}
                         <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Viele</span> = mehr als der Median
                         aller Gerichte ({medianCount} {medianCount === 1 ? 'Bewertung' : 'Bewertungen'})
                       </p>
                     </div>
-                    {insightsLoading ? <Sk h={200} /> : rangedDishes.length === 0 ? (
+                    {insightsLoading ? <Sk h={320} /> : rangedDishes.length === 0 ? (
                       <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich"
                         desc="Sobald in diesem Zeitraum Bewertungen eingehen, ordnen sich die Gerichte hier ein." />
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 auto-rows-fr gap-3">
-                        {QUADRANTS.map(q => {
-                          const rows = quadrants[q.id];
-                          return (
-                            <div key={q.id} className="h-full rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${q.dot}`} />
+                      <>
+                        <div style={{ height: 320 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                              <CartesianGrid key="grid" strokeDasharray="3 3" stroke="#f1f5f9" />
+                              {/* Feste Skala 0 bis 5: eine mitwandernde Achse
+                                  ließe jede Karte gleich gut aussehen. */}
+                              <XAxis key="x" type="number" dataKey="avg" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} name="Bewertung"
+                                tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                                label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
+                              <YAxis key="y" type="number" dataKey="count" name="Bewertungen"
+                                tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}
+                                label={{ value: 'Anzahl', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
+                              <ZAxis key="z" range={[60, 60]} />
+                              <Tooltip key="tip" cursor={{ strokeDasharray: '3 3' }}
+                                content={({ payload }) => {
+                                  if (!payload?.length) return null;
+                                  const d = payload[0].payload as { name: string; avg: number; count: number };
+                                  return (
+                                    <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-[12px]">
+                                      <p className="font-semibold text-gray-900">{d.name}</p>
+                                      <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {d.count} Bewertungen</p>
+                                    </div>
+                                  );
+                                }} />
+                              {/* Die zwei Schwellen aus der Zeile darüber, als
+                                  Linien. Ohne sie stünden die vier Felder unten
+                                  ohne Entsprechung im Bild. */}
+                              <ReferenceLine key="refx" x={4} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
+                              <ReferenceLine key="refy" y={medianCount} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
+                              <Scatter key="scatter" data={rangedDishes} shape={(props: any) => {
+                                const { cx, cy, payload } = props;
+                                const id = quadrantOf(payload.avg ?? 0, payload.count ?? 0, medianCount);
+                                const color = QUADRANTS.find(q => q.id === id)?.hex ?? '#9ca3af';
+                                return <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={2} />;
+                              }} />
+                            </ScatterChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* `auto-rows-fr` hält die vier Felder gleich hoch:
+                            sonst wächst das vollste und die leeren schrumpfen
+                            auf zwei Zeilen — eine Matrix mit vier verschieden
+                            großen Feldern sieht aus, als wäre sie verrutscht. */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 auto-rows-fr gap-3 mt-4">
+                          {QUADRANTS.map(q => {
+                            const rows = quadrants[q.id];
+                            return (
+                              <div key={q.id} className={`h-full rounded-2xl border ${q.border} bg-white dark:bg-gray-800 p-4`}>
                                 <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{q.title}</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">{q.desc}</p>
+                                {rows.length === 0 ? (
+                                  <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-3">Kein Gericht in diesem Feld.</p>
+                                ) : (
+                                  <ul className="mt-3 space-y-1.5">
+                                    {rows.slice(0, 6).map(d => (
+                                      <li key={d.id} className="flex items-center gap-2 text-[13px] text-gray-800 dark:text-gray-200">
+                                        <span className="flex-1 truncate">{d.name}</span>
+                                        <span className="text-[11px] text-gray-400 flex-shrink-0 tabular-nums">{d.avg.toFixed(1)} ★ · {d.count}×</span>
+                                      </li>
+                                    ))}
+                                    {rows.length > 6 && (
+                                      <li className="text-[11px] text-gray-400">und {rows.length - 6} weitere</li>
+                                    )}
+                                  </ul>
+                                )}
                               </div>
-                              <p className="text-[11px] text-gray-400 mt-0.5">{q.desc}</p>
-                              {rows.length === 0 ? (
-                                <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-3">Kein Gericht in diesem Feld.</p>
-                              ) : (
-                                <ul className="mt-3 space-y-1.5">
-                                  {rows.slice(0, 6).map(d => (
-                                    <li key={d.id} className="flex items-center gap-2 text-[13px] text-gray-800 dark:text-gray-200">
-                                      <span className="flex-1 truncate">{d.name}</span>
-                                      <span className="text-[11px] text-gray-400 flex-shrink-0 tabular-nums">{d.avg.toFixed(1)} ★ · {d.count}×</span>
-                                    </li>
-                                  ))}
-                                  {rows.length > 6 && (
-                                    <li className="text-[11px] text-gray-400">und {rows.length - 6} weitere</li>
-                                  )}
-                                </ul>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
 

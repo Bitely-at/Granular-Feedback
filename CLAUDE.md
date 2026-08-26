@@ -393,19 +393,27 @@ Was das Dashboard daraus macht:
 - **Kein Bearbeiten-Modus mehr.** Ausblendbare Kacheln versteckten Zahlen hinter
   einem Schalter, den niemand wiederfand. Was der Server dazu speichert
   (`settings/dashboard.hiddenWidgets`), bleibt unberührt liegen.
-- **Statt des Streudiagramms vier Felder mit Namen darin.** Punkte ohne
-  Beschriftung, die sich bei ähnlichen Werten überlagern, beantworten die
-  einzige Frage nicht, die man stellt: welches Gericht steht wo. Die Schwellen
-  stehen als Text dabei — **hoch = 4,0 ★ und mehr** (fest, kein zweiter Median:
-  eine mitwandernde Schwelle ließe jede Karte gleich gut aussehen), **viele =
-  mehr als der Median** aller Gerichte des Zeitraums.
-- **Die vier Felder sind gleich hoch** (`auto-rows-fr`) und **neutral
-  gehalten**: ein farbiger Punkt vor dem Titel, sonst normale Schrift auf
-  grauem Grund. Vorher trug jedes Feld seine eigene Tönung, Schrift inklusive —
-  heller Grund, dunklere Schrift derselben Farbe. Das las sich schlechter als
-  Schwarz, und weil das vollste Feld die anderen überragte, kippte die ganze
-  Matrix zur vollen Seite hin. Die zwei Begriffe der Legende („Hoch", „Viele")
-  stehen in der Akzentfarbe; der Rest ist gewöhnlicher Text.
+- **Die Menü-Matrix ist ein Streudiagramm UND vier Felder darunter**, nicht
+  das eine statt des anderen. Das Diagramm zeigt die Verteilung, die keine
+  Liste zeigt; die Felder beantworten, welches Gericht wo steht — dafür stehen
+  die Namen darin. Zwischenzeitlich war das Diagramm entfernt, mit dem
+  Argument, unbeschriftete Punkte sagten nichts. Das stimmt für sich genommen,
+  ersetzt aber die Verteilung nicht.
+- **Die Schwellen sind fest und stehen als Text dabei** — **hoch = 4,0 ★ und
+  mehr** (kein zweiter Median: eine mitwandernde Schwelle ließe jede Karte
+  gleich gut aussehen), **viele = mehr als der Median** aller Gerichte des
+  Zeitraums. Dieselben zwei Werte liegen als gestrichelte `ReferenceLine` im
+  Bild, sonst hätten die Felder unten keine Entsprechung darin. Die Einteilung
+  steht **einmal** in `quadrantOf()` — Punktfarbe und Feld dürfen nie
+  auseinanderlaufen.
+- **Die vier Felder sind die Legende**: farbiger Rahmen in der Farbe der
+  Punkte, Schrift schwarz und grau. Vorher trug jedes Feld seine eigene
+  Tönung, Schrift inklusive — heller Grund, dunklere Schrift derselben Farbe:
+  ein Kästchen aus Rot, Hellrot und Dunkelrot, das sich schlechter las als
+  eines aus einem. `auto-rows-fr` hält sie gleich hoch, sonst überragt das
+  vollste Feld die anderen und die Matrix wirkt verrutscht. Die zwei Begriffe
+  darüber („Hoch", „Viele") stehen in der Akzentfarbe, der Rest ist
+  gewöhnlicher Text.
 
 ## Fallstricke
 
