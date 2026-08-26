@@ -10,6 +10,7 @@
     "set-password": "tsx src/setPassword.ts",
     "guest-points": "tsx src/setGuestPoints.ts",
     "demo-reviews": "tsx src/demoReviews.ts",
+    "dashboard-snapshot": "tsx src/dashboardSnapshot.ts",
     "check-db": "tsx src/checkDb.ts"
   },
   "dependencies": {
