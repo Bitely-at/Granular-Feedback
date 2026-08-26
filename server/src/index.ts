@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { randomInt } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
-import { ObjectId, type Db, type WithId, type Document } from 'mongodb';
+import { ObjectId, type Db, type WithId, type Document, type Filter } from 'mongodb';
 import { platformDb, orgDbBySlug, connectionSummary, explainDbError } from './db.js';
 import {
   verifyPassword, hashPassword, signToken, verifyToken, signGuestToken, verifyGuestToken,
@@ -14,7 +14,7 @@ import { generateReviewText } from './reviewText.js';
 import { generateHighlight, scanReceipt, hasClaude, type HighlightInput } from './ai.js';
 import type {
   Organization, BrandDoc, DashboardDoc, GuestDoc, DishRatingInput, UserDoc, Branch,
-  DishDoc, RedemptionDoc, ReviewDoc, InsightsDoc, TableDoc,
+  DishDoc, RedemptionDoc, ReviewDoc, InsightsDoc, TableDoc, OrderDoc,
 } from './types.js';
 
 const app = express();
@@ -527,6 +527,31 @@ async function getFullState(
     ? { $or: [{ branchIds: null }, { branchIds: branchId }] }
     : {};
 
+  /**
+   * Wessen Einlösungen der Aufrufer sieht.
+   *
+   * Für das Personal sind sie Arbeitsvorrat: alle der Filiale, sonst wüsste
+   * niemand, welche Ausgabe noch aussteht. Für den Gast sind sie SEIN Beleg —
+   * er bekommt ausschließlich die eigenen.
+   *
+   * Das ist kein Feinschliff. Die Gastansicht liest daraus, ob für einen
+   * Gutschein bereits eine Entwertung offen ist, und überspringt dann den
+   * Wisch, um dem Gast den Bildschirm zurückzugeben, den er vorzeigen muss.
+   * Bekam sie die Einlösungen FREMDER Gäste, traf diese Prüfung auf einen
+   * fremden Datensatz zu: der Wisch entfiel, es wurden keine Punkte abgebucht,
+   * und der Gast sah ein Häkchen für einen Gutschein, den er nie eingelöst
+   * hatte. Ein Gutschein, den ein Gast gerade offen hatte, war damit für alle
+   * anderen in derselben Filiale gratis.
+   *
+   * Ohne Anmeldung gibt es nichts zu zeigen — einlösen setzt ohnehin ein Konto
+   * voraus, also kann es keine eigene Einlösung geben.
+   */
+  const redemptionScope: Filter<RedemptionDoc> = isStaff
+    ? branchFilter
+    : guestAccount
+      ? { ...branchFilter, guestId: String(guestAccount._id) }
+      : { _id: { $in: [] } };
+
   // Vor dem Lesen aufräumen: keine längst abgelaufene Einlösung als "offen",
   // und keine Bestellung von vorgestern auf einem Tisch, an dem längst andere
   // Gäste sitzen.
@@ -545,7 +570,7 @@ async function getFullState(
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
     db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
-    db.collection<RedemptionDoc>('redemptions').find(branchFilter).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
+    db.collection<RedemptionDoc>('redemptions').find(redemptionScope).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
   ]);
 
   // Ohne Anmeldung ein leeres Konto: keine Punkte, nichts eingelöst. Früher
@@ -795,6 +820,49 @@ router.delete('/branches/:branchSlug/tables/:id', branchAdmin(withBranch(async (
   res.json(await stateFor(req));
 })));
 
+/**
+ * Die gebuchte Bestellung festhalten — als Beleg, dass es sie gab.
+ *
+ * Der Tisch vergisst sie beim Freigeben; ohne diesen Eintrag wüsste das
+ * Dashboard nur, wie viele Bestellungen BEWERTET wurden, und nie, wie viele es
+ * überhaupt gab. Der Upsert auf `orderId` sorgt dafür, dass Nachbuchen den
+ * bestehenden Datensatz wachsen lässt statt einen zweiten anzulegen — die
+ * Eindeutigkeit trägt der Index (siehe db.ts), nicht diese Funktion.
+ */
+async function recordOrder(
+  req: OrgRequest,
+  tableId: unknown,
+  tableNumber: number,
+  orderId: ObjectId,
+  items: { dishId: string; qty: number }[],
+): Promise<void> {
+  const now = Date.now();
+  try {
+    await req.db!.collection<OrderDoc>('orders').updateOne(
+      { orderId },
+      {
+        $setOnInsert: {
+          orderId,
+          branchId: String(req.branch!._id),
+          tableId: String(tableId),
+          tableNumber,
+          createdAt: now,
+        },
+        $set: { itemCount: items.reduce((a, i) => a + i.qty, 0) },
+      },
+      { upsert: true }
+    );
+  } catch (err) {
+    // Zwei gleichzeitige Buchungen auf denselben Tisch versuchen beide den
+    // Einschub und eine verliert am eindeutigen Index. Das ist kein Fehler,
+    // sondern genau das, wofür der Index da ist — und selbst wenn hier etwas
+    // anderes schiefginge: die Bestellung liegt auf dem Tisch, der Gast kann
+    // sie bewerten, und eine fehlende Zeile im Reporting darf das Buchen
+    // nicht scheitern lassen.
+    console.warn('[orders] Bestellung konnte nicht protokolliert werden:', err);
+  }
+}
+
 // ── Kellner: Bestellung für einen Tisch speichern ──
 router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranch(async (req: OrgRequest, res, next) => {
   try {
@@ -817,6 +885,8 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
       const existing = items.find(i => i.dishId === dishId);
       if (existing) existing.qty += qty; else items.push({ dishId, qty });
     }
+    // Erste Buchung auf einen leeren Tisch eröffnet eine neue Bestellung.
+    const orderId = (table.orderId as ObjectId | null | undefined) ?? new ObjectId();
     await req.db!.collection('tables').updateOne(
       { _id: table._id },
       {
@@ -824,11 +894,11 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
           items,
           status: 'offen',
           openedAt: table.openedAt ?? Date.now(),
-          // Erste Buchung auf einen leeren Tisch eröffnet eine neue Bestellung.
-          orderId: table.orderId ?? new ObjectId(),
+          orderId,
         },
       }
     );
+    await recordOrder(req, table._id, number, orderId, items);
     res.json(await stateFor(req));
   } catch (err) {
     next(err);
@@ -872,19 +942,21 @@ router.post('/branches/:branchSlug/tables/:number/items', withBranch(async (req:
     const items = [...(table.items as { dishId: string; qty: number }[])];
     const existing = items.find(i => i.dishId === dishId);
     if (existing) existing.qty += qty; else items.push({ dishId, qty });
+    // Ein Nachtrag macht den Tisch in jedem Fall wieder aktiv — auch wenn er
+    // zuvor bewertet war; dann eröffnet er eine neue Bestellung.
+    const orderId = (table.orderId as ObjectId | null | undefined) ?? new ObjectId();
     await req.db!.collection('tables').updateOne(
       { _id: table._id },
       {
         $set: {
           items,
-          // Ein Nachtrag macht den Tisch in jedem Fall wieder aktiv — auch wenn
-          // er zuvor bewertet war; dann eröffnet er eine neue Bestellung.
           status: 'offen',
           openedAt: table.openedAt ?? Date.now(),
-          orderId: table.orderId ?? new ObjectId(),
+          orderId,
         },
       }
     );
+    await recordOrder(req, table._id, number, orderId, items);
     res.json(await stateFor(req));
   } catch (err) {
     next(err);
@@ -1024,6 +1096,38 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
 // ═══════════════════════════════════════════════════════════
 
 /** Gast: Gutschein entwerten. Liegt unter der Filiale, denn dort wird eingelöst. */
+/**
+ * Wann ein Gutschein abläuft, als Zeitstempel — oder `null`, wenn sich das
+ * Feld nicht lesen lässt.
+ *
+ * `expiry` ist Freitext: der Admin tippt „31.12.2026" ins Formular. Deshalb
+ * beide gebräuchlichen Formen, deutsch mit Punkten und ISO. Was sich nicht
+ * lesen lässt, gilt als unbefristet — ein Gutschein, der wegen eines
+ * Tippfehlers im Datum stillschweigend verschwindet, wäre schlimmer als einer,
+ * der zu lange gilt.
+ *
+ * Der Zeitpunkt ist das ENDE des genannten Tages: „gültig bis 31.12." heißt
+ * den 31. über.
+ */
+function voucherExpiryTs(expiry: unknown): number | null {
+  if (typeof expiry !== 'string') return null;
+  const text = expiry.trim();
+  const de = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  let y: number, m: number, d: number;
+  if (de) { d = +de[1]; m = +de[2]; y = +de[3]; }
+  else if (iso) { y = +iso[1]; m = +iso[2]; d = +iso[3]; }
+  else return null;
+  const ts = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
+/** Ist er heute noch einlösbar? Ohne lesbares Datum: ja. */
+function voucherExpired(expiry: unknown, now = Date.now()): boolean {
+  const ts = voucherExpiryTs(expiry);
+  return ts !== null && ts < now;
+}
+
 router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: OrgRequest, res) => {
   const db = req.db!;
   const branchId = String(req.branch!._id);
@@ -1036,6 +1140,13 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   }
   if (voucher.branchIds != null && !(voucher.branchIds as string[]).includes(branchId)) {
     res.status(400).json({ error: `Dieser Gutschein gilt nicht in der Filiale ${req.branch!.name}.` });
+    return;
+  }
+  // Der Gast bekommt abgelaufene Gutscheine gar nicht erst zu sehen. Die
+  // Prüfung steht trotzdem hier: die Route ist öffentlich, und ein alter
+  // Bildschirm im Browser weiß nichts vom gestrigen Ablauf.
+  if (voucherExpired(voucher.expiry)) {
+    res.status(400).json({ error: `Dieser Gutschein ist seit ${voucher.expiry} abgelaufen.` });
     return;
   }
 
@@ -1591,6 +1702,68 @@ router.delete('/users/:id', branchAdmin(async (req: OrgRequest, res) => {
 }));
 
 /**
+ * Rolle und Filiale eines bestehenden Kontos ändern.
+ *
+ * Bis hierher war die Rolle mit dem Anlegen zementiert: wer als Kellner
+ * eingeladen wurde, blieb einer — es sei denn, jemand löschte das Konto und
+ * legte es neu an. Damit verlor es aber seine Kennung (die ID hängt an
+ * Alarmen und Einlösungen), und das Passwort war auch weg.
+ *
+ * Bewusst `chainAdmin`: Rollen zu vergeben ist Ketten-Sache. Dürfte eine
+ * Filialleitung sie ändern, könnte sie einen ihrer Kellner zum Admin machen
+ * und über dessen Konto alles tun — die Grenze bei POST /users wäre dann eine
+ * Umleitung, kein Zaun.
+ */
+router.patch('/users/:id', chainAdmin(async (req: OrgRequest, res) => {
+  const actor = req.user!;
+  const id = requireObjectId(req.params.id, 'Benutzer-ID');
+  const target = await req.db!.collection<UserDoc>('users').findOne({ _id: id });
+  if (!target) {
+    res.status(404).json({ error: 'Benutzer wurde nicht gefunden.' });
+    return;
+  }
+
+  const update: Partial<UserDoc> = {};
+
+  if (req.body?.role !== undefined) {
+    const role = req.body.role;
+    if (role !== 'Admin' && role !== 'Manager' && role !== 'Kellner') {
+      throw new HttpError(400, 'Rolle muss Admin, Manager oder Kellner sein.');
+    }
+    // Sich selbst herabzustufen ist der kürzeste Weg, sich auszusperren: nach
+    // dem Speichern gilt das neue Recht sofort, und die Seite, auf der man
+    // steht, gehört einem nicht mehr.
+    if (String(id) === actor.sub && role !== actor.role) {
+      res.status(400).json({ error: 'Die eigene Rolle kann nicht geändert werden.' });
+      return;
+    }
+    // Wie beim Löschen: der letzte Admin muss stehen bleiben, sonst kommt
+    // niemand mehr in die Verwaltung.
+    if (target.role === 'Admin' && role !== 'Admin') {
+      const admins = await req.db!.collection('users').countDocuments({ role: 'Admin' });
+      if (admins <= 1) {
+        res.status(400).json({ error: 'Der letzte Admin kann nicht herabgestuft werden.' });
+        return;
+      }
+    }
+    update.role = role;
+  }
+
+  if (req.body?.branchId !== undefined) {
+    update.branchId = req.body.branchId
+      ? String(requireObjectId(req.body.branchId, 'Filial-ID'))
+      : null;
+  }
+
+  if (req.body?.name !== undefined) update.name = requireText(req.body.name, 'Name', 120);
+
+  if (Object.keys(update).length > 0) {
+    await req.db!.collection<UserDoc>('users').updateOne({ _id: id }, { $set: update });
+  }
+  res.json(await stateFor(req));
+}));
+
+/**
  * Passwort eines Mitarbeiterkontos setzen — und es damit freischalten.
  *
  * Ohne das war eine Einladung eine Sackgasse: `passwordHash: null` heißt
@@ -1682,15 +1855,48 @@ const HIGHLIGHT_TTL_MS = 24 * 60 * 60 * 1000;
 const INSIGHT_REVIEW_CAP = 5000;
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Montag 00:00 der Woche, in der `ts` liegt — Wochen beginnen hier am Montag. */
-function weekStart(ts: number): number {
+/**
+ * Wie fein der Verlauf aufgelöst wird.
+ *
+ * Feste Wochen waren für kurze Zeiträume die falsche Einheit: "letzte 7 Tage"
+ * ergab EINEN Balken, "letzte 30 Tage" vier oder fünf — ein Diagramm, das aus
+ * der Ferne wie ein Fehler aussieht. Die Einheit richtet sich deshalb nach der
+ * Länge des Zeitraums, nicht nach dem Kalender.
+ */
+export type TrendUnit = 'day' | 'week' | 'month';
+
+function trendUnitFor(spanMs: number): TrendUnit {
+  if (spanMs <= 35 * DAY_MS) return 'day';
+  if (spanMs <= 400 * DAY_MS) return 'week';
+  return 'month';
+}
+
+/** Anfang des Kübels, in dem `ts` liegt — Wochen beginnen am Montag. */
+function bucketStart(ts: number, unit: TrendUnit): number {
   const d = new Date(ts);
   d.setHours(0, 0, 0, 0);
-  const day = (d.getDay() + 6) % 7; // Montag = 0
-  d.setDate(d.getDate() - day);
+  if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Montag = 0
+  if (unit === 'month') d.setDate(1);
   return d.getTime();
 }
+
+/**
+ * Der nächste Kübel. Bewusst über `Date` und nicht über eine Addition in
+ * Millisekunden: bei der Zeitumstellung hat ein Tag 23 oder 25 Stunden, und
+ * Monate haben ohnehin keine feste Länge.
+ */
+function nextBucket(ts: number, unit: TrendUnit): number {
+  const d = new Date(ts);
+  if (unit === 'day') d.setDate(d.getDate() + 1);
+  else if (unit === 'week') d.setDate(d.getDate() + 7);
+  else d.setMonth(d.getMonth() + 1);
+  return d.getTime();
+}
+
+/** Notbremse gegen eine Endlosschleife bei kaputten Zeitstempeln. */
+const MAX_TREND_POINTS = 500;
 
 function optionalDate(value: unknown, field: string): number | null {
   if (value == null || value === '') return null;
@@ -1703,13 +1909,24 @@ interface DishStat { id: string; name: string; sum: number; count: number }
 
 /**
  * Alles, was das Dashboard über einen Zeitraum wissen muss, in einem Durchgang
- * über die Bewertungen. Die Reichweite kommt wie überall aus scopeOf().
+ * über die Bewertungen.
+ *
+ * Die Reichweite kommt wie überall aus scopeOf() — und die schlägt jeden
+ * Filter: ein Konto mit Filialbindung sieht seine Filiale, egal was in der
+ * Anfrage steht. `branches` ist deshalb nur für den Ketten-Admin von Belang,
+ * der mehrere Standorte nebeneinander betrachten will; `null` heißt „alle".
  */
-async function collectInsights(req: OrgRequest, from: number | null, to: number | null) {
+async function collectInsights(
+  req: OrgRequest,
+  from: number | null,
+  to: number | null,
+  branches: string[] | null = null,
+) {
   const db = req.db!;
-  const branchId = scopeOf(req);
+  const scope = scopeOf(req);
+  const branchIds = scope ? [scope] : (branches && branches.length > 0 ? branches : null);
 
-  const filter: Record<string, unknown> = branchId ? { branchId } : {};
+  const filter: Record<string, unknown> = branchIds ? { branchId: { $in: branchIds } } : {};
   if (from !== null || to !== null) {
     filter.createdAt = {
       ...(from !== null ? { $gte: from } : {}),
@@ -1717,33 +1934,44 @@ async function collectInsights(req: OrgRequest, from: number | null, to: number 
     };
   }
 
-  const [reviews, dishDocs] = await Promise.all([
+  const [reviews, dishDocs, orders] = await Promise.all([
     db.collection<ReviewDoc>('reviews').find(filter).sort({ createdAt: -1 }).limit(INSIGHT_REVIEW_CAP).toArray(),
     db.collection<DishDoc>('dishes').find({}).toArray(),
+    // Gebuchte Bestellungen im selben Zeitraum. Sie stehen neben den
+    // Bewertungen, weil erst das Verhältnis der beiden etwas sagt: 40
+    // Bewertungen sind viel bei 60 Bestellungen und wenig bei 600.
+    db.collection<OrderDoc>('orders').countDocuments(filter),
   ]);
   const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gelöschtes Gericht';
 
   const byDish = new Map<string, DishStat>();
-  const byWeek = new Map<number, { sum: number; ratings: number; reviews: number }>();
+  // Die Einheit des Verlaufs steht fest, bevor der erste Kübel entsteht: sie
+  // hängt am angefragten Zeitraum, nicht an den Daten. Fehlt eine Grenze, gilt
+  // die älteste Bewertung bzw. jetzt.
+  const oldest = reviews.length > 0 ? Math.min(...reviews.map(r => r.createdAt)) : Date.now();
+  const spanFrom = from ?? oldest;
+  const spanTo = to ?? Date.now();
+  const trendUnit = trendUnitFor(Math.max(0, spanTo - spanFrom));
+  const byBucket = new Map<number, { sum: number; ratings: number; reviews: number }>();
   const overall = { service: 0, ambience: 0, speed: 0, count: 0 };
   let sum = 0;
   let ratings = 0;
 
   for (const rv of reviews) {
-    const week = byWeek.get(weekStart(rv.createdAt)) ?? { sum: 0, ratings: 0, reviews: 0 };
-    week.reviews += 1;
+    const bucket = byBucket.get(bucketStart(rv.createdAt, trendUnit)) ?? { sum: 0, ratings: 0, reviews: 0 };
+    bucket.reviews += 1;
     for (const r of rv.dishRatings) {
       if (r.stars <= 0) continue;
       sum += r.stars;
       ratings += 1;
-      week.sum += r.stars;
-      week.ratings += 1;
+      bucket.sum += r.stars;
+      bucket.ratings += 1;
       const stat = byDish.get(r.dishId) ?? { id: r.dishId, name: nameOf(r.dishId), sum: 0, count: 0 };
       stat.sum += r.stars;
       stat.count += 1;
       byDish.set(r.dishId, stat);
     }
-    byWeek.set(weekStart(rv.createdAt), week);
+    byBucket.set(bucketStart(rv.createdAt, trendUnit), bucket);
     if (rv.overall.service > 0) {
       overall.service += rv.overall.service;
       overall.ambience += rv.overall.ambience;
@@ -1756,15 +1984,28 @@ async function collectInsights(req: OrgRequest, from: number | null, to: number 
     .map(d => ({ id: d.id, name: d.name, avg: d.sum / d.count, count: d.count }))
     .sort((a, b) => b.avg - a.avg);
 
-  const weeks = [...byWeek.entries()]
-    .map(([start, w]) => ({ weekStart: start, reviews: w.reviews, avg: w.ratings > 0 ? w.sum / w.ratings : 0 }))
-    .sort((a, b) => a.weekStart - b.weekStart);
+  /**
+   * Der Verlauf, LÜCKENLOS. Vorher entstanden Kübel nur dort, wo auch
+   * Bewertungen lagen: eine Woche ohne Feedback fiel aus dem Diagramm, und
+   * zwei Balken nebeneinander taten so, als lägen sie nebeneinander in der
+   * Zeit. Ein leerer Kübel ist eine Aussage — er heißt „nichts gekommen".
+   */
+  const trend: { start: number; reviews: number; avg: number }[] = [];
+  if (reviews.length > 0) {
+    const last = bucketStart(spanTo, trendUnit);
+    let t = bucketStart(spanFrom, trendUnit);
+    for (let i = 0; t <= last && i < MAX_TREND_POINTS; i += 1, t = nextBucket(t, trendUnit)) {
+      const b = byBucket.get(t);
+      trend.push({ start: t, reviews: b?.reviews ?? 0, avg: b && b.ratings > 0 ? b.sum / b.ratings : 0 });
+    }
+  }
 
   return {
     range: { from, to },
     totals: {
       reviews: reviews.length,
       ratings,
+      orders,
       avg: ratings > 0 ? sum / ratings : 0,
       capped: reviews.length >= INSIGHT_REVIEW_CAP,
     },
@@ -1774,7 +2015,8 @@ async function collectInsights(req: OrgRequest, from: number | null, to: number 
       speed: overall.speed / overall.count,
       count: overall.count,
     },
-    weeks,
+    trend,
+    trendUnit,
     dishes,
   };
 }
@@ -1791,10 +2033,25 @@ async function storedHighlight(req: OrgRequest) {
   return { ...entry, stale: Date.now() - entry.generatedAt > HIGHLIGHT_TTL_MS };
 }
 
+/**
+ * `?branches=a,b` — mehrere Filialen nebeneinander auswerten.
+ *
+ * Geprüft wird jede ID: eine unbrauchbare fliegt raus, statt als Zeichenkette
+ * in den Filter zu wandern. Für ein filialgebundenes Konto ist der Parameter
+ * ohne Wirkung, siehe collectInsights.
+ */
+function branchFilterOf(req: OrgRequest): string[] | null {
+  const raw = req.query.branches;
+  if (raw == null || raw === '' || raw === 'all') return null;
+  const ids = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+  if (ids.length === 0) return null;
+  return ids.map(id => String(requireObjectId(id, 'Filial-ID')));
+}
+
 router.get('/insights', branchAdmin(async (req: OrgRequest, res) => {
   const from = optionalDate(req.query.from, 'Von-Datum');
   const to = optionalDate(req.query.to, 'Bis-Datum');
-  const insights = await collectInsights(req, from, to);
+  const insights = await collectInsights(req, from, to, branchFilterOf(req));
   res.json({ ...insights, highlight: await storedHighlight(req), aiAvailable: hasClaude() });
 }));
 

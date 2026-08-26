@@ -49,6 +49,33 @@ export interface TableDoc {
   orderId?: ObjectId | null;
 }
 
+/**
+ * Eine gebuchte Bestellung — der Beleg, dass an einem Tisch etwas aufgegeben
+ * wurde, unabhängig davon, ob sie je bewertet wird.
+ *
+ * Der Tisch allein trägt das nicht: er kennt nur die LAUFENDE Bestellung und
+ * vergisst sie beim Freigeben. Ohne diese Sammlung ließe sich „wie viele
+ * Bestellungen gab es" nicht beantworten — und damit auch nicht, welcher
+ * Anteil davon Feedback hinterlässt.
+ *
+ * Schlüssel ist `orderId`, dieselbe wie auf dem Tisch und in der Bewertung.
+ * Bucht die Servicekraft nach, wächst der bestehende Datensatz, statt dass ein
+ * zweiter entsteht.
+ */
+export interface OrderDoc {
+  _id?: ObjectId;
+  orderId: ObjectId;
+  branchId: string;
+  tableId: string;
+  tableNumber: number;
+  createdAt: number;
+  // Zum Zeitpunkt der letzten Buchung — nur fürs Reporting, die Wahrheit über
+  // die Positionen steht am Tisch bzw. in der Bewertung.
+  itemCount: number;
+  /** Aus `npm run demo-reviews`. Nur damit `--reset` sie wieder findet. */
+  demo?: boolean;
+}
+
 export interface DishDoc {
   _id?: ObjectId;
   name: string;
@@ -99,6 +126,8 @@ export interface ReviewDoc {
    * statt eines zweiten, leicht anderen.
    */
   reviewText?: string | null;
+  /** Aus `npm run demo-reviews`. Nur damit `--reset` sie wieder findet. */
+  demo?: boolean;
 }
 
 export interface AlertDoc {

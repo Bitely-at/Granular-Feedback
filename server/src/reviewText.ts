@@ -108,11 +108,18 @@ export async function generateReviewText(input: ReviewTextInput): Promise<Review
       `- ${d.name}: ${d.stars}/5 (${STAR_WORDS[d.stars] ?? ''})${d.note ? ` — Anmerkung des Gasts: „${d.note}"` : ''}`
     ),
     '',
-    'Gesamteindruck:',
-    `- Service: ${input.overall.service}/5`,
-    `- Ambiente: ${input.overall.ambience}/5`,
-    `- Schnelligkeit: ${input.overall.speed}/5`,
-    '',
+    // Nur, wonach der Gast auch gefragt wurde. Ambiente und Schnelligkeit
+    // stehen nicht mehr im Fragebogen und kommen als 0 an; „Ambiente: 0/5" im
+    // Auftrag läse das Modell als vernichtendes Urteil.
+    ...(input.overall.service > 0 || input.overall.ambience > 0 || input.overall.speed > 0
+      ? [
+        'Gesamteindruck:',
+        ...(input.overall.service > 0 ? [`- Service: ${input.overall.service}/5`] : []),
+        ...(input.overall.ambience > 0 ? [`- Ambiente: ${input.overall.ambience}/5`] : []),
+        ...(input.overall.speed > 0 ? [`- Schnelligkeit: ${input.overall.speed}/5`] : []),
+        '',
+      ]
+      : []),
     'Schreibe daraus die Rezension.',
   ].join('\n');
 

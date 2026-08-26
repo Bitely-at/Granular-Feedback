@@ -118,6 +118,18 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { name: 'newest_first' }
   );
 
+  // Bestellungen: eine je orderId. Der eindeutige Index trägt die Regel, nicht
+  // der Handler — nachbuchen auf denselben Tisch lässt den Datensatz wachsen,
+  // statt einen zweiten anzulegen (upsert in index.ts).
+  await db.collection('orders').createIndex(
+    { orderId: 1 },
+    { unique: true, name: 'uniq_order' }
+  );
+  await db.collection('orders').createIndex(
+    { branchId: 1, createdAt: -1 },
+    { name: 'branch_newest_first' }
+  );
+
   // Gastkonten: die E-Mail ist die Kennung, und zwei Konten mit derselben
   // wären nicht auseinanderzuhalten — die Regel gehört wie überall in den
   // Index, nicht in den Handler.

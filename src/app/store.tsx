@@ -77,6 +77,31 @@ export function availableIn(item: { branchIds: string[] | null }, branchId: stri
   return item.branchIds == null || item.branchIds.includes(branchId);
 }
 
+/**
+ * Ist dieser Gutschein abgelaufen?
+ *
+ * `expiry` ist Freitext — der Admin tippt „31.12.2026" ins Formular —, deshalb
+ * beide gebräuchlichen Formen: deutsch mit Punkten und ISO. Was sich nicht
+ * lesen lässt, gilt als unbefristet; ein Gutschein, der wegen eines Tippfehlers
+ * im Datum stillschweigend verschwindet, wäre schlimmer als einer, der zu lange
+ * gilt. Gerechnet wird gegen das ENDE des genannten Tages: „gültig bis 31.12."
+ * heißt den 31. über.
+ *
+ * Dieselbe Regel steht noch einmal auf dem Server (voucherExpired in index.ts).
+ * Hier bestimmt sie, was der Gast SIEHT; dort, was er einlösen KANN — und nur
+ * die zweite ist der Schutz.
+ */
+export function voucherExpired(v: { expiry: string }, now = Date.now()): boolean {
+  const text = (v.expiry ?? '').trim();
+  const de = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  let y: number, m: number, d: number;
+  if (de) { d = +de[1]; m = +de[2]; y = +de[3]; }
+  else if (iso) { y = +iso[1]; m = +iso[2]; d = +iso[3]; }
+  else return false;
+  return new Date(y, m - 1, d, 23, 59, 59, 999).getTime() < now;
+}
+
 export interface TableItem { dishId: string; qty: number; }
 
 export interface TableRow {
@@ -202,9 +227,18 @@ export interface Highlight {
  */
 export interface Insights {
   range: { from: number | null; to: number | null };
-  totals: { reviews: number; ratings: number; avg: number; capped: boolean };
+  // `orders` = gebuchte Bestellungen im Zeitraum. Neben `reviews` gestellt
+  // sagt es, welcher Anteil der Tische überhaupt Feedback hinterlässt.
+  totals: { reviews: number; ratings: number; orders: number; avg: number; capped: boolean };
   overall: { service: number; ambience: number; speed: number; count: number } | null;
-  weeks: { weekStart: number; reviews: number; avg: number }[];
+  /**
+   * Der Verlauf, lückenlos und in der Einheit, die zum Zeitraum passt —
+   * Tage bei kurzen Zeiträumen, sonst Wochen oder Monate. Der Server
+   * entscheidet das, damit „letzte 7 Tage" nicht als ein einziger Balken
+   * ankommt.
+   */
+  trend: { start: number; reviews: number; avg: number }[];
+  trendUnit: 'day' | 'week' | 'month';
   dishes: { id: string; name: string; avg: number; count: number }[];
   highlight: Highlight | null;
   /** Ob auf dem Server ein Modell-Schlüssel hinterlegt ist. */
@@ -371,6 +405,9 @@ interface StoreApi extends OrgState {
   resolveAlert: (alertId: string) => Promise<void>;
   addUser: (u: { name: string; email: string; role: AdminUser['role']; branchId: string | null }) => Promise<AdminUser | null>;
   removeUser: (id: string) => Promise<void>;
+  // Rolle und Filiale eines bestehenden Kontos ändern. Nur der Ketten-Admin —
+  // der Server lehnt alles andere ab (PATCH /users/:id).
+  updateUser: (id: string, patch: { role?: AdminUser['role']; branchId?: string | null; name?: string }) => Promise<void>;
   setUserPassword: (id: string, password: string) => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
   setHiddenWidgets: (ids: string[]) => Promise<void>;
@@ -387,7 +424,9 @@ interface StoreApi extends OrgState {
   updateBranch: (id: string, b: Partial<BranchInput>) => Promise<void>;
   removeBranch: (id: string) => Promise<void>;
   // Dashboard-Auswertung über einen Zeitraum (ISO-Datum, beide optional).
-  fetchInsights: (from: string | null, to: string | null) => Promise<Insights>;
+  // `branchIds` grenzt zusätzlich auf einzelne Filialen ein — nur für Konten
+  // OHNE feste Filiale von Belang, sonst gewinnt deren Bindung (siehe Server).
+  fetchInsights: (from: string | null, to: string | null, branchIds?: string[] | null) => Promise<Insights>;
   // Den Wochenrückblick schreiben lassen. Ist der gespeicherte keinen Tag alt,
   // kommt er unverändert zurück statt eines zweiten Modellaufrufs.
   refreshHighlight: () => Promise<Highlight>;
@@ -652,6 +691,16 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     setState(await call<OrgState>(`/users/${id}`, { method: 'DELETE' }));
   }, [call]);
 
+  // Befördern, herabstufen, in eine andere Filiale setzen. Vorher ging das nur
+  // über Löschen und Neuanlegen — dabei verlor das Konto seine Kennung (an der
+  // Alarme und Einlösungen hängen) und sein Passwort.
+  const updateUser = useCallback(async (
+    id: string,
+    patch: { role?: AdminUser['role']; branchId?: string | null; name?: string },
+  ) => {
+    setState(await call<OrgState>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }));
+  }, [call]);
+
   // Schaltet ein eingeladenes Konto frei oder setzt ein vergessenes Passwort
   // zurück. Ohne das bliebe eine Einladung ohne Wirkung.
   const setUserPassword = useCallback(async (id: string, password: string) => {
@@ -706,10 +755,11 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
 
   // Auswertung und Rückblick ersetzen den Zustand NICHT — sie sind eine Sicht
   // auf dieselben Daten, kein neuer Stand. Deshalb kein setState hier.
-  const fetchInsights = useCallback((from: string | null, to: string | null) => {
+  const fetchInsights = useCallback((from: string | null, to: string | null, branchIds?: string[] | null) => {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+    if (branchIds && branchIds.length > 0) params.set('branches', branchIds.join(','));
     const query = params.toString();
     return call<Insights>(`/insights${query ? `?${query}` : ''}`);
   }, [call]);
@@ -733,14 +783,14 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
     startRedemption, confirmRedemption,
     setDishAvailability,
-    resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
+    resolveAlert, addUser, removeUser, updateUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt,
   }), [state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
+    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, updateUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

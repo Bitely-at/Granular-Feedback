@@ -43,6 +43,10 @@ npm run verify:redemptions   # Tests für die Gutschein-Einlösung: entwerten,
                              # Ausgabe eintragen, Nebenläufigkeit
 npm run verify:guests    # 39 Tests für die Gastkonten
 npm run build            # Produktionsbuild
+
+npm run demo-reviews --prefix server -- 10   # 10 Wochen erfundene Bestellungen
+                                             # und Bewertungen (Demo, Screenshots)
+npm run demo-reviews --prefix server -- --reset   # ... wieder entfernen
 ```
 
 Typecheck Server: `cd server && npx tsc --noEmit`. Das Root-Projekt hat kein
@@ -97,6 +101,41 @@ frei ──(Kellner bucht)──> offen
 - Die Bewertung wird **vor** ihren Nebenwirkungen geschrieben (Sterne, Alarme,
   Punkte). Umgekehrt würde eine abgelehnte Doppelabgabe die Statistik
   verfälschen.
+
+## Was der Gast beurteilt
+
+**Gerichte einzeln, dazu genau eine Pauschalfrage: den Service.** Ambiente und
+Schnelligkeit sind aus dem Fragebogen entfernt — sie standen zwischen dem Gast
+und dem Absenden-Knopf, und nach fünf Gerichten noch drei Pauschalurteile zu
+verlangen kostete Abbrüche, ohne dass die Küche daraus etwas macht.
+
+- Das Feld am Draht bleibt dreiteilig (`overall.service/ambience/speed`):
+  abgegebene Bewertungen tragen die alten Werte weiter, Neues geht mit 0 mit.
+  **0 heißt „nicht beurteilt"** — `collectInsights` und `reviewText.ts` lesen es
+  so, und der Rezensionstext erwähnt nur, wonach auch gefragt wurde.
+- Was gefragt wird, steht in `OVERALL_FIELDS` (`App.tsx`). Wer dort etwas
+  hinzufügt oder wegnimmt, muss nichts weiter anfassen: Fortschrittsbalken und
+  Absenden-Sperre zählen über diese Liste, **nicht** über die drei Felder von
+  `overall`. Über alle drei zu zählen hieße auf eine Antwort zu warten, nach der
+  niemand fragt — der Knopf bliebe für immer aus.
+
+## Bestellungen
+
+`orders` hält fest, dass es eine Bestellung gab — unabhängig davon, ob sie je
+bewertet wird. Der Tisch trägt das nicht: er kennt nur die LAUFENDE Bestellung
+und vergisst sie beim Freigeben.
+
+- Schlüssel ist `orderId`, dieselbe wie am Tisch und in der Bewertung; ein
+  eindeutiger Index trägt die Regel. Nachbuchen lässt den Datensatz wachsen,
+  statt einen zweiten anzulegen (Upsert in `recordOrder`).
+- **Das Protokollieren darf das Buchen nie scheitern lassen.** `recordOrder`
+  schluckt seine Fehler: zwei gleichzeitige Buchungen auf denselben Tisch
+  versuchen beide den Einschub, eine verliert am Index — das ist kein Fehler,
+  sondern genau der Zweck des Index.
+- Wozu: erst `reviews` neben `orders` sagt etwas. 40 Bewertungen sind viel bei
+  60 Bestellungen und wenig bei 600. Das Dashboard zeigt daraus die Quote.
+- Bestellungen aus der Zeit davor haben keinen Eintrag. Die Quote ist deshalb
+  auf 100 % gedeckelt — sonst stünden dort in den ersten Wochen Werte darüber.
 
 ## Gastkonten
 
@@ -175,6 +214,35 @@ Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Au
   der Einlösung in der Datenbank und im Reporting und geht nur an das Personal
   (`serializeRedemption`) — `redemptions` steckt im Zustand, den auch ein Gast
   lädt.
+- **Abgelaufene Gutscheine sieht der Gast nicht.** `voucherExpired` (in
+  `store.tsx` für die Anzeige, in `index.ts` für die Einlösung) liest `expiry`
+  als deutsches oder ISO-Datum und rechnet gegen das ENDE des genannten Tages —
+  „gültig bis 31.12." heißt den 31. über. Was sich nicht lesen lässt, gilt als
+  unbefristet: ein Gutschein, der wegen eines Tippfehlers im Datum
+  stillschweigend verschwindet, wäre schlimmer als einer, der zu lange gilt.
+  Die Regel steht doppelt, weil sie zweierlei bedeutet — im Frontend, was der
+  Gast SIEHT, auf dem Server, was er einlösen KANN. Nur das zweite ist Schutz.
+  Wichtig ist die Anzeige trotzdem: ein abgelaufener Gutschein konnte vorher als
+  „nächste Belohnung" die Punktezahl bestimmen, auf die der Fortschrittsbalken
+  zuläuft. In der Verwaltung bleiben abgelaufene sichtbar, aber weggeklappt.
+- **Der Wisch gilt für JEDEN Gutschein, auch für einen ohne Punktepreis.** Er
+  ist nicht nur eine Sperre gegen den unabsichtlichen Daumen, sondern der
+  Vorgang, den die Servicekraft am Tisch zu sehen bekommt: ein Knopf, der
+  lautlos ein Häkchen setzt, sieht aus wie ein Screenshot — die Geste nicht.
+  Wer hier eine Abkürzung einbaut, nimmt dem Ablauf seinen einzigen sichtbaren
+  Beweis.
+- **Ein Gast bekommt nur SEINE Einlösungen** (`redemptionScope` in
+  `getFullState`); das Personal bekommt alle der Filiale, weil sie ihr
+  Arbeitsvorrat sind. Das ist kein Feinschliff: die Gastansicht liest aus den
+  Einlösungen, ob für einen Gutschein schon eine Entwertung offen ist, und
+  überspringt dann den Wisch, um dem Gast den vorzuzeigenden Bildschirm
+  zurückzugeben. Sah sie fremde Einlösungen, traf das auf einen fremden
+  Datensatz zu — der Wisch entfiel, es wurden keine Punkte abgebucht, und ein
+  Gutschein, den irgendein Gast gerade offen hatte, war für alle anderen in der
+  Filiale gratis. Die Oberfläche prüft zusätzlich auf `guest.loggedIn`, weil
+  es einen Weg gibt, auf dem sie NICHT als Gast gilt: wer die Verwaltung im
+  selben Browser offen hat und daneben den QR-Code aufruft, schickt nur ein
+  Personal-Token mit — und genau so testet man diese App.
 - **Altbestand**: `offen`, `verfallen` und `abgebrochen` stammen aus der Zeit der
   Frist und entstehen nicht mehr neu. `expireStaleRedemptions` räumt sie
   weiterhin beim Laden des Zustands ab — kein Hintergrundjob, wer als Erster
@@ -290,8 +358,9 @@ der **Rezensionstext** auf dem Dank-Bildschirm (`reviewText.ts`), der
 
 ## Dashboard-Auswertung
 
-`GET /insights?from=&to=` (branchAdmin) rechnet in einem Durchgang über die
-Bewertungen: Summen, Wochenkübel, Gerichtsschnitte, Sammelurteile.
+`GET /insights?from=&to=&branches=` (branchAdmin) rechnet in einem Durchgang
+über die Bewertungen: Summen, Wochenkübel, Gerichtsschnitte, Sammelurteile —
+dazu die Zahl der gebuchten Bestellungen im selben Zeitraum.
 
 - **Warum nicht aus dem Gesamtzustand:** der trägt nur die letzten 100
   Bewertungen (`REVIEW_PAGE_SIZE`). Für einen Wochenverlauf und einen
@@ -299,9 +368,44 @@ Bewertungen: Summen, Wochenkübel, Gerichtsschnitte, Sammelurteile.
   in jeden Seitenaufruf des Gastes.
 - Begrenzt auf 5000 Bewertungen je Lauf (`INSIGHT_REVIEW_CAP`); die Antwort
   sagt mit `totals.capped`, wenn die Grenze griff.
-- Die Trennlinien der Gerichts-Matrix sind der **Median**, keine festen Werte.
-  Vorher standen dort 3,7 Sterne und 55 Rezensionen — bei einem Lokal mit 40
-  Bewertungen lag damit ausnahmslos alles im selben Feld.
+- **`?branches=a,b` fasst mehrere Filialen zusammen — aber `scopeOf` schlägt
+  ihn.** Ein Konto mit Filialbindung sieht seine Filiale, egal was in der
+  Anfrage steht. Der Parameter ist also nur für den Ketten-Admin von Belang,
+  der Standorte nebeneinander betrachten will; jede ID wird geprüft, statt als
+  Zeichenkette in den Filter zu wandern.
+- **Der Zeitraum kennt einen eigenen Modus** (`RangeKey: 'custom'`). Das
+  Bis-Datum zählt ganz mit: wer den 31. wählt, meint den 31. über.
+- **Der Verlauf kommt in der Einheit, die zum Zeitraum passt** (`trendUnit`):
+  bis 35 Tage je Tag, bis rund 13 Monate je Woche, darüber je Monat. Feste
+  Wochen ergaben bei „letzte 7 Tage" einen einzigen Balken. Und er ist
+  **lückenlos**: ein Kübel ohne Bewertungen steht als 0 im Bild, statt zu
+  fehlen — sonst rückten zwei weit auseinanderliegende Balken nebeneinander
+  und behaupteten eine Nachbarschaft, die es nicht gab.
+
+Was das Dashboard daraus macht:
+
+- **Eine Karte für Ø Bewertung, Bewertungen und Bestellungen**, nicht drei. Die
+  drei gehören zusammen: eine Note ohne die Zahl dahinter sagt nichts. Am Fuß
+  steht ihr Verhältnis — welcher Anteil der Bestellungen Feedback hinterlässt.
+- **Die alten Kacheln „Punkte ausgegeben" und „Eingelöste Gutscheine" sind
+  weg.** Sie rechneten aus `store.guest` — dem GASTPROFIL des angemeldeten
+  Verwalters, also praktisch immer null.
+- **Kein Bearbeiten-Modus mehr.** Ausblendbare Kacheln versteckten Zahlen hinter
+  einem Schalter, den niemand wiederfand. Was der Server dazu speichert
+  (`settings/dashboard.hiddenWidgets`), bleibt unberührt liegen.
+- **Statt des Streudiagramms vier Felder mit Namen darin.** Punkte ohne
+  Beschriftung, die sich bei ähnlichen Werten überlagern, beantworten die
+  einzige Frage nicht, die man stellt: welches Gericht steht wo. Die Schwellen
+  stehen als Text dabei — **hoch = 4,0 ★ und mehr** (fest, kein zweiter Median:
+  eine mitwandernde Schwelle ließe jede Karte gleich gut aussehen), **viele =
+  mehr als der Median** aller Gerichte des Zeitraums.
+- **Die vier Felder sind gleich hoch** (`auto-rows-fr`) und **neutral
+  gehalten**: ein farbiger Punkt vor dem Titel, sonst normale Schrift auf
+  grauem Grund. Vorher trug jedes Feld seine eigene Tönung, Schrift inklusive —
+  heller Grund, dunklere Schrift derselben Farbe. Das las sich schlechter als
+  Schwarz, und weil das vollste Feld die anderen überragte, kippte die ganze
+  Matrix zur vollen Seite hin. Die zwei Begriffe der Legende („Hoch", „Viele")
+  stehen in der Akzentfarbe; der Rest ist gewöhnlicher Text.
 
 ## Fallstricke
 
@@ -327,6 +431,25 @@ nicht löschen — die QR-Codes hängen daran und sind womöglich schon gedruckt
 Die letzte Filiale bleibt immer stehen, weil neue Tische sonst nirgends mehr
 angelegt werden könnten.
 
+**Die Verwaltung hat keine obere Leiste mehr.** Filiale, Seiten, Konto und
+Neuladen stehen alle in der Seitenleiste links; am Handy ist dieselbe Leiste
+eine Schublade hinter dem Menüzeichen. Wer etwas Neues unterbringt, das die
+ganze Ansicht betrifft, setzt es dorthin — nicht in einen zweiten waagrechten
+Streifen darüber. **Tische und QR-Codes sind eine eigene Seite** (`page:
+'tables'`), nicht mehr ein Block unten in den Einstellungen: „wo sind die
+Tische der Filiale X" war die häufigste Frage, und die Antwort lautete
+„Einstellungen, ganz runterscrollen, und vorher oben die Filiale wechseln".
+Die Filiale wählt man jetzt auf der Seite selbst.
+
+**Der CSV-Import liest die Kopfzeile, nicht die Spaltenstellung.** Eine Datei
+mit vertauschten Spalten würde sonst kommentarlos Preise als Namen anlegen.
+Erkannt werden die Bezeichnungen, die `exportDishesCsv` selbst schreibt, dazu
+die englischen — eine exportierte Datei muss sich wieder einlesen lassen.
+Semikolon vor Komma, weil das deutsche Excel es schreibt und ein Preis wie
+„12,50" das Komma ohnehin unbrauchbar macht. Angelegt wird **nacheinander**:
+jede Antwort trägt den vollständigen Zustand, und zwanzig gleichzeitige Aufrufe
+würden sich gegenseitig überschreiben.
+
 **Zustand nie lokal kopieren.** `activeTable` im Kellner war eine Kopie und
 zeigte nach dem Speichern veraltete Daten. Immer aus `store.tables` ableiten.
 
@@ -339,6 +462,12 @@ der normale `mongodb+srv`-String.
 
 - Frontend: Netlify (`bitelyvienna`), braucht `VITE_API_BASE_URL` **zur
   Buildzeit** — nachträglich gesetzt erfordert einen neuen Build.
+  Optional `VITE_DEFAULT_ORG_PATH`: wohin „/" führt. Ohne sie bleibt es beim
+  bisherigen Ziel (`/sakura-sushi/herrengasse`) — vorher stand der Name genau
+  eines Restaurants fest im Router einer Anwendung, die mandantenfähig ist.
+- **Der Reitertitel kommt aus den Marken-Einstellungen** (`useDocumentTitle`).
+  In `index.html` steht nur ein Platzhalter; wer mehrere Filialen oder Mandanten
+  nebeneinander offen hat, unterschied die Reiter vorher an nichts.
 - Backend: Render (`bitely-api`), braucht `MONGODB_URI` und `JWT_SECRET`.
 - **KI-Funktionen** brauchen `ANTHROPIC_API_KEY` auf dem Server. Ohne den
   laufen Rezensionstext und Wochenrückblick auf gerechneten Vorlagen und der
@@ -405,6 +534,15 @@ Verfügbarkeits-Schalter — Name, Preis und Foto gehören der Kette.
 
 Der Manager darf nur **Kellner** und nur in der **eigenen** Filiale anlegen —
 sonst wäre die Rollentrennung mit einer Einladung ausgehebelt (`POST /users`).
+
+**Rollen ändern darf nur die Kette** (`PATCH /users/:id`, `chainAdmin`). Dürfte
+eine Filialleitung es, könnte sie einen ihrer Kellner zum Admin machen und über
+dessen Konto alles tun — die Grenze bei `POST /users` wäre dann eine Umleitung,
+kein Zaun. Zwei Sperren stehen zusätzlich im Handler: die **eigene** Rolle lässt
+sich nicht ändern (nach dem Speichern gilt das neue Recht sofort, und die Seite,
+auf der man steht, gehört einem nicht mehr), und der **letzte Admin** lässt sich
+nicht herabstufen. Ein laufendes Token trägt weiter die alte Rolle — sie greift
+erst bei der nächsten Anmeldung.
 - `requireAuth` umschließt den Handler, statt eigene Middleware zu sein — der
   zentrale Promise-Patch unten in `index.ts` gilt nur für **einen** Handler
   pro Route, ein zweites Argument fiele weg.

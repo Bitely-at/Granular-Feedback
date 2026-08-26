@@ -6,19 +6,19 @@ import {
   Star, Search, Camera, Check, ChevronLeft, Plus, Minus, X,
   LayoutDashboard, UtensilsCrossed, Users, Settings,
   MoreHorizontal, Download, QrCode, Pencil, AlertTriangle, TrendingUp,
-  TrendingDown, Sun, Moon, Bell, ChevronDown, Clock, CheckCircle2,
-  Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw,
-  Eye, Trash2, UserPlus, Lock, Building2, ImagePlus,
+  TrendingDown, Sun, Moon, ChevronDown, Clock, CheckCircle2,
+  Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw, Menu,
+  Trash2, UserPlus, Lock, Building2, ImagePlus,
   AlertOctagon, Loader2, MessageSquare, Ticket, ArrowRight,
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis, ReferenceLine, Cell, BarChart, Bar,
+  ComposedChart, Bar, Line,
 } from 'recharts';
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
   BRAND_FONTS, BRAND_CARD_STYLES,
-  availableIn,
+  availableIn, voucherExpired,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
   type Branch, type BranchScope, type Redemption,
   // Highlight heißt auch ein DOM-Typ (CSS Custom Highlight API) — der Import
@@ -179,6 +179,24 @@ function BrandLogo({ brand, size = 40, textSize = 20, rounded = 'rounded-2xl' }:
 }
 
 // Lädt eine kuratierte Google-Schriftart nach, sobald sie gebraucht wird (idempotent).
+/**
+ * Der Name des Lokals im Browser-Reiter.
+ *
+ * Dort stand fest verdrahtet „Rating and Feedback Screen" — die einzige
+ * Stelle, an der das Restaurant NICHT aus den Marken-Einstellungen kam. Wer
+ * mehrere Filialen oder mehrere Mandanten nebeneinander offen hat, unterschied
+ * die Reiter an nichts. `document.title` steht außerhalb von React, deshalb
+ * ein Effekt und kein Rendern.
+ */
+function useDocumentTitle(brandName: string | undefined, suffix?: string | null) {
+  useEffect(() => {
+    if (!brandName) return;
+    const previous = document.title;
+    document.title = suffix ? `${brandName} · ${suffix}` : brandName;
+    return () => { document.title = previous; };
+  }, [brandName, suffix]);
+}
+
 function useGoogleFont(fontName: string | undefined) {
   useEffect(() => {
     const entry = BRAND_FONTS.find(f => f.name === fontName);
@@ -316,10 +334,21 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
 type GuestScreen = 'welcome' | 'review' | 'thanks' | 'vouchers' | 'profile';
 
 /** Die drei Sammelurteile, die zu jeder Bewertung gehören. */
+/**
+ * Was der Gast über die Gerichte hinaus beurteilt.
+ *
+ * Nur noch der Service. Ambiente und Schnelligkeit sind bewusst raus: sie
+ * standen zwischen dem Gast und dem Absenden-Knopf, und nach fünf Gerichten
+ * noch drei Pauschalurteile zu verlangen kostete mehr Abbrüche, als die
+ * Antworten wert waren — beides ist ohnehin nichts, woraus die Küche am
+ * nächsten Tag etwas macht.
+ *
+ * Das Feld am Draht bleibt dreiteilig (`overall.service/ambience/speed`):
+ * abgegebene Bewertungen tragen die alten Werte weiter, und was hier nicht
+ * gefragt wird, geht als 0 mit. Der Server liest 0 als „nicht beurteilt".
+ */
 const OVERALL_FIELDS = [
   { key: 'service', label: 'Service', emoji: '🤝' },
-  { key: 'ambience', label: 'Ambiente', emoji: '✨' },
-  { key: 'speed', label: 'Schnelligkeit', emoji: '⚡' },
 ] as const;
 
 function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
@@ -363,10 +392,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
   const ratedCount = tableDishes.filter(d => (ratings[d.id] ?? 0) > 0).length;
   const allRated = tableDishes.length > 0 && ratedCount >= tableDishes.length;
-  const allOverall = Object.values(overall).every(v => v > 0);
+  // Nur die Felder, die auch gefragt werden. `overall` trägt weiterhin drei
+  // Werte (siehe OVERALL_FIELDS) — über alle drei zu zählen hieße auf eine
+  // Antwort zu warten, nach der niemand fragt: der Knopf bliebe für immer aus.
+  const allOverall = OVERALL_FIELDS.every(f => overall[f.key] > 0);
   // Der Fortschritt zählt beides: Gerichte UND Gesamteindruck. Sonst stünde der
   // Balken bei 100 %, während der Absenden-Knopf noch gesperrt ist.
-  const overallDone = Object.values(overall).filter(v => v > 0).length;
+  const overallDone = OVERALL_FIELDS.filter(f => overall[f.key] > 0).length;
   const stepsTotal = tableDishes.length + OVERALL_FIELDS.length;
   const stepsDone = ratedCount + overallDone;
 
@@ -405,6 +437,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // immer auf den Dank-Bildschirm, auch wenn es gar keine Bewertung gab.
   const [vouchersBack, setVouchersBack] = useState<GuestScreen>('welcome');
   const openVouchers = (from: GuestScreen) => { setVouchersBack(from); go('vouchers'); };
+  // Dasselbe für das Konto: es hängt jetzt an zwei Stellen (Gutscheinseite und
+  // Symbol oben rechts im Empfang), und ein fester Rückweg führte von dort
+  // zurück auf einen Bildschirm, auf dem der Gast nie war.
+  const [profileBack, setProfileBack] = useState<GuestScreen>('vouchers');
+  const openProfile = (from: GuestScreen) => { setProfileBack(from); go('profile'); };
 
   const handleSubmitReview = async () => {
     if (submitting) return;
@@ -445,7 +482,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const [redeeming, setRedeeming] = useState<Voucher | null>(null);
 
   const redeemedIds = store.guest.redeemed;
-  const notRedeemed = store.vouchers.filter(v => !redeemedIds.includes(v.id));
+  // Abgelaufene fallen raus, bevor irgendetwas gezählt oder angezeigt wird.
+  // Sie standen vorher mit in der Liste, ließen sich antippen und scheiterten
+  // erst am Server — und schlimmer: einer, der nur wegen seines Ablaufdatums
+  // unerreichbar war, konnte als „nächste Belohnung" die Punktezahl bestimmen,
+  // auf die der Balken zuläuft. Bereits eingelöste bleiben sichtbar; ihr
+  // Ablaufdatum ändert nichts daran, dass der Gast sie hatte.
+  const notRedeemed = store.vouchers.filter(v => !redeemedIds.includes(v.id) && !voucherExpired(v));
   const unlockedVouchers = notRedeemed.filter(v => store.guest.points >= v.points);
   const lockedVouchers = notRedeemed.filter(v => store.guest.points < v.points);
   const redeemedVouchers = store.vouchers.filter(v => redeemedIds.includes(v.id));
@@ -497,8 +540,32 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {/* Das Zeichen des Lokals steht oben auf dem Bild, wie der Kopf einer
                 Karte — der Gast kennt es von der Tür, der Name in der
                 Schlagzeile ersetzt es nicht. Klein und ohne Namen daneben:
-                der steht drei Zeilen tiefer schon in voller Größe. */}
-            <BrandLogo brand={store.brand} size={44} textSize={38} rounded="rounded-xl" />
+                der steht drei Zeilen tiefer schon in voller Größe.
+
+                Gegenüber das eigene Konto. Es gehörte bisher hinter zwei
+                Ecken (Gutscheine → Dein Konto) und war damit dort versteckt,
+                wo der Gast es zuerst sucht: oben rechts, wo in jeder App das
+                Konto sitzt. Angemeldet zeigt es die Initiale, sonst ein
+                neutrales Zeichen — dann führt es in die Anmeldung. */}
+            <div className="flex items-start justify-between w-full">
+              <BrandLogo brand={store.brand} size={44} textSize={38} rounded="rounded-xl" />
+              <button
+                onClick={() => store.guest.loggedIn ? openProfile('welcome') : setAuthOpen(true)}
+                title={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
+                aria-label={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
+                className="w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-transform active:scale-95 shadow-sm border border-black/5 dark:border-white/10"
+                style={store.guest.loggedIn
+                  ? { backgroundColor: 'var(--ba, #16A34A)' }
+                  : { backgroundColor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(4px)' }}>
+                {store.guest.loggedIn ? (
+                  <span className="text-white text-[16px] font-bold">
+                    {(store.guest.name ?? store.guest.email ?? '?').slice(0, 1).toUpperCase()}
+                  </span>
+                ) : (
+                  <Users size={18} strokeWidth={1.5} className="text-gray-600" />
+                )}
+              </button>
+            </div>
 
             {/* Der Text sitzt unten im wachsenden Teil, die Fußzeile darunter am
                 Blattrand — nicht als Anhängsel direkt unter den Knöpfen. */}
@@ -623,7 +690,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
           {/* Der Empfang des Dankes: viel Weiß, ein Haken, ein Satz. Alles
               Weitere steht in eigenen Blöcken darunter. */}
-          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-10 pb-8">
+          {/* Mittig, weil hier nichts mehr zu tun ist: der Haken, der Dank und
+              der Name des Lokals stehen für sich. Linksbündig sah der Block aus
+              wie der Anfang eines Formulars, das noch kommt. */}
+          <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-10 pb-8 flex flex-col items-center text-center">
             {/* Wie ein Briefkopf: Zeichen und Name des Lokals, dann der Dank.
                 Der Weg des Gastes beginnt und endet beim Restaurant. */}
             <div className="flex items-center gap-2.5 mb-8">
@@ -750,12 +820,29 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             </div>
           )}
 
-          {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
-              einzige Weg zurück über das Neuladen der Seite. Darunter schließt
-              die Fußzeile den Weg des Gastes — dieselbe wie beim Empfang. */}
-          <div className="px-6 pt-6 pb-8 mt-auto">
+          {/* Der Abschluss sagt, was jetzt drin ist — nicht bloß „zurück".
+              Ein Bildschirm, der nur einen Rückweg anbietet, endet die Sache;
+              der Gast sitzt aber noch am Tisch, und genau hier ist der Moment,
+              in dem ein freigeschalteter Gutschein etwas wert ist. Was der
+              Knopf verspricht, hängt deshalb am Zustand: ein einlösbarer
+              Gutschein wird angeboten, sonst der Weg zu den Punkten, und ohne
+              Konto führt er dorthin, wo Punkte überhaupt erst hingehören. */}
+          <div className="px-6 pt-7 pb-8 mt-auto space-y-3">
+            {!store.guest.loggedIn ? (
+              <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern — Konto anlegen</PrimaryBtn>
+            ) : unlockedVouchers.length > 0 ? (
+              <PrimaryBtn onClick={() => { setRedeeming(unlockedVouchers[0]); }}>
+                „{unlockedVouchers[0].title}" jetzt einlösen
+              </PrimaryBtn>
+            ) : (
+              <PrimaryBtn onClick={() => openVouchers('thanks')}>
+                Punkte &amp; Gutscheine ansehen
+              </PrimaryBtn>
+            )}
+            {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
+                einzige Weg zurück über das Neuladen der Seite. */}
             <button onClick={() => go('welcome')}
-              className="text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+              className="w-full text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
               Zurück zum Start
             </button>
             <PoweredByBitely />
@@ -792,7 +879,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               // Der Weg ins eigene Konto. Vorher stand hier nur „Angemeldet
               // als …" mit einem Abmelden-Link — wer sein Konto ansehen oder
               // löschen wollte, hatte keinen.
-              <button onClick={() => go('profile')}
+              <button onClick={() => openProfile('vouchers')}
                 className="w-full flex items-center justify-between px-1 pb-1 text-left">
                 <p className="text-[12px] text-gray-400 truncate">
                   Angemeldet als <span className="text-gray-600 dark:text-gray-300">{store.guest.name ?? store.guest.email}</span>
@@ -829,7 +916,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="profile" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go('vouchers')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => go(profileBack)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Dein Konto</p>
@@ -935,19 +1022,32 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <SField value={sheetQ} onChange={setSheetQ} placeholder="Gericht suchen…" />
                 <div className="mt-3"><TabBar tabs={['Speisen', 'Getränke']} active={sheetTab} onChange={setSheetTab} /></div>
               </div>
+              {/* Das Blatt schließt SOFORT, nicht erst nach der Antwort des
+                  Servers: es stand sonst eine gefühlte Ewigkeit offen, und wer
+                  in der Zeit ein zweites Mal tippte, buchte das Gericht
+                  doppelt. Der neue Eintrag erscheint darunter, sobald der
+                  Zustand zurück ist — dafür braucht es das Blatt nicht mehr.
+
+                  Getippt wird auf die ganze Zeile, nicht nur auf das Pluszeichen:
+                  sie sah mit `cursor-pointer` schon immer so aus, als ginge das. */}
               <div className="overflow-y-auto p-4 pt-3 space-y-1">
                 {store.dishes.filter(d => d.cat === sheetTab && (sheetQ === '' || d.name.toLowerCase().includes(sheetQ.toLowerCase()))).map(dish => (
-                  <div key={dish.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer">
+                  <button key={dish.id} type="button"
+                    onClick={() => {
+                      setShowSheet(false);
+                      store.addItemToTable(branch.slug, tableNumber, dish.id, 1)
+                        .catch(() => { /* der Tisch bleibt, wie er war — der Gast kann es erneut versuchen */ });
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                     <img src={dish.img} alt={dish.name} className="w-10 h-10 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
-                    <div className="flex-1">
-                      <p className="text-[14px] font-medium text-gray-900 dark:text-white">{dish.name}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{dish.name}</p>
                       <p className="text-[12px] text-gray-400">{dish.price.toFixed(2)} €</p>
                     </div>
-                    <button onClick={async () => { await store.addItemToTable(branch.slug, tableNumber, dish.id, 1); setShowSheet(false); }}
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                    <span className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
                       <Plus size={14} strokeWidth={2.5} />
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
             </motion.div>
@@ -1182,7 +1282,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
           </div>
           {branchTables.length === 0 && (
             <EmptyState icon={LayoutDashboard} title="Noch keine Tische"
-              desc={`Für ${branch.name} ist noch kein Tisch angelegt. Das macht der Admin unter "Tische & QR-Codes".`} />
+              desc={`Für ${branch.name} ist noch kein Tisch angelegt. Das macht der Admin unter „Tische & QR".`} />
           )}
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3">
             {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
@@ -1213,27 +1313,26 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
               darunter wächst nur so weit, wie er Inhalt hat (max. 45 % Höhe). */}
           <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-5 md:pr-3 overflow-hidden">
             <div className="mb-4"><SField value={search} onChange={setSearch} placeholder="Gericht oder Getränk suchen…" large /></div>
-            <div className="mb-4"><TabBar tabs={['Speisen', 'Getränke', 'Favoriten']} active={tab} onChange={setTab} /></div>
+            {/* „Favoriten" ist raus: der Reiter war eine Attrappe. Es gab
+                nirgends ein ★ zum Antippen, also blieb er für immer leer und
+                nahm nur ein Drittel der Zeile weg. */}
+            <div className="mb-4"><TabBar tabs={['Speisen', 'Getränke']} active={tab} onChange={setTab} /></div>
             <div className="flex-1 min-h-0 overflow-y-auto">
-              {tab === 'Favoriten' ? (
-                <EmptyState icon={Star} title="Noch keine Favoriten" desc="Tippe auf ★ bei einem Gericht, um es hier zu speichern." />
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {store.dishes.filter(d => d.cat === tab && (search === '' || d.name.toLowerCase().includes(search.toLowerCase()))).map(dish => (
-                    <button key={dish.id} onClick={() => setCart(p => ({ ...p, [dish.id]: (p[dish.id] || 0) + 1 }))}
-                      className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-3 text-left relative hover:border-gray-300 dark:hover:border-gray-600 transition-all active:scale-95 shadow-sm">
-                      {(cart[dish.id] || 0) > 0 && (
-                        <span className="absolute top-2 right-2 w-6 h-6 rounded-full text-white text-[12px] font-bold flex items-center justify-center" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                          {cart[dish.id]}
-                        </span>
-                      )}
-                      <img src={dish.img} alt={dish.name} className="w-full h-20 object-cover rounded-xl mb-2.5 bg-gray-100" />
-                      <p className="text-[13px] font-medium text-gray-900 dark:text-white line-clamp-2 leading-snug">{dish.name}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {store.dishes.filter(d => d.cat === tab && (search === '' || d.name.toLowerCase().includes(search.toLowerCase()))).map(dish => (
+                  <button key={dish.id} onClick={() => setCart(p => ({ ...p, [dish.id]: (p[dish.id] || 0) + 1 }))}
+                    className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-3 text-left relative hover:border-gray-300 dark:hover:border-gray-600 transition-all active:scale-95 shadow-sm">
+                    {(cart[dish.id] || 0) > 0 && (
+                      <span className="absolute top-2 right-2 w-6 h-6 rounded-full text-white text-[12px] font-bold flex items-center justify-center" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                        {cart[dish.id]}
+                      </span>
+                    )}
+                    <img src={dish.img} alt={dish.name} className="w-full h-20 object-cover rounded-xl mb-2.5 bg-gray-100" />
+                    <p className="text-[13px] font-medium text-gray-900 dark:text-white line-clamp-2 leading-snug">{dish.name}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="flex-none max-h-[45vh] md:max-h-none md:w-72 min-h-0 bg-white dark:bg-gray-900 border-t md:border-t-0 md:border-l border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0">
@@ -1504,6 +1603,7 @@ function BigTableQR({ orgSlug, branch, tableNumber, onClose }: {
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const url = tableUrl(orgSlug, branch.slug, tableNumber);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -1521,11 +1621,33 @@ function BigTableQR({ orgSlug, branch, tableNumber, onClose }: {
             <p className="text-[13px] text-gray-500">{branch.name} · zum Abscannen hinhalten</p>
           </div>
           <canvas ref={canvasRef} className="w-full h-auto max-w-[280px] mx-auto" />
-          <p className="text-[11px] text-gray-400 font-mono break-all">/{orgSlug}/{branch.slug}/table/{tableNumber}</p>
-          <button onClick={onClose}
-            className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
-            Schließen
-          </button>
+          {/* Nicht jedes Handy kommt an den Code: eine gesprungene Kameralinse,
+              eine Kamera, die der Gast nicht freigeben will, oder ein Gast, der
+              seine Brille nicht dabei hat. Deshalb steht die VOLLE Adresse
+              darunter, anklickbar und zum Weitergeben — vorher stand dort nur
+              der Pfad ohne Server davor, mit dem niemand etwas anfangen konnte. */}
+          <a href={url} target="_blank" rel="noreferrer"
+            className="block text-[12px] font-mono break-all text-gray-500 hover:text-gray-900 underline decoration-gray-300 underline-offset-2 transition-colors">
+            {url}
+          </a>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch { /* ohne Zwischenablage bleibt das Markieren von Hand */ }
+              }}
+              className="flex-1 py-3 rounded-xl text-[14px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5">
+              {copied ? <><Check size={14} strokeWidth={2.5} /> Kopiert</> : 'Link kopieren'}
+            </button>
+            <button onClick={onClose}
+              className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white transition-opacity hover:opacity-90"
+              style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+              Schließen
+            </button>
+          </div>
         </div>
       </motion.div>
     </>
@@ -1563,7 +1685,12 @@ function TableQRCode({ orgSlug, branchSlug, tableNumber, onDelete }: {
     <>
       <canvas ref={canvasRef} className="w-24 h-24 rounded-lg" />
       <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">Tisch {tableNumber}</p>
-      <p className="text-[10px] text-gray-400 font-mono break-all text-center">/{orgSlug}/{branchSlug}/table/{tableNumber}</p>
+      {/* Anklickbar: der schnellste Weg, einen Tisch so zu sehen, wie ihn der
+          Gast sieht — ohne den Code mit dem eigenen Handy abzuscannen. */}
+      <a href={url} target="_blank" rel="noreferrer" title={url}
+        className="text-[10px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-mono break-all text-center underline decoration-gray-200 dark:decoration-gray-700 underline-offset-2 transition-colors">
+        /{orgSlug}/{branchSlug}/table/{tableNumber}
+      </a>
       {/* Der Download nimmt die Breite, das Löschen ist ein rotes Symbol
           daneben. Rot und Mülltonne sagen dasselbe wie das Wort, brauchen aber
           keinen Platz, und der PNG-Knopf war als schmale Hälfte zu klein zum
@@ -1789,6 +1916,277 @@ function useDialogSave(onClose: () => void) {
   return { saving, error, save };
 }
 
+// ═══════════════════════════════════════════════════════════
+// CSV-IMPORT DER SPEISEKARTE
+//
+// Der Gegenpart zu downloadCsv: eine Karte kommt selten getippt, sondern als
+// Tabelle aus der Kassensoftware. Vierzig Gerichte einzeln über den Dialog
+// anzulegen ist eine Stunde Arbeit, bei der man sich verzählt.
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Zerlegt CSV-Text in Zeilen aus Feldern.
+ *
+ * Eigener Parser statt einer Bibliothek, weil das Format hier eng ist: was
+ * Excel und die üblichen Kassensysteme ausgeben. Beherrscht werden muss
+ * genau dreierlei — Anführungszeichen um Felder mit Trennzeichen darin, das
+ * verdoppelte Anführungszeichen als Escape, und Zeilenumbrüche INNERHALB
+ * eines solchen Feldes. Ein Zeilenweise-Splitten davor würde am Letzteren
+ * scheitern.
+ */
+function parseCsv(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  // Byte Order Mark: Excel schreibt ihn, und ohne dieses Abschneiden hieße
+  // die erste Spalte "﻿Gericht" statt "Gericht".
+  const src = text.replace(/^﻿/, '');
+
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; } else quoted = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"') { quoted = true; continue; }
+    if (c === sep) { row.push(field); field = ''; continue; }
+    if (c === '\n' || c === '\r') {
+      if (c === '\r' && src[i + 1] === '\n') i++;
+      row.push(field);
+      field = '';
+      if (row.some(v => v.trim() !== '')) rows.push(row);
+      row = [];
+      continue;
+    }
+    field += c;
+  }
+  row.push(field);
+  if (row.some(v => v.trim() !== '')) rows.push(row);
+  return rows;
+}
+
+/** Was der Import aus einer Zeile macht — oder woran sie scheiterte. */
+type ImportRow =
+  | { ok: true; line: number; name: string; price: number; cat: Dish['cat']; duplicate: boolean }
+  | { ok: false; line: number; raw: string; reason: string };
+
+/**
+ * Liest eine Speisekarte aus CSV.
+ *
+ * Erwartet eine Kopfzeile. Welche Spalte was ist, entscheidet ihr Name und
+ * nicht ihre Stelle — eine Datei mit vertauschten Spalten würde sonst
+ * kommentarlos Preise als Namen anlegen. Erkannt werden die Bezeichnungen, die
+ * `exportDishesCsv` selbst schreibt, dazu die englischen: eine exportierte
+ * Datei muss sich wieder einlesen lassen.
+ */
+function parseDishCsv(text: string, existing: Dish[]): { rows: ImportRow[]; error: string | null } {
+  const trimmed = text.trim();
+  if (trimmed === '') return { rows: [], error: 'Die Datei ist leer.' };
+
+  // Semikolon zuerst: das deutsche Excel schreibt es, und ein Preis wie
+  // "12,50" macht das Komma als Trennzeichen ohnehin unbrauchbar.
+  const head = trimmed.split(/\r?\n/, 1)[0];
+  const sep = head.split(';').length > head.split(',').length ? ';' : ',';
+
+  const rows = parseCsv(trimmed, sep);
+  if (rows.length === 0) return { rows: [], error: 'Die Datei ist leer.' };
+
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const find = (...names: string[]) => header.findIndex(h => names.includes(h));
+  const iName = find('gericht', 'name', 'bezeichnung', 'dish', 'artikel');
+  const iPrice = find('preis', 'price', 'betrag');
+  const iCat = find('kategorie', 'category', 'cat', 'warengruppe');
+
+  if (iName < 0) {
+    return {
+      rows: [],
+      error: 'Keine Spalte für den Namen gefunden. Die Kopfzeile braucht „Gericht" (oder „Name"), dazu „Preis" und optional „Kategorie".',
+    };
+  }
+
+  // Namen, die schon vergeben sind — in der Datei selbst wie in der Karte.
+  // Angelegt wird trotzdem nichts doppelt: die Zeile wird übersprungen.
+  const seen = new Set(existing.map(d => d.name.trim().toLowerCase()));
+  const out: ImportRow[] = [];
+
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    const line = r + 1;
+    const raw = cells.join(sep);
+    const name = (cells[iName] ?? '').trim();
+    if (name === '') { out.push({ ok: false, line, raw, reason: 'Kein Name.' }); continue; }
+
+    // "12,50 €", "€ 12.50", "12.50" — alles, was in freier Wildbahn vorkommt.
+    const priceText = (iPrice >= 0 ? cells[iPrice] ?? '' : '').replace(/[^0-9,.-]/g, '').replace(',', '.');
+    const price = Number(priceText);
+    if (iPrice >= 0 && priceText !== '' && !Number.isFinite(price)) {
+      out.push({ ok: false, line, raw, reason: `Preis „${cells[iPrice]}" ist keine Zahl.` });
+      continue;
+    }
+    if (price < 0) { out.push({ ok: false, line, raw, reason: 'Preis ist negativ.' }); continue; }
+
+    // Alles, was nach Trinken klingt, wird Getränk; sonst Speise. Die Karte
+    // kennt nur diese beiden, und eine dritte Kategorie stillschweigend zu
+    // Speisen zu machen wäre falscher als die Ahnung hier.
+    const catText = (iCat >= 0 ? cells[iCat] ?? '' : '').trim().toLowerCase();
+    const cat: Dish['cat'] = /getränk|getraenk|drink|beverage|bar|wein|bier/.test(catText) ? 'Getränke' : 'Speisen';
+
+    const key = name.toLowerCase();
+    out.push({ ok: true, line, name, price: Number.isFinite(price) ? price : 0, cat, duplicate: seen.has(key) });
+    seen.add(key);
+  }
+
+  if (out.length === 0) return { rows: [], error: 'Außer der Kopfzeile steht nichts in der Datei.' };
+  return { rows: out, error: null };
+}
+
+/**
+ * Speisekarte aus einer CSV-Datei anlegen.
+ *
+ * Zwei Schritte, und der erste ist die Vorschau: ein Import, der ohne Nachfrage
+ * vierzig Gerichte in die Karte kippt, ist beim ersten falschen Trennzeichen
+ * eine halbe Stunde Aufräumen. Angelegt wird erst auf ausdrücklichen Knopfdruck,
+ * und was schon in der Karte steht, wird übersprungen statt verdoppelt.
+ */
+function DishImportDialog({ onClose }: { onClose: () => void }) {
+  const store = useStore();
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ created: number; failed: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const read = (text: string, name: string | null) => {
+    const result = parseDishCsv(text, store.dishes);
+    setFileName(name);
+    setParseError(result.error);
+    setRows(result.error ? null : result.rows);
+    setDone(null);
+    setError(null);
+  };
+
+  const fresh = (rows ?? []).filter((r): r is Extract<ImportRow, { ok: true }> => r.ok && !r.duplicate);
+  const skipped = (rows ?? []).filter(r => r.ok && r.duplicate).length;
+  const broken = (rows ?? []).filter(r => !r.ok);
+
+  const run = async () => {
+    if (busy || fresh.length === 0) return;
+    setBusy(true);
+    setError(null);
+    let created = 0;
+    let failed = 0;
+    // Nacheinander, nicht nebenläufig: jede Antwort trägt den vollständigen
+    // Zustand, und zwanzig gleichzeitige Aufrufe würden sich gegenseitig
+    // überschreiben — die Karte sähe danach unvollständig aus, bis jemand neu lädt.
+    for (const row of fresh) {
+      try {
+        await store.addDish({ name: row.name, price: row.price, cat: row.cat });
+        created++;
+      } catch {
+        failed++;
+      }
+    }
+    setBusy(false);
+    setDone({ created, failed });
+    if (failed > 0) setError(`${failed} ${failed === 1 ? 'Gericht' : 'Gerichte'} konnten nicht angelegt werden.`);
+  };
+
+  return (
+    <AdminModal title="Speisekarte importieren" onClose={onClose} footer={
+      done ? (
+        <PrimaryBtn onClick={onClose}>Fertig</PrimaryBtn>
+      ) : (
+        <>
+          <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
+          <PrimaryBtn onClick={run} disabled={busy || fresh.length === 0}>
+            {busy ? 'Wird angelegt…' : fresh.length > 0 ? `${fresh.length} anlegen` : 'Anlegen'}
+          </PrimaryBtn>
+        </>
+      )
+    }>
+      {done ? (
+        <div className="space-y-2">
+          <p className="text-[14px] text-gray-700 dark:text-gray-200">
+            {done.created} {done.created === 1 ? 'Gericht' : 'Gerichte'} angelegt.
+          </p>
+          <p className="text-[12px] text-gray-400 leading-relaxed">
+            Preise und Kategorien stehen jetzt in der Karte; Fotos fehlen noch — die
+            lädst du je Gericht in der Liste hoch.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
+              Eine Zeile je Gericht, mit Kopfzeile. Gebraucht wird die Spalte
+              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Gericht</code>,
+              dazu gern
+              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Preis</code>
+              und
+              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Kategorie</code>.
+              Komma oder Semikolon als Trennzeichen — beides wird erkannt, wie auch
+              die Datei aus „Export" auf dieser Seite.
+            </p>
+            <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                f.text()
+                  .then(t => read(t, f.name))
+                  .catch(() => setParseError('Die Datei konnte nicht gelesen werden.'));
+              }} />
+            <button onClick={() => fileRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 text-[13px] text-gray-600 dark:text-gray-300 hover:border-gray-400 transition-colors">
+              <Upload size={14} strokeWidth={1.5} /> {fileName ?? 'CSV-Datei wählen'}
+            </button>
+          </div>
+
+          <div>
+            <p className="text-[12px] text-gray-400 mb-1.5">…oder den Inhalt hier einfügen</p>
+            <textarea rows={4} placeholder={'Gericht;Kategorie;Preis\nMiso-Suppe;Speisen;4,50'}
+              onChange={e => read(e.target.value, null)}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] font-mono text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors resize-y" />
+          </div>
+
+          {parseError && <DialogError message={parseError} />}
+          {error && <DialogError message={error} />}
+
+          {rows && (
+            <div className="space-y-2">
+              <p className="text-[13px] text-gray-700 dark:text-gray-200">
+                {fresh.length} neu
+                {skipped > 0 && <span className="text-gray-400"> · {skipped} schon in der Karte</span>}
+                {broken.length > 0 && <span className="text-red-500"> · {broken.length} fehlerhaft</span>}
+              </p>
+              <div className="max-h-52 overflow-y-auto rounded-xl border border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-800">
+                {rows.map(r => r.ok ? (
+                  <div key={r.line} className={`flex items-center gap-2 px-3 py-2 text-[13px] ${r.duplicate ? 'opacity-45' : ''}`}>
+                    <span className="flex-1 truncate text-gray-800 dark:text-gray-200">{r.name}</span>
+                    <span className="text-[11px] text-gray-400 flex-shrink-0">{r.cat}</span>
+                    <span className="text-[12px] text-gray-500 dark:text-gray-400 flex-shrink-0 tabular-nums">{r.price.toFixed(2)} €</span>
+                    {r.duplicate && <span className="text-[11px] text-gray-400 flex-shrink-0">übersprungen</span>}
+                  </div>
+                ) : (
+                  <div key={r.line} className="px-3 py-2 text-[12px]">
+                    <p className="text-red-600 dark:text-red-400">Zeile {r.line}: {r.reason}</p>
+                    <p className="text-gray-400 truncate font-mono">{r.raw}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </AdminModal>
+  );
+}
+
 function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void }) {
   const store = useStore();
   const { saving, error, save } = useDialogSave(onClose);
@@ -1935,25 +2333,65 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
 // ADMIN APP
 // ═══════════════════════════════════════════════════════════
 
-type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'vouchers' | 'redemptions' | 'design' | 'users' | 'settings';
+type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'tables' | 'vouchers' | 'redemptions' | 'design' | 'users' | 'settings';
 
 // branch === null heißt "alle Filialen": der Ketten-Admin sieht die Zahlen
 // aller Standorte zusammen. Alles Filialgebundene (Tische, QR-Codes) braucht
 // dann erst eine Auswahl.
-/** Zeiträume des Dashboards. `all` heißt: kein Filter, alles seit Beginn. */
-type RangeKey = '7' | '30' | '90' | 'all';
+/**
+ * Zeiträume des Dashboards. `all` heißt: kein Filter, alles seit Beginn;
+ * `custom` heißt: zwei Datumsfelder darunter bestimmen ihn.
+ */
+type RangeKey = '7' | '30' | '90' | 'all' | 'custom';
 const RANGES: { key: RangeKey; label: string }[] = [
   { key: '7', label: '7 Tage' },
   { key: '30', label: '30 Tage' },
   { key: '90', label: '90 Tage' },
   { key: 'all', label: 'Alles' },
+  { key: 'custom', label: 'Zeitraum…' },
 ];
 
 type DishSortKey = 'name' | 'avg' | 'count' | 'price';
 
+/** Spalten der Gerichtstabelle — am Handy zugleich die Sortier-Auswahl. */
+const DISH_COLUMNS: [DishSortKey, string][] = [
+  ['name', 'Gericht'], ['avg', 'Ø Bewertung'], ['count', 'Bewertungen'], ['price', 'Preis'],
+];
+
+/**
+ * Die vier Felder, in die sich jedes Gericht einordnet — aus Note und Anzahl.
+ *
+ * Die Reihenfolge ist die des Lesens, nicht die der Dringlichkeit: erst was
+ * läuft, dann was auffallen könnte, dann was Arbeit macht.
+ */
+type QuadrantId = 'stars' | 'hidden' | 'fix' | 'watch';
+
+/**
+ * Die Farbe steckt im Punkt, nicht in der Schrift. Vorher war jedes Feld in
+ * seiner eigenen Tönung gehalten — heller Grund, dunklere Schrift derselben
+ * Farbe: vier Kästchen, in denen der Text mal grün, mal bernstein, mal rot
+ * war und dadurch schlechter zu lesen als schwarz. Ein farbiger Punkt sagt
+ * dasselbe, und die Namen der Gerichte stehen in normaler Schrift.
+ */
+const QUADRANTS: { id: QuadrantId; title: string; desc: string; dot: string }[] = [
+  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', dot: 'bg-emerald-500' },
+  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', dot: 'bg-emerald-300' },
+  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', dot: 'bg-amber-500' },
+  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', dot: 'bg-red-500' },
+];
+
+/**
+ * Wie die Einheit des Verlaufs heißt. Der Server bestimmt sie (`trendUnit`),
+ * die Oberfläche schreibt sie nur aus — Untertitel und Tooltip sollen dasselbe
+ * sagen wie die Balken zeigen.
+ */
+const TREND_UNIT_LABEL: Record<'day' | 'week' | 'month', { each: string }> = {
+  day: { each: 'Tag' }, week: { each: 'Woche' }, month: { each: 'Monat' },
+};
+
 /** Ab wann der Zeitraum zählt — ISO-Datum oder null für „alles". */
 function rangeStart(key: RangeKey): string | null {
-  if (key === 'all') return null;
+  if (key === 'all' || key === 'custom') return null;
   return new Date(Date.now() - Number(key) * 24 * 60 * 60 * 1000).toISOString();
 }
 
@@ -1966,17 +2404,22 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 }) {
   const store = useStore();
   const [page, setPage] = useState<AdminPage>('dashboard');
-  const [editMode, setEditMode] = useState(false);
-  // Ausgeblendete Kacheln kommen aus dem Server-Zustand, nicht aus lokalem
-  // State — sonst stand nach jedem Neuladen wieder alles da.
-  const hidden = useMemo(() => new Set(store.dashboard.hiddenWidgets), [store.dashboard.hiddenWidgets]);
-  const [openMenus, setOpenMenus] = useState<Set<string>>(new Set());
+  // Der Bearbeiten-Modus mit ausblendbaren Kacheln ist entfallen: er versteckte
+  // Zahlen hinter einem Schalter, den niemand wiederfand, und die Kacheln, die
+  // man loswerden wollte, sind jetzt gar nicht mehr da. Was der Server dazu
+  // speichert (settings/dashboard.hiddenWidgets), bleibt unberührt liegen.
   const [userMenuOpen, setUserMenuOpen] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'Kellner' as AdminUser['role'], branchId: '', password: '' });
   const [inviteError, setInviteError] = useState<string | null>(null);
   // Passwort eines bestehenden Kontos setzen (Freischalten oder Zurücksetzen).
   const [pwDialog, setPwDialog] = useState<{ user: AdminUser; value: string; error: string | null } | null>(null);
+  // Rolle und Filiale eines bestehenden Kontos ändern. Vorher gab es dafür nur
+  // den Umweg über Löschen und Neuanlegen — dabei verlor das Konto seine
+  // Kennung und sein Passwort.
+  const [roleDialog, setRoleDialog] = useState<
+    { user: AdminUser; role: AdminUser['role']; branchId: string; error: string | null } | null
+  >(null);
   const [branchDrop, setBranchDrop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [brandForm, setBrandForm] = useState({
@@ -1990,9 +2433,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const [previewStars, setPreviewStars] = useState(4);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
-  // Konto-Menü am Handy: dort ist die Seitenleiste ausgeblendet, und mit ihr
+  // Konto-Menü am Handy: dort ist die Seitenleiste eingeklappt, und mit ihr
   // der Fuß, in dem Abmelden sonst steht.
   const [accountOpen, setAccountOpen] = useState(false);
+  // Die Seitenleiste als Schublade am Handy. Am Rechner steht sie immer, der
+  // Schalter hat dort keine Wirkung (lg:translate-x-0).
+  const [mobileNav, setMobileNav] = useState(false);
   const [addTableCount, setAddTableCount] = useState(1);
   const [addingTables, setAddingTables] = useState(false);
   // Der Server liefert bereits nur die passenden Tische; im Ketten-Blick sind
@@ -2005,11 +2451,25 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const [dishDialog, setDishDialog] = useState<{ dish: Dish | null } | null>(null);
   const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
   const [branchDialog, setBranchDialog] = useState<{ branch: Branch | null } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  // Abgelaufene Gutscheine bleiben in der Datenbank — sie hängen an den
+  // Einlösungen, die es gab. In der Liste stehen sie standardmäßig NICHT: der
+  // Gast sieht sie ohnehin nicht mehr, und eine Seite, auf der die Hälfte der
+  // Karten tot ist, sagt nichts mehr darüber, was gerade zu holen ist.
+  const [showExpiredVouchers, setShowExpiredVouchers] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // Zeitraum des Dashboards. Kommt aus einer eigenen Auswertungsroute, nicht
   // aus dem Gesamtzustand — der trägt nur die letzten 100 Bewertungen und
   // taugt weder für einen Wochenverlauf noch für einen Filter.
   const [range, setRange] = useState<RangeKey>('30');
+  // Eigener Zeitraum (ISO-Datum, beide optional). Nur wirksam bei range ===
+  // 'custom' — sonst rechnet rangeStart() den Anfang aus der Anzahl der Tage.
+  const [custom, setCustom] = useState<{ from: string; to: string }>({ from: '', to: '' });
+  // Welche Filialen die Auswertung zusammenfasst. Leer = alle. Betrifft NUR
+  // das Dashboard: der Gesamtzustand hängt weiter am Umschalter links, und ein
+  // Konto mit fester Filiale sieht ohnehin nur seine (scopeOf auf dem Server).
+  const [branchFilter, setBranchFilter] = useState<string[]>([]);
+  const [branchFilterOpen, setBranchFilterOpen] = useState(false);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
   const [insightsError, setInsightsError] = useState<string | null>(null);
@@ -2035,7 +2495,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     let cancelled = false;
     setInsightsLoading(true);
     setInsightsError(null);
-    store.fetchInsights(rangeStart(range), null)
+    // Beim eigenen Zeitraum zählt das Bis-Datum GANZ mit: wer den 31. wählt,
+    // meint den 31. über, nicht bis Mitternacht davor.
+    const from = range === 'custom' ? (custom.from || null) : rangeStart(range);
+    const to = range === 'custom' && custom.to
+      ? new Date(`${custom.to}T23:59:59.999`).toISOString()
+      : null;
+    store.fetchInsights(from, to, branchFilter)
       .then(data => {
         if (cancelled) return;
         setInsights(data);
@@ -2044,7 +2510,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       .catch(err => { if (!cancelled) setInsightsError(err instanceof Error ? err.message : 'Auswertung fehlgeschlagen.'); })
       .finally(() => { if (!cancelled) setInsightsLoading(false); });
     return () => { cancelled = true; };
-  }, [range, branch?.id, store.fetchInsights]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [range, custom.from, custom.to, branchFilter, branch?.id, store.fetchInsights]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Den Wochenrückblick nachreichen, sobald klar ist, dass keiner vorliegt
   // oder der vorhandene von gestern ist. Getrennt von der Auswertung, weil ein
@@ -2081,49 +2547,88 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const toggleSort = (key: DishSortKey) =>
     setSort(p => p.key === key ? { key, desc: !p.desc } : { key, desc: key !== 'name' });
 
-  // Wo die Matrix ihre Trennlinien zieht. Früher standen dort feste Werte
-  // (3,7 Sterne und 55 Rezensionen) — bei einem Lokal mit 40 Bewertungen lag
-  // damit ausnahmslos alles in der linken Hälfte, und die Einteilung sagte
-  // nichts mehr. Der Median teilt das Feld immer sinnvoll.
-  const matrixSplit = useMemo(() => {
-    if (rangedDishes.length === 0) return { avg: 3.5, count: 5 };
-    const middle = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-    return {
-      avg: middle(rangedDishes.map(d => d.avg)),
-      count: middle(rangedDishes.map(d => d.count)),
-    };
+  // Ab wann ein Gericht als „viel bewertet" gilt: der Median über alle
+  // Gerichte des Zeitraums. Feste Werte standen hier einmal (55 Rezensionen) —
+  // bei einem Lokal mit 40 Bewertungen insgesamt lag damit ausnahmslos alles
+  // auf derselben Seite, und die Einteilung sagte nichts mehr. Der Median
+  // teilt das Feld immer.
+  const medianCount = useMemo(() => {
+    if (rangedDishes.length === 0) return 0;
+    const xs = rangedDishes.map(d => d.count).sort((a, b) => a - b);
+    return xs[Math.floor(xs.length / 2)];
   }, [rangedDishes]);
 
-  const toggleMenu = (id: string) => setOpenMenus(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const hideWidget = (id: string) => {
-    setOpenMenus(new Set());
-    if (hidden.has(id)) return;
-    runAction(() => store.setHiddenWidgets([...hidden, id]));
-  };
-  const showAllWidgets = () => runAction(() => store.setHiddenWidgets([]));
+  // Gerichte mit mindestens zwei Bewertungen, absteigend nach Note. Ein
+  // einzelner Stern ist Zufall, keine Tendenz — Ranglisten daraus wären
+  // Rauschen, das aussieht wie ein Ergebnis.
+  const solidDishes = useMemo(
+    () => rangedDishes.filter(d => d.count >= 2).sort((a, b) => b.avg - a.avg),
+    [rangedDishes],
+  );
 
-  const pointsRedeemed = store.vouchers.filter(v => store.guest.redeemed.includes(v.id)).reduce((a, v) => a + v.points, 0);
-  const pointsIssued = store.guest.points + pointsRedeemed;
+  // Der Verlauf, fertig für das Diagramm. `label` steht an der Achse (kurz,
+  // es stehen bis zu 31 nebeneinander), `full` im Tooltip.
+  const trendData = useMemo(() => {
+    const unit = insights?.trendUnit ?? 'week';
+    return (insights?.trend ?? []).map(p => {
+      const d = new Date(p.start);
+      return {
+        label: unit === 'month'
+          ? d.toLocaleDateString('de-AT', { month: 'short' })
+          : d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }),
+        full: unit === 'day'
+          ? d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
+          : unit === 'week'
+            ? `Woche ab ${d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })}`
+            : d.toLocaleDateString('de-AT', { month: 'long', year: 'numeric' }),
+        reviews: p.reviews,
+        // Ein Kübel ohne Gerichtsurteil bekommt keine 0, sondern gar keinen
+        // Punkt: eine Linie, die auf 0 fällt, behauptet ein Urteil, das
+        // niemand abgab.
+        avg: p.avg > 0 ? Number(p.avg.toFixed(2)) : null,
+      };
+    });
+  }, [insights]);
+
+  // Die vier Felder. „Hoch" ist bewusst ein FESTER Wert (4,0) und kein
+  // zweiter Median: eine mitwandernde Schwelle ließe jede Karte gleich gut
+  // aussehen — die Hälfte läge immer oben, auch wenn nichts über 3 steht.
+  const quadrants = useMemo(() => {
+    const out: Record<QuadrantId, typeof rangedDishes> = { stars: [], hidden: [], fix: [], watch: [] };
+    for (const d of rangedDishes) {
+      const good = d.avg >= 4;
+      const many = d.count > medianCount;
+      out[good ? (many ? 'stars' : 'hidden') : (many ? 'fix' : 'watch')].push(d);
+    }
+    for (const key of Object.keys(out) as QuadrantId[]) out[key].sort((a, b) => b.count - a.count);
+    return out;
+  }, [rangedDishes, medianCount]);
+
   const openOutstandingAlerts = store.alerts.filter(a => !a.resolved).length;
 
-  // Die ersten drei Kacheln beziehen sich auf den GEWÄHLTEN ZEITRAUM und
-  // kommen deshalb aus der Auswertung, nicht aus den Alltagsdaten. Alarme,
-  // Punkte und Gutscheine sind Momentaufnahmen und bleiben ungefiltert — ein
-  // offener Alarm ist offen, unabhängig davon, welche Wochen man betrachtet.
+  // Gültig und abgelaufen getrennt. Sortiert nach Punkten — die Gutscheinseite
+  // liest sich damit wie eine Preisliste, von der billigsten Belohnung aufwärts.
+  const activeVouchers = useMemo(
+    () => store.vouchers.filter(v => !voucherExpired(v)).sort((a, b) => a.points - b.points),
+    [store.vouchers],
+  );
+  const expiredVouchers = useMemo(
+    () => store.vouchers.filter(v => voucherExpired(v)).sort((a, b) => a.points - b.points),
+    [store.vouchers],
+  );
+  const visibleVouchers = showExpiredVouchers ? [...activeVouchers, ...expiredVouchers] : activeVouchers;
+
+  // Alles Folgende bezieht sich auf den GEWÄHLTEN ZEITRAUM und kommt deshalb
+  // aus der Auswertung, nicht aus den Alltagsdaten.
   const rangeReviews = insights?.totals.reviews ?? 0;
   const rangeRatings = insights?.totals.ratings ?? 0;
+  const rangeOrders = insights?.totals.orders ?? 0;
   const rangeAvg = insights?.totals.avg ?? 0;
-  const rangeWorst = insights ? [...insights.dishes].filter(d => d.count >= 2).pop() ?? null : null;
-
-  const kpis = [
-    { id: 'avg', label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', sub: rangeRatings > 0 ? `aus ${rangeRatings} Gerichtsurteilen` : 'Noch keine Bewertungen', Icon: Star },
-    { id: 'total', label: 'Bewertungen', value: String(rangeReviews), sub: RANGES.find(r => r.key === range)?.label, Icon: BarChart3 },
-    { id: 'worst', label: 'Schlechtestes Gericht', value: rangeWorst?.name ?? '—', sub: rangeWorst ? `${rangeWorst.avg.toFixed(1)} ★ · ${rangeWorst.count} Bewertungen` : undefined, Icon: AlertTriangle },
-    { id: 'alerts', label: 'Offene Alarme', value: String(openOutstandingAlerts), Icon: RefreshCw },
-    { id: 'pts', label: 'Punkte ausgegeben', value: String(pointsIssued), sub: `${pointsRedeemed} eingelöst`, Icon: Zap },
-    { id: 'vouchers', label: 'Eingelöste Gutscheine', value: String(store.guest.redeemed.length), Icon: CheckCircle2 },
-  ];
-
+  // Wie viele Bestellungen Feedback hinterlassen haben. Gedeckelt, weil eine
+  // Bestellung aus der Zeit vor der Bestellungs-Erfassung keine Zeile in
+  // `orders` hat, ihre Bewertung aber sehr wohl zählt — sonst stünden dort in
+  // den ersten Wochen Werte über 100 %.
+  const feedbackRate = rangeOrders > 0 ? Math.min(1, rangeReviews / rangeOrders) : 0;
   // Die Filialleitung sieht nur, was ihre Filiale betrifft. Stammkarte,
   // Gutscheine und Einstellungen sind Sache der Kette — sie auszublenden ist
   // Bequemlichkeit, den Schutz macht der Server (chainAdmin in index.ts).
@@ -2148,6 +2653,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       // Einlösungen ihrer eigenen Filiale.
       : [{ id: 'redemptions' as const, label: 'Einlösungen', Icon: CheckCircle2 }]),
     { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
+    // Tische und QR-Codes waren ein Block ganz unten auf der
+    // Einstellungsseite. Dort suchte sie niemand: „wo sind die Tische der
+    // Filiale X" war die häufigste Frage zur Verwaltung — und die Antwort
+    // lautete „unter Einstellungen, ganz runterscrollen, und vorher oben die
+    // Filiale wechseln". Jetzt ist es eine Seite, und die Filiale wählt man
+    // darauf.
+    { id: 'tables', label: 'Tische & QR', Icon: QrCode },
     { id: 'users', label: 'Benutzer', Icon: Users },
     ...(isChainAdmin ? [{ id: 'design' as const, label: 'Design', Icon: Palette }] : []),
     { id: 'settings', label: 'Einstellungen', Icon: Settings },
@@ -2173,6 +2685,19 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       setShowInvite(false);
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : 'Anlegen fehlgeschlagen.');
+    }
+  };
+
+  const handleSaveRole = async () => {
+    if (!roleDialog) return;
+    try {
+      await store.updateUser(roleDialog.user.id, {
+        role: roleDialog.role,
+        branchId: roleDialog.branchId || null,
+      });
+      setRoleDialog(null);
+    } catch (err) {
+      setRoleDialog(p => p && { ...p, error: err instanceof Error ? err.message : 'Änderung fehlgeschlagen.' });
     }
   };
 
@@ -2283,30 +2808,104 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); setAccountOpen(false); }}>
-      <aside className="hidden lg:flex w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col fixed top-0 bottom-0 z-20">
-        <div className="p-5 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-2.5">
-            <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
-            <div>
-              <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">{store.brand?.name}</p>
-              <p className="text-[11px] text-gray-400">Admin Panel</p>
-            </div>
+    <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex"
+      onClick={() => { setBranchDrop(false); setBranchFilterOpen(false); setUserMenuOpen(null); setAccountOpen(false); }}>
+
+      {/* ── SEITENLEISTE ──
+          Sie trägt jetzt ALLES, was die ganze Verwaltung betrifft: Lokal,
+          Filiale, Seiten, Konto. Darüber lag vorher eine zweite Leiste mit der
+          Wortmarke und dem Filial-Umschalter — zwei waagrechte Streifen
+          übereinander, von denen der obere nur ein Element trug, das
+          hierhergehört. Die Filiale ist keine Eigenschaft der Seite, auf der
+          man gerade steht, sondern des Ausschnitts, den man betrachtet: sie
+          steht deshalb neben den Seiten, nicht über ihnen.
+
+          Am Handy ist dieselbe Leiste eine Schublade. Vorher lief dort unter
+          dem Kopf eine waagrecht scrollende Reiterzeile — bei sechs Einträgen
+          waren die letzten unsichtbar, und niemand scrollt eine Leiste, von
+          der er nicht weiß, dass sie scrollt. */}
+      <aside onClick={e => e.stopPropagation()}
+        className={`fixed top-0 bottom-0 left-0 w-64 lg:w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 ${mobileNav ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}>
+        <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2.5">
+          <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight truncate">{store.brand?.name}</p>
+            {/* Die Wortmarke stand in der weggefallenen Leiste. Sie gehört
+                weiterhin genau einmal auf den Bildschirm: hier, klein unter dem
+                Namen des Lokals — wer verwaltet wessen Laden womit. */}
+            <p className="text-[11px] text-gray-400">Admin · <span className="lowercase font-semibold tracking-tight">bitely</span></p>
           </div>
+          <button onClick={() => setMobileNav(false)} title="Menü schließen"
+            className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X size={16} className="text-gray-500" />
+          </button>
         </div>
+
+        {/* ── FILIALE ──
+            Der Umschalter lädt neu: der Server liefert die Daten genau einer
+            Filiale (oder aller), die Oberfläche filtert nicht selbst. */}
+        <div className="px-3 pt-3 relative">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 mb-1.5">Filiale</p>
+          <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
+            disabled={!canSwitchBranch}
+            className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left transition-colors ${canSwitchBranch ? 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600' : 'border-transparent bg-gray-50 dark:bg-gray-800/60'}`}>
+            <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+            <span className="flex-1 min-w-0 text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">
+              {branch ? branch.name : 'Alle Filialen'}
+            </span>
+            {canSwitchBranch && (
+              <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
+            )}
+          </button>
+          <AnimatePresence>
+            {branchDrop && (
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                className="absolute left-3 right-3 top-full mt-1 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 max-h-72 overflow-y-auto">
+                <button onClick={() => { onPick('all'); setBranchDrop(false); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-700">
+                  <span className="text-base">🏢</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-gray-900 dark:text-white">Alle Filialen</p>
+                    <p className="text-[11px] text-gray-400">Zahlen der ganzen Kette</p>
+                  </div>
+                  {!branch && <Check size={13} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
+                </button>
+                {store.branches.map(b => (
+                  <button key={b.id} onClick={() => { onPick(b.slug); setBranchDrop(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <span className="text-base">🏠</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{b.name}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{b.address}</p>
+                    </div>
+                    {b.id === branch?.id && <Check size={13} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--ba)' }} />}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {nav.map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => setPage(id)}
+            <button key={id} onClick={() => { setPage(id); setMobileNav(false); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-colors ${page === id ? 'text-white font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'}`}
               style={page === id ? { backgroundColor: 'var(--ba, #16A34A)' } : {}}>
               <Icon size={15} strokeWidth={1.5} />{label}
+              {/* Offene Alarme hingen an einem Glockensymbol in der
+                  weggefallenen Leiste. Sie gehören dorthin, wo man sie
+                  abarbeitet — ans Dashboard. */}
+              {id === 'dashboard' && openOutstandingAlerts > 0 && (
+                <span className={`ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${page === id ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+                  {openOutstandingAlerts}
+                </span>
+              )}
             </button>
           ))}
         </nav>
-        {/* Konto und Abmelden gehören ans Ende der Navigation, nicht in eine
-            schwarze Leiste über der ganzen Seite. Es gibt sie genau einmal —
-            vorher zweimal, und der Knopf hier hatte nicht einmal einen
-            Handler: er sah nur aus wie einer. */}
+
+        {/* Konto und Abmelden gehören ans Ende der Navigation. Das Neuladen
+            steht dazu: es betrifft die ganze Ansicht, nicht eine Seite. */}
         <div className="p-3 border-t border-gray-100 dark:border-gray-800">
           {store.authUser && (
             <div className="flex items-center gap-2.5 px-3 py-2">
@@ -2320,6 +2919,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               </div>
             </div>
           )}
+          <button onClick={handleRefresh} disabled={loading}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
+            <RefreshCw size={15} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} /> {loading ? 'Lädt…' : 'Neu laden'}
+          </button>
           <button onClick={store.logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
@@ -2327,114 +2930,58 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         </div>
       </aside>
 
+      {/* Schleier hinter der Schublade — nur am Handy, wo die Leiste über dem
+          Inhalt liegt statt neben ihm. */}
+      {mobileNav && (
+        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setMobileNav(false)} />
+      )}
+
       <div className="flex-1 lg:ml-56 flex flex-col min-h-screen min-w-0">
-        <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-8 h-14">
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Die Wortmarke steht hier und sonst nirgends in der Verwaltung:
-                  ein Strich trennt sie vom Betrieb, damit klar bleibt, wer die
-                  Software stellt und wessen Laden man gerade verwaltet. Am
-                  Handy fällt sie weg — dort ist die Zeile schon voll. */}
-              <span className="hidden sm:flex items-center gap-3 flex-shrink-0">
-                <span className="text-[14px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
-                <span className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
-              </span>
-              <div className="relative min-w-0" onClick={e => e.stopPropagation()}>
-              <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
-                disabled={!canSwitchBranch}
-                className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors min-w-0 disabled:hover:text-gray-700 dark:disabled:hover:text-gray-300">
-                <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
-                <span className="font-medium truncate">{store.brand?.name}</span>
-                <span className="hidden sm:inline text-gray-400 mx-0.5">›</span>
-                <span className="hidden sm:inline text-gray-500 dark:text-gray-400 truncate">
-                  {branch ? branch.name : 'Alle Filialen'}
-                </span>
-                {canSwitchBranch && (
-                  <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
-                )}
+        {/* Am Handy bleibt eine schmale Leiste: ohne sie käme man nicht an die
+            Schublade. Am Rechner gibt es sie nicht — dort steht alles links. */}
+        <header className="lg:hidden bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
+          <div className="flex items-center gap-2 px-3 h-14">
+            <button onClick={() => setMobileNav(true)} title="Menü"
+              className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
+              <Menu size={18} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight truncate">
+                {nav.find(n => n.id === page)?.label ?? 'Verwaltung'}
+              </p>
+              <p className="text-[11px] text-gray-400 truncate">{branch ? branch.name : 'Alle Filialen'}</p>
+            </div>
+            <button onClick={handleRefresh} disabled={loading} title="Daten neu laden"
+              className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
+              <RefreshCw size={16} strokeWidth={1.5} className={`text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <div className="relative" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setAccountOpen(p => !p)} title="Konto"
+                className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
+                style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                {store.authUser?.name.charAt(0).toUpperCase() ?? '·'}
               </button>
               <AnimatePresence>
-                {branchDrop && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
-                    className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden min-w-[280px] z-50">
-                    {/* Der Umschalter lädt neu: der Server liefert die Daten
-                        genau einer Filiale (oder aller), die Oberfläche filtert
-                        nicht selbst. */}
-                    <button onClick={() => { onPick('all'); setBranchDrop(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-700">
-                      <span className="text-xl">🏢</span>
-                      <div className="flex-1">
-                        <p className="text-[14px] font-medium text-gray-900 dark:text-white">Alle Filialen</p>
-                        <p className="text-[12px] text-gray-400">Zahlen der ganzen Kette zusammen</p>
+                {accountOpen && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="absolute right-0 top-10 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg z-30 p-1.5">
+                    {store.authUser && (
+                      <div className="px-3 py-2">
+                        <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
+                        <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
                       </div>
-                      {!branch && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
+                    )}
+                    <button onClick={store.logout}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                      <LogOut size={14} strokeWidth={1.5} /> Abmelden
                     </button>
-                    {store.branches.map(b => (
-                      <button key={b.id} onClick={() => { onPick(b.slug); setBranchDrop(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        <span className="text-xl">🏠</span>
-                        <div className="flex-1">
-                          <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
-                          <p className="text-[12px] text-gray-400">{b.address}</p>
-                        </div>
-                        {b.id === branch?.id && <Check size={14} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
-                      </button>
-                    ))}
                   </motion.div>
                 )}
               </AnimatePresence>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-              <button onClick={handleRefresh} disabled={loading}
-                className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors" title="Daten neu laden">
-                <RefreshCw size={16} strokeWidth={1.5} className={`text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button onClick={() => setPage('dashboard')} className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 relative" title={`${openOutstandingAlerts} offene Alarme`}>
-                <Bell size={17} strokeWidth={1.5} className="text-gray-600 dark:text-gray-400" />
-                {openOutstandingAlerts > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />}
-              </button>
-              {/* Nur dort, wo die Seitenleiste fehlt. Vorher stand hier ein
-                  fester Buchstabe „H" — eine Attrappe, die aussah, als wäre
-                  jemand angemeldet, den es nicht gibt. */}
-              <div className="relative lg:hidden" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setAccountOpen(p => !p)} title="Konto"
-                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
-                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                  {store.authUser?.name.charAt(0).toUpperCase() ?? '·'}
-                </button>
-                <AnimatePresence>
-                  {accountOpen && (
-                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                      className="absolute right-0 top-10 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg z-30 p-1.5">
-                      {store.authUser && (
-                        <div className="px-3 py-2">
-                          <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
-                          <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
-                        </div>
-                      )}
-                      <button onClick={store.logout}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                        <LogOut size={14} strokeWidth={1.5} /> Abmelden
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
             </div>
           </div>
-          <nav className="lg:hidden flex gap-1 px-3 pb-2 overflow-x-auto">
-            {nav.map(({ id, label, Icon }) => (
-              <button key={id} onClick={() => setPage(id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors flex-shrink-0 ${page === id ? 'text-white' : 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'}`}
-                style={page === id ? { backgroundColor: 'var(--ba, #16A34A)' } : {}}>
-                <Icon size={13} strokeWidth={1.5} />{label}
-              </button>
-            ))}
-          </nav>
         </header>
-
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setOpenMenus(new Set()); setUserMenuOpen(null); setAccountOpen(false); }}>
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0" onClick={() => { setBranchDrop(false); setBranchFilterOpen(false); setUserMenuOpen(null); setAccountOpen(false); }}>
           <>
               {actionError && (
                 <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3 mb-5">
@@ -2445,47 +2992,104 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               )}
 
               {page === 'dashboard' && (
-                <div className="space-y-6">
-                  <div className="flex items-start justify-between flex-wrap gap-3">
-                    <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</p>
-                      {/* Der Server hat die Zahlen bereits auf diese Reichweite
-                          eingegrenzt — die Beschriftung sagt, welche es ist. */}
-                      <p className="text-[13px] text-gray-400 mt-0.5">
-                        {branch ? branch.name : 'Alle Filialen'} · {RANGES.find(r => r.key === range)?.label}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {hidden.size > 0 && (
-                        <button onClick={showAllWidgets}
-                          className="flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                          <Eye size={13} strokeWidth={1.5} /> Alles einblenden
-                        </button>
-                      )}
-                      <button onClick={() => setEditMode(p => !p)}
-                        className={`flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border transition-colors ${editMode ? 'text-white border-transparent' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'}`}
-                        style={editMode ? { backgroundColor: 'var(--ba)' } : {}}>
-                        <Pencil size={13} strokeWidth={1.5} /> {editMode ? 'Fertig' : 'Bearbeiten'}
-                      </button>
-                    </div>
-                  </div>
+                <div className="space-y-4 sm:space-y-5">
 
-                  {/* Zeitraum und der Weg zu den einzelnen Bewertungen. Beides
-                      steht oben, weil beides die ganze Seite betrifft. */}
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                  {/* ══ ZEILE 1 — WAS BETRACHTET WIRD ══
+                      Nur noch Zeitraum und Filialen. Die Überschrift
+                      „Dashboard" stand über der Seite, auf der man ohnehin
+                      steht, und „Bearbeiten" versteckte Kacheln, die man
+                      danach nirgends mehr fand. Was übrig bleibt, verändert
+                      tatsächlich die Zahlen darunter. */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto">
                       {RANGES.map(r => (
                         <button key={r.key} onClick={() => setRange(r.key)}
-                          className={`px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${range === r.key ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
+                          className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors ${range === r.key ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
                           {r.label}
                         </button>
                       ))}
                     </div>
+
+                    {/* FILIALFILTER — mehrere nebeneinander. Er erscheint nur
+                        im Ketten-Blick: sobald links eine einzelne Filiale
+                        gewählt ist, gewinnt deren Bindung ohnehin (scopeOf auf
+                        dem Server), und zwei Regler für dieselbe Frage wären
+                        eine zweite Wahrheit neben der ersten. */}
+                    {canSwitchBranch && !branch && store.branches.length > 1 && (
+                      <div className="relative" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => setBranchFilterOpen(p => !p)}
+                          className="flex items-center gap-2 text-[13px] px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors">
+                          <Building2 size={13} strokeWidth={1.5} className="text-gray-400" />
+                          {branchFilter.length === 0
+                            ? 'Alle Filialen'
+                            : branchFilter.length === 1
+                              ? store.branches.find(b => b.id === branchFilter[0])?.name ?? '1 Filiale'
+                              : `${branchFilter.length} von ${store.branches.length} Filialen`}
+                          <ChevronDown size={13} className={`text-gray-400 transition-transform ${branchFilterOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <AnimatePresence>
+                          {branchFilterOpen && (
+                            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                              className="absolute left-0 top-full mt-1 w-64 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 z-30 p-1.5 max-h-72 overflow-y-auto">
+                              <button onClick={() => setBranchFilter([])}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                <span className={`w-4 h-4 rounded flex-shrink-0 border flex items-center justify-center ${branchFilter.length === 0 ? 'border-transparent' : 'border-gray-300 dark:border-gray-600'}`}
+                                  style={branchFilter.length === 0 ? { backgroundColor: 'var(--ba)' } : {}}>
+                                  {branchFilter.length === 0 && <Check size={11} strokeWidth={3} className="text-white" />}
+                                </span>
+                                <span className="text-[13px] font-medium text-gray-900 dark:text-white">Alle Filialen</span>
+                              </button>
+                              <div className="h-px bg-gray-100 dark:bg-gray-700 my-1.5" />
+                              {store.branches.map(b => {
+                                const on = branchFilter.includes(b.id);
+                                return (
+                                  <button key={b.id}
+                                    onClick={() => setBranchFilter(p => on ? p.filter(x => x !== b.id) : [...p, b.id])}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                    <span className={`w-4 h-4 rounded flex-shrink-0 border flex items-center justify-center ${on ? 'border-transparent' : 'border-gray-300 dark:border-gray-600'}`}
+                                      style={on ? { backgroundColor: 'var(--ba)' } : {}}>
+                                      {on && <Check size={11} strokeWidth={3} className="text-white" />}
+                                    </span>
+                                    <span className="text-[13px] text-gray-700 dark:text-gray-200 truncate">{b.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+
+                    <div className="flex-1" />
+
                     <button onClick={() => setPage('reviews')}
-                      className="flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                      <MessageSquare size={13} strokeWidth={1.5} /> Detaillierte Bewertungen
+                      className="flex items-center gap-1.5 text-[13px] px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                      <MessageSquare size={13} strokeWidth={1.5} /> <span className="hidden sm:inline">Detaillierte </span>Bewertungen
+                    </button>
+                    <button onClick={exportReviewsCsv} title="Bewertungen als CSV"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                      <Download size={14} strokeWidth={1.5} />
                     </button>
                   </div>
+
+                  {/* Der eigene Zeitraum klappt nur auf, wenn er gewählt ist —
+                      zwei Datumsfelder, die meistens niemand braucht, gehören
+                      nicht dauerhaft in die Kopfzeile. */}
+                  {range === 'custom' && (
+                    <div className="flex flex-wrap items-end gap-3 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4">
+                      {([['from', 'Von'], ['to', 'Bis']] as const).map(([key, label]) => (
+                        <div key={key}>
+                          <p className="text-[12px] text-gray-400 mb-1.5">{label}</p>
+                          <input type="date" value={custom[key]} max={today()}
+                            onChange={e => setCustom(p => ({ ...p, [key]: e.target.value }))}
+                            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-800 dark:text-gray-200 outline-none focus:border-gray-400 transition-colors" />
+                        </div>
+                      ))}
+                      <p className="text-[12px] text-gray-400 pb-2.5">
+                        Leer heißt „offen": ohne Von zählt alles bis zum Bis, ohne Bis alles ab dem Von.
+                      </p>
+                    </div>
+                  )}
 
                   {insightsError && (
                     <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
@@ -2494,314 +3098,339 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     </div>
                   )}
 
-                  {/* WOCHENRÜCKBLICK — was in den letzten sieben Tagen zählte,
-                      in zwei bis vier Sätzen. Bewusst unabhängig vom Zeitraum
-                      oben: „diese Woche" ist die Frage, die sich jeden Morgen
-                      neu stellt. */}
-                  {!hidden.has('highlight') && (
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 relative">
-                      {editMode && (
-                        <button onClick={() => hideWidget('highlight')} className="absolute top-3 right-3 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group">
-                          <X size={12} className="text-gray-400 group-hover:text-red-500" />
-                        </button>
+                  {/* ══ ZEILE 2 — DIE DREI ZAHLEN, UND WAS SIE BEDEUTEN ══
+                      Vorher standen sechs Kacheln nebeneinander, drei davon
+                      ohne Bezug zum Zeitraum (Punkte, eingelöste Gutscheine)
+                      und obendrein aus dem GASTPROFIL des angemeldeten
+                      Verwalters gerechnet — also praktisch immer null.
+
+                      Übrig bleiben die drei, die zusammengehören und deshalb
+                      auch zusammen in EINER Karte stehen: wie gut, wie viel,
+                      wovon. Ø Bewertung allein sagt nichts, wenn dahinter drei
+                      Rückmeldungen auf zweihundert Bestellungen stehen. */}
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                      {insightsLoading ? (
+                        <div className="grid grid-cols-3 gap-4">
+                          {[0, 1, 2].map(i => <div key={i} className="space-y-2"><Sk h={11} w="70%" /><Sk h={28} w="60%" /></div>)}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                            {([
+                              { label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', Icon: Star,
+                                sub: rangeRatings > 0 ? `${rangeRatings} Gerichtsurteile` : 'noch keine' },
+                              { label: 'Bewertungen', value: String(rangeReviews), Icon: MessageSquare,
+                                sub: range === 'custom' ? 'eigener Zeitraum' : RANGES.find(r => r.key === range)?.label ?? '' },
+                              { label: 'Bestellungen', value: String(rangeOrders), Icon: UtensilsCrossed,
+                                sub: rangeOrders > 0 ? 'gebucht' : 'noch keine' },
+                            ] as const).map(k => (
+                              <div key={k.label} className="min-w-0">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <k.Icon size={13} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+                                  <p className="text-[11px] sm:text-[12px] text-gray-500 dark:text-gray-400 truncate">{k.label}</p>
+                                </div>
+                                <p className="text-[26px] sm:text-3xl font-bold text-gray-900 dark:text-white leading-none">{k.value}</p>
+                                <p className="text-[11px] text-gray-400 mt-1 truncate">{k.sub}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Die eine Zahl, die aus den dreien erst entsteht.
+                              Sie steht am Fuß der Karte, weil sie keine vierte
+                              Kennzahl ist, sondern ihr Verhältnis. */}
+                          {rangeOrders > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                              <div className="flex items-center justify-between text-[12px] mb-1.5">
+                                <span className="text-gray-500 dark:text-gray-400">Bestellungen mit Feedback</span>
+                                <span className="font-semibold text-gray-800 dark:text-gray-200">{Math.round(feedbackRate * 100)} %</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, feedbackRate * 100)}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
+                    </div>
+
+                    {/* WOCHENRÜCKBLICK — was in den letzten sieben Tagen
+                        zählte, in zwei bis vier Sätzen. Bewusst unabhängig vom
+                        Zeitraum links: „diese Woche" ist die Frage, die sich
+                        jeden Morgen neu stellt. */}
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
                         <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
                         <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Diese Woche</p>
                         {highlight && (
-                          <span className="text-[11px] text-gray-400">
+                          <span className="text-[11px] text-gray-400 ml-auto">
                             Stand {new Date(highlight.generatedAt).toLocaleDateString('de-AT')}
                           </span>
                         )}
                       </div>
                       {highlightLoading && !highlight ? (
-                        <div className="space-y-2"><Sk h={13} /><Sk h={13} w="85%" /></div>
+                        <div className="space-y-2"><Sk h={13} /><Sk h={13} /><Sk h={13} w="70%" /></div>
                       ) : highlight ? (
                         <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed">{highlight.text}</p>
                       ) : (
                         <p className="text-[13px] text-gray-400">Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.</p>
                       )}
                     </div>
-                  )}
+                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {kpis.filter(k => !hidden.has(k.id)).map(kpi => (
-                      <div key={kpi.id} className={`bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5 relative transition-all ${editMode ? 'border-dashed border-gray-300 dark:border-gray-600' : 'border-gray-100 dark:border-gray-700'}`}>
-                        {editMode ? (
-                          <button onClick={() => hideWidget(kpi.id)} className="absolute top-3 right-3 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group">
-                            <X size={12} className="text-gray-400 group-hover:text-red-500" />
-                          </button>
-                        ) : (
-                          <div className="absolute top-3 right-3" onClick={e => e.stopPropagation()}>
-                            <button onClick={() => toggleMenu(kpi.id)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
-                              <MoreHorizontal size={14} strokeWidth={1.5} />
-                            </button>
-                            {openMenus.has(kpi.id) && (
-                              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[140px]">
-                                <button onClick={() => hideWidget(kpi.id)} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Ausblenden</button>
-                                <button onClick={() => { setOpenMenus(new Set()); exportReviewsCsv(); }} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bewertungen als CSV</button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center mb-3">
-                          <kpi.Icon size={15} strokeWidth={1.5} className="text-gray-500 dark:text-gray-400" />
-                        </div>
+                  {/* ══ ZEILE 3 — VERLAUF ══
+                      Balken für die Anzahl, Linie für den Schnitt. Die Linie
+                      lag hier schon einmal und flog raus, weil zwei Größen in
+                      einem Bild unruhig wirkten; die Frage danach kam trotzdem
+                      wieder — und sie ist berechtigt: erst nebeneinander sieht
+                      man, ob ein guter Schnitt auf vielen oder auf drei
+                      Rückmeldungen steht. Die Note bekommt fest 0–5, sonst
+                      wirkt ein Ausschlag von 4,2 auf 4,4 wie ein Absturz.
+
+                      Die Einheit kommt vom Server (`trendUnit`): bei „letzte 7
+                      Tage" sind es Tage, bei „alles" Monate. Feste Wochen
+                      ergaben für kurze Zeiträume einen einzelnen fetten Balken
+                      — ein Diagramm, das aussah wie ein Fehler. Flach gehalten
+                      (160 statt 240 Pixel): der Verlauf ist eine Zeile im
+                      Dashboard, keine Seite. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                      <div>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Verlauf</p>
+                        <p className="text-[12px] text-gray-400">Bewertungen je {TREND_UNIT_LABEL[insights?.trendUnit ?? 'week'].each}, dazu der Schnitt</p>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'var(--ba, #16A34A)' }} /> Anzahl
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-4 h-0.5 rounded-full bg-gray-800 dark:bg-gray-200" /> Ø Bewertung
+                        </span>
+                      </div>
+                    </div>
+                    {insightsLoading ? <Sk h={160} /> : trendData.length === 0 ? (
+                      <EmptyState icon={BarChart3} title="Noch kein Verlauf"
+                        desc="Sobald in diesem Zeitraum Bewertungen eingehen, entstehen hier die Balken." />
+                    ) : (
+                      <div style={{ height: 160 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={trendData} margin={{ top: 5, right: 0, bottom: 0, left: -14 }}>
+                            <CartesianGrid key="grid" strokeDasharray="3 0" stroke="#f1f5f9" vertical={false} />
+                            {/* Bei Tagen stehen schnell 31 Beschriftungen
+                                nebeneinander — jede zweite oder dritte reicht,
+                                sonst überlagern sie sich zu einem grauen
+                                Streifen. */}
+                            <XAxis key="x" dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false}
+                              interval={Math.max(0, Math.ceil(trendData.length / 8) - 1)} minTickGap={4} />
+                            <YAxis key="yl" yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
+                            <YAxis key="yr" yAxisId="right" orientation="right" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]}
+                              tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={22} />
+                            <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }}
+                              formatter={(v, name) => name === 'avg'
+                                ? [v == null ? '—' : `${v} ★`, 'Ø Bewertung'] as [string, string]
+                                : [String(v ?? 0), 'Bewertungen'] as [string, string]}
+                              labelFormatter={(_l: unknown, payload: any) => payload?.[0]?.payload?.full ?? ''} />
+                            <Bar key="bars" yAxisId="left" dataKey="reviews" fill="var(--ba, #16A34A)" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                            <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke="#111827" strokeWidth={2}
+                              dot={false} connectNulls />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ══ ZEILE 4 — BESTE UND SCHWÄCHSTE ══
+                      Reine Textlisten: nach zwei Zahlen sucht niemand in einem
+                      Diagramm. Mindestens zwei Bewertungen, sonst steht ein
+                      einzelner Zufallsstern ganz oben. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {([
+                      { key: 'best', title: 'Beste Gerichte', rows: solidDishes.slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300' },
+                      { key: 'worst', title: 'Schwächste Gerichte', rows: [...solidDishes].reverse().slice(0, 5), tone: 'text-red-600 dark:text-red-400' },
+                    ] as const).map(({ key, title, rows, tone }) => (
+                      <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white mb-3">{title}</p>
                         {insightsLoading ? (
-                          <div className="space-y-2"><Sk h={12} w="55%" /><Sk h={26} w="65%" /><Sk h={11} w="40%" /></div>
+                          <div className="space-y-2.5">{[...Array(4)].map((_, i) => <Sk key={i} h={14} />)}</div>
+                        ) : rows.length === 0 ? (
+                          <p className="text-[13px] text-gray-400">Noch zu wenige Bewertungen in diesem Zeitraum.</p>
                         ) : (
-                          <>
-                            <p className="text-[12px] text-gray-500 dark:text-gray-400 mb-1">{kpi.label}</p>
-                            <p className="text-2xl font-bold text-gray-900 dark:text-white">{kpi.value}</p>
-                            {'sub' in kpi && kpi.sub && <p className="text-[12px] text-gray-400 mt-1">{kpi.sub}</p>}
-                          </>
+                          <ol className="space-y-2.5">
+                            {rows.map((d, i) => (
+                              <li key={d.id} className="flex items-center gap-3 text-[14px]">
+                                <span className="w-5 text-[12px] text-gray-300 dark:text-gray-600 flex-shrink-0">{i + 1}</span>
+                                <span className="flex-1 text-gray-800 dark:text-gray-200 truncate">{d.name}</span>
+                                <span className="text-[12px] text-gray-400 flex-shrink-0">{d.count}×</span>
+                                <span className={`font-semibold w-8 text-right flex-shrink-0 ${tone}`}>{d.avg.toFixed(1)}</span>
+                              </li>
+                            ))}
+                          </ol>
                         )}
                       </div>
                     ))}
                   </div>
 
-                  {/* VERLAUF — Anzahl Bewertungen je Woche als Balken.
-                      Der Schnitt lief hier zusätzlich als Linie mit eigener
-                      Achse mit: zwei Größen in einem Bild, von denen die eine
-                      ohnehin oben als Kennzahl steht. Die Balken allein
-                      beantworten die Frage, für die man herschaut. */}
-                  {!hidden.has('chart') && (
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                      <div className="flex items-center justify-between mb-5">
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Verlauf</p>
-                          <p className="text-[12px] text-gray-400">Bewertungen je Woche</p>
-                        </div>
-                        <div onClick={e => e.stopPropagation()}>
-                          <button onClick={() => toggleMenu('chart')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
-                            <MoreHorizontal size={16} strokeWidth={1.5} />
-                          </button>
-                          {openMenus.has('chart') && (
-                            <div className="absolute mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[140px]">
-                              <button onClick={() => hideWidget('chart')} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Ausblenden</button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {insightsLoading ? <Sk h={220} /> : (insights?.weeks.length ?? 0) === 0 ? (
-                        <EmptyState icon={BarChart3} title="Noch kein Verlauf"
-                          desc="Sobald in diesem Zeitraum Bewertungen eingehen, entstehen hier die Balken." />
-                      ) : (
-                        <div style={{ height: 220 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={(insights?.weeks ?? []).map(w => ({
-                              label: new Date(w.weekStart).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }),
-                              reviews: w.reviews,
-                            }))} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
-                              <CartesianGrid key="grid" strokeDasharray="3 0" stroke="#f1f5f9" vertical={false} />
-                              <XAxis key="x" dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                              {/* Zwei Achsen: links die Anzahl, rechts die Note.
-                                  Die Note bekommt fest 0–5, sonst wirkt eine
-                                  Schwankung von 4,2 auf 4,4 wie ein Absturz. */}
-                              <YAxis key="yl" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
-                              <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }}
-                                formatter={(v: number) => [v, 'Bewertungen']}
-                                labelFormatter={l => `Woche ab ${l}`} />
-                              <Bar key="bars" dataKey="reviews" fill="var(--ba, #16A34A)" fillOpacity={0.85} radius={[6, 6, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* ══ ZEILE 5 — VIER FELDER ══
+                      Hier stand ein Streudiagramm mit zwei gestrichelten
+                      Trennlinien. Es war hübsch und unlesbar: Punkte ohne
+                      Beschriftung, die sich bei ähnlichen Werten überlagerten,
+                      und die vier Kästchen darunter erklärten Felder, die im
+                      Bild niemand zuordnen konnte. Was man tatsächlich wissen
+                      will, ist WELCHES Gericht wo steht — also stehen jetzt die
+                      Namen in den Feldern, und die Schwellen dabei.
 
-                  {/* TOP UND FLOP als reine Textliste — nach zwei Zahlen sucht
-                      niemand in einem Diagramm. Mindestens zwei Bewertungen,
-                      sonst steht ein einzelner Zufallsstern ganz oben. */}
-                  {(!hidden.has('best') || !hidden.has('worst')) && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {([
-                        { key: 'best', title: 'Beste Gerichte', rows: rangedDishes.filter(d => d.count >= 2).slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300' },
-                        { key: 'worst', title: 'Schwächste Gerichte', rows: [...rangedDishes].filter(d => d.count >= 2).reverse().slice(0, 5), tone: 'text-red-600 dark:text-red-400' },
-                      ] as const).filter(l => !hidden.has(l.key)).map(({ key, title, rows, tone }) => (
-                        <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 relative">
-                          {editMode && (
-                            <button onClick={() => hideWidget(key)} className="absolute top-3 right-3 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group">
-                              <X size={12} className="text-gray-400 group-hover:text-red-500" />
-                            </button>
-                          )}
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white mb-3">{title}</p>
-                          {insightsLoading ? (
-                            <div className="space-y-2.5">{[...Array(4)].map((_, i) => <Sk key={i} h={14} />)}</div>
-                          ) : rows.length === 0 ? (
-                            <p className="text-[13px] text-gray-400">Noch zu wenige Bewertungen in diesem Zeitraum.</p>
-                          ) : (
-                            <ol className="space-y-2.5">
-                              {rows.map((d, i) => (
-                                <li key={d.id} className="flex items-center gap-3 text-[14px]">
-                                  <span className="w-5 text-[12px] text-gray-300 dark:text-gray-600 flex-shrink-0">{i + 1}</span>
-                                  <span className="flex-1 text-gray-800 dark:text-gray-200 truncate">{d.name}</span>
-                                  <span className="text-[12px] text-gray-400 flex-shrink-0">{d.count}×</span>
-                                  <span className={`font-semibold w-8 text-right flex-shrink-0 ${tone}`}>{d.avg.toFixed(1)}</span>
-                                </li>
-                              ))}
-                            </ol>
-                          )}
-                        </div>
-                      ))}
+                      `auto-rows-fr` hält die vier Felder gleich hoch. Ohne das
+                      wuchs das Feld mit den meisten Gerichten und die leeren
+                      schrumpften auf zwei Zeilen: das Bild kippte zur vollen
+                      Seite hin und sah aus, als wäre es verrutscht — dabei ist
+                      es eine Matrix, und die hat vier gleich große Felder. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 sm:p-5">
+                    <div className="mb-4">
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichte im Überblick</p>
+                      {/* Die zwei Begriffe in der Akzentfarbe, der Rest normale
+                          Schrift. Vorher waren beide nur ein helleres Grau im
+                          Grau ringsum — ein Unterschied, den man sucht statt
+                          ihn zu sehen. */}
+                      <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Hoch</span> = 4,0 ★ und mehr ·{' '}
+                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Viele</span> = mehr als der Median
+                        aller Gerichte ({medianCount} {medianCount === 1 ? 'Bewertung' : 'Bewertungen'})
+                      </p>
                     </div>
-                  )}
-
-                  {/* GERICHTS-MATRIX — vom Menü hierher gezogen: sie ist eine
-                      Auswertung, keine Verwaltung. Die Legende oben ist weg,
-                      die vier Felder darunter erklären dasselbe ausführlicher. */}
-                  {!hidden.has('matrix') && (
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gerichts-Matrix</p>
-                          <p className="text-[12px] text-gray-400 mt-0.5">Bewertung gegen Anzahl der Rezensionen</p>
-                        </div>
-                        {editMode && (
-                          <button onClick={() => hideWidget('matrix')} className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900 transition-colors group flex-shrink-0">
-                            <X size={12} className="text-gray-400 group-hover:text-red-500" />
-                          </button>
-                        )}
-                      </div>
-                      {insightsLoading ? <Sk h={320} /> : rangedDishes.length === 0 ? (
-                        <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich" desc="Sobald in diesem Zeitraum Bewertungen eingehen, erscheint hier die Gerichts-Matrix." />
-                      ) : (
-                        <>
-                          <div style={{ height: 320 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
-                                <CartesianGrid key="grid" strokeDasharray="3 3" stroke="#f1f5f9" />
-                                {/* Feste Skala 0 bis 5: eine mitwandernde Achse
-                                    lässt jede Karte gleich gut aussehen. */}
-                                <XAxis key="x" type="number" dataKey="avg" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} name="Bewertung"
-                                  tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                                  label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
-                                <YAxis key="y" type="number" dataKey="count" name="Bewertungen"
-                                  tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}
-                                  label={{ value: 'Anzahl', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
-                                <ZAxis key="z" range={[60, 60]} />
-                                <Tooltip key="tip" cursor={{ strokeDasharray: '3 3' }}
-                                  content={({ payload }) => {
-                                    if (!payload?.length) return null;
-                                    const d = payload[0].payload as { name: string; avg: number; count: number };
-                                    return (
-                                      <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-[12px]">
-                                        <p className="font-semibold text-gray-900">{d.name}</p>
-                                        <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {d.count} Bewertungen</p>
-                                      </div>
-                                    );
-                                  }} />
-                                <ReferenceLine key="refx" x={matrixSplit.avg} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
-                                <ReferenceLine key="refy" y={matrixSplit.count} stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="4 3" />
-                                <Scatter key="scatter" data={rangedDishes} shape={(props: any) => {
-                                  const { cx, cy, payload } = props;
-                                  const avg = payload.avg ?? 0;
-                                  const count = payload.count ?? 0;
-                                  const color = avg >= matrixSplit.avg && count >= matrixSplit.count ? '#059669'
-                                    : avg >= matrixSplit.avg ? '#9ca3af'
-                                    : count >= matrixSplit.count ? '#d97706'
-                                    : '#dc2626';
-                                  return <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={2} />;
-                                }}>
-                                  {rangedDishes.map(d => <Cell key={d.id} />)}
-                                </Scatter>
-                              </ScatterChart>
-                            </ResponsiveContainer>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
-                            {[
-                              { q: 'Stars', desc: 'Hohe Bewertung, viele Rezensionen', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' },
-                              { q: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', color: 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800' },
-                              { q: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950' },
-                              { q: 'Problemfälle', desc: 'Niedrige Bewertung, wenige Rezensionen', color: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950' },
-                            ].map(q => (
-                              <div key={q.q} className={`rounded-xl px-3 py-2 ${q.color}`}>
-                                <p className="font-semibold">{q.q}</p>
-                                <p className="opacity-70 mt-0.5">{q.desc}</p>
+                    {insightsLoading ? <Sk h={200} /> : rangedDishes.length === 0 ? (
+                      <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich"
+                        desc="Sobald in diesem Zeitraum Bewertungen eingehen, ordnen sich die Gerichte hier ein." />
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 auto-rows-fr gap-3">
+                        {QUADRANTS.map(q => {
+                          const rows = quadrants[q.id];
+                          return (
+                            <div key={q.id} className="h-full rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${q.dot}`} />
+                                <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{q.title}</p>
                               </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ALLE GERICHTE, nach jeder Spalte sortierbar. */}
-                  {!hidden.has('dishes') && (
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-                      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Alle Gerichte</p>
-                          <p className="text-[12px] text-gray-400 mt-0.5">Spaltenkopf antippen zum Sortieren</p>
-                        </div>
-                        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => toggleMenu('dishes')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
-                            <MoreHorizontal size={16} strokeWidth={1.5} />
-                          </button>
-                          {openMenus.has('dishes') && (
-                            <div className="absolute mt-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[150px]">
-                              <button onClick={() => hideWidget('dishes')} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Ausblenden</button>
-                              <button onClick={() => { setOpenMenus(new Set()); exportDishesCsv(); }} className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">CSV exportieren</button>
+                              <p className="text-[11px] text-gray-400 mt-0.5">{q.desc}</p>
+                              {rows.length === 0 ? (
+                                <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-3">Kein Gericht in diesem Feld.</p>
+                              ) : (
+                                <ul className="mt-3 space-y-1.5">
+                                  {rows.slice(0, 6).map(d => (
+                                    <li key={d.id} className="flex items-center gap-2 text-[13px] text-gray-800 dark:text-gray-200">
+                                      <span className="flex-1 truncate">{d.name}</span>
+                                      <span className="text-[11px] text-gray-400 flex-shrink-0 tabular-nums">{d.avg.toFixed(1)} ★ · {d.count}×</span>
+                                    </li>
+                                  ))}
+                                  {rows.length > 6 && (
+                                    <li className="text-[11px] text-gray-400">und {rows.length - 6} weitere</li>
+                                  )}
+                                </ul>
+                              )}
                             </div>
-                          )}
-                        </div>
+                          );
+                        })}
                       </div>
-                      {insightsLoading ? (
-                        <div className="p-6 space-y-4">
-                          {[...Array(4)].map((_, i) => <div key={i} className="flex items-center gap-4"><Sk h={36} w={36} r={8} /><div className="flex-1 space-y-2"><Sk h={13} w="40%" /><Sk h={11} w="25%" /></div><Sk h={20} w={80} r={999} /></div>)}
-                        </div>
-                      ) : sortedDishes.length === 0 ? (
-                        <div className="p-6"><EmptyState icon={Star} title="Noch keine Bewertungen" desc="Sobald Gäste in diesem Zeitraum Gerichte bewerten, erscheinen sie hier." /></div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                              <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">#</th>
-                              {([
-                                ['name', 'Gericht'], ['avg', 'Ø Bewertung'], ['count', 'Bewertungen'], ['price', 'Preis'],
-                              ] as [DishSortKey, string][]).map(([key, label]) => (
-                                <th key={key} className="text-left px-5 py-3">
-                                  <button onClick={() => toggleSort(key)}
-                                    className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${sort.key === key ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'}`}>
-                                    {label}
-                                    {sort.key === key && (sort.desc
-                                      ? <TrendingDown size={11} strokeWidth={2} />
-                                      : <TrendingUp size={11} strokeWidth={2} />)}
-                                  </button>
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {sortedDishes.map((d, i) => (
-                              <tr key={d.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
-                                <td className="px-5 py-3 text-[13px] text-gray-400 dark:text-gray-600">{i + 1}</td>
-                                <td className="px-5 py-3">
-                                  <div className="flex items-center gap-3">
-                                    {d.img && <img src={d.img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
-                                    <div className="min-w-0">
-                                      <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
-                                      <p className="text-[11px] text-gray-400">{d.cat}</p>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-5 py-3">
-                                  <div className="flex items-center gap-2">
-                                    <StarRating value={Math.round(d.avg)} size={12} />
-                                    <span className={`text-[14px] font-semibold ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>{d.avg.toFixed(1)}</span>
-                                  </div>
-                                </td>
-                                <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.count}</td>
-                                <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.price.toFixed(2)} €</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </div>
-                      )}
+                    )}
+                  </div>
+
+                  {/* ══ ZEILE 6 — ALLE GERICHTE ══
+                      Am Rechner eine Tabelle, deren Spaltenköpfe sortieren. Am
+                      Handy wäre sie ein waagrechter Scrollbalken über fünf
+                      Spalten, in dem der Gerichtsname beim Sortieren aus dem
+                      Bild wandert — dort also Karten und ein Knopf, der sagt,
+                      wonach gerade sortiert ist. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Alle Gerichte</p>
+                        <p className="text-[12px] text-gray-400 mt-0.5 hidden md:block">Spaltenkopf antippen zum Sortieren</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {/* Am Handy ersetzt diese Auswahl die Spaltenköpfe. */}
+                        <select value={sort.key} onChange={e => toggleSort(e.target.value as DishSortKey)}
+                          className="md:hidden px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[12px] text-gray-700 dark:text-gray-200 outline-none">
+                          {(DISH_COLUMNS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                        </select>
+                        <button onClick={() => setSort(p => ({ ...p, desc: !p.desc }))} title={sort.desc ? 'Absteigend' : 'Aufsteigend'}
+                          className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+                          {sort.desc ? <TrendingDown size={14} strokeWidth={2} /> : <TrendingUp size={14} strokeWidth={2} />}
+                        </button>
+                        <button onClick={exportDishesCsv} title="Als CSV exportieren"
+                          className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                          <Download size={14} strokeWidth={1.5} />
+                        </button>
+                      </div>
                     </div>
-                  )}
+                    {insightsLoading ? (
+                      <div className="p-6 space-y-4">
+                        {[...Array(4)].map((_, i) => <div key={i} className="flex items-center gap-4"><Sk h={36} w={36} r={8} /><div className="flex-1 space-y-2"><Sk h={13} w="40%" /><Sk h={11} w="25%" /></div><Sk h={20} w={80} r={999} /></div>)}
+                      </div>
+                    ) : sortedDishes.length === 0 ? (
+                      <div className="p-6"><EmptyState icon={Star} title="Noch keine Bewertungen" desc="Sobald Gäste in diesem Zeitraum Gerichte bewerten, erscheinen sie hier." /></div>
+                    ) : (
+                      <>
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">#</th>
+                                {DISH_COLUMNS.map(([key, label]) => (
+                                  <th key={key} className="text-left px-5 py-3">
+                                    <button onClick={() => toggleSort(key)}
+                                      className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${sort.key === key ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'}`}>
+                                      {label}
+                                      {sort.key === key && (sort.desc
+                                        ? <TrendingDown size={11} strokeWidth={2} />
+                                        : <TrendingUp size={11} strokeWidth={2} />)}
+                                    </button>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sortedDishes.map((d, i) => (
+                                <tr key={d.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
+                                  <td className="px-5 py-3 text-[13px] text-gray-400 dark:text-gray-600">{i + 1}</td>
+                                  <td className="px-5 py-3">
+                                    <div className="flex items-center gap-3">
+                                      {d.img && <img src={d.img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
+                                      <div className="min-w-0">
+                                        <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
+                                        <p className="text-[11px] text-gray-400">{d.cat}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <StarRating value={Math.round(d.avg)} size={12} />
+                                      <span className={`text-[14px] font-semibold ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>{d.avg.toFixed(1)}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.count}</td>
+                                  <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.price.toFixed(2)} €</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="md:hidden divide-y divide-gray-50 dark:divide-gray-800">
+                          {sortedDishes.map((d, i) => (
+                            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+                              <span className="text-[12px] text-gray-300 dark:text-gray-600 w-4 flex-shrink-0">{i + 1}</span>
+                              {d.img && <img src={d.img} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
+                                <p className="text-[11px] text-gray-400">{d.cat} · {d.price.toFixed(2)} € · {d.count}×</p>
+                              </div>
+                              <span className={`text-[15px] font-bold flex-shrink-0 ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                {d.avg.toFixed(1)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
 
                   {insights?.totals.capped && (
                     <p className="text-[12px] text-gray-400">
@@ -2810,7 +3439,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   )}
                 </div>
               )}
-
               {page === 'design' && (
                 <div className="space-y-5">
                   <div>
@@ -3025,6 +3653,19 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               <button onClick={() => setUserMenuOpen(p => p === u.id ? null : u.id)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><MoreHorizontal size={16} strokeWidth={1.5} /></button>
                               {userMenuOpen === u.id && (
                                 <div className="absolute right-6 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-20 min-w-[190px]">
+                                  {/* Rollen zu vergeben ist Ketten-Sache: eine
+                                      Filialleitung, die ihren Kellner zum Admin
+                                      machen kann, hebt die Rollentrennung mit
+                                      einem Klick auf. Der Server lehnt es
+                                      ohnehin ab (PATCH /users/:id), hier gar
+                                      nicht erst anzubieten erspart die
+                                      Fehlermeldung. */}
+                                  {isChainAdmin && (
+                                    <button onClick={() => { setRoleDialog({ user: u, role: u.role, branchId: u.branchId ?? '', error: null }); setUserMenuOpen(null); }}
+                                      className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                                      <Shield size={12} /> Rolle &amp; Filiale
+                                    </button>
+                                  )}
                                   <button onClick={() => { setPwDialog({ user: u, value: '', error: null }); setUserMenuOpen(null); }}
                                     className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
                                     <Lock size={12} /> {u.status === 'eingeladen' ? 'Freischalten' : 'Passwort ändern'}
@@ -3139,6 +3780,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     </div>
                   )}
 
+                </div>
+              )}
+
+              {page === 'tables' && (
+                <div className="space-y-5 max-w-4xl">
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Tische &amp; QR-Codes</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5">
+                      {branch ? branch.name : 'Erst eine Filiale wählen'}
+                    </p>
+                  </div>
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><QrCode size={15} strokeWidth={1.5} className="text-gray-400" /> QR-Codes per Tisch</p>
                     <p className="text-[13px] text-gray-500 dark:text-gray-400">
@@ -3157,8 +3809,39 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         Im Ketten-Blick gibt es deshalb nichts anzulegen — erst
                         die Filiale wählen. */}
                     {!branch ? (
-                      <EmptyState icon={Building2} title="Erst eine Filiale wählen"
-                        desc={'QR-Codes gehören zu einer bestimmten Filiale. Wechsle oben links von „Alle Filialen" auf eine einzelne, um ihre Tische zu sehen und neue anzulegen.'} />
+                      /* Vorher stand hier nur der Satz „wechsle oben links" —
+                         und damit ein Verweis auf einen Regler, der woanders
+                         steht, statt der Sache selbst. Wer Tische einer Filiale
+                         sucht, wählt sie jetzt hier, wo er danach fragt; der
+                         Umschalter in der Seitenleiste zieht mit, weil es
+                         derselbe Wechsel ist. */
+                      <div className="space-y-3 py-2">
+                        <div className="text-center">
+                          <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-3">
+                            <Building2 size={18} strokeWidth={1.5} className="text-gray-400" />
+                          </div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Welche Filiale?</p>
+                          <p className="text-[13px] text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
+                            Tische und QR-Codes gehören immer genau einer Filiale — Tisch 5
+                            hier ist ein anderer Tisch als Tisch 5 dort.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          {store.branches.map(b => (
+                            <button key={b.id} onClick={() => onPick(b.slug)}
+                              className="flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 text-left hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
+                              <span className="text-xl">🏠</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">{b.name}</span>
+                                <span className="block text-[12px] text-gray-400 truncate">
+                                  {store.tables.filter(t => t.branchId === b.id).length} Tische
+                                </span>
+                              </span>
+                              <ArrowRight size={15} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ) : (
                       <>
                         <div className="flex items-end gap-3 flex-wrap pb-1 border-b border-gray-100 dark:border-gray-800">
@@ -3311,6 +3994,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
                         <Download size={13} strokeWidth={1.5} /> Export
                       </button>
+                      {/* Der Gegenpart zum Export, und derselbe Dateityp: eine
+                          Karte kommt selten getippt, sondern als Tabelle aus
+                          der Kasse. Nur die Kette darf die Stammkarte ändern —
+                          für die Filialleitung wäre der Knopf ein Versprechen,
+                          das der Server ablehnt. */}
+                      {isChainAdmin && (
+                        <button onClick={() => setImportOpen(true)}
+                          className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                          <Upload size={13} strokeWidth={1.5} /> Import
+                        </button>
+                      )}
                       {isChainAdmin && (
                         <button onClick={() => setDishDialog({ dish: null })}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
@@ -3507,10 +4201,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Gutscheine</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        Was Gäste für ihre gesammelten Punkte einlösen können
+                        {activeVouchers.length} gültig · was Gäste für ihre gesammelten Punkte einlösen können
                       </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
+                      {/* Der Weg zu den abgelaufenen. Sie sind nicht gelöscht,
+                          nur weggeräumt — löschen kann man sie weiterhin von
+                          Hand, wenn man sie wirklich los sein will. */}
+                      {expiredVouchers.length > 0 && (
+                        <button onClick={() => setShowExpiredVouchers(p => !p)}
+                          className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
+                          <Clock size={13} strokeWidth={1.5} />
+                          {showExpiredVouchers ? 'Abgelaufene ausblenden' : `${expiredVouchers.length} abgelaufene`}
+                        </button>
+                      )}
                       {/* Die vergangenen Einlösungen hängen hier statt im Menü:
                           sie sind ein Nachschlagewerk zu den Gutscheinen, keine
                           eigene tägliche Anlaufstelle. */}
@@ -3525,28 +4229,33 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     </div>
                   </div>
 
-                  {store.vouchers.length === 0 ? (
+                  {visibleVouchers.length === 0 ? (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                      <EmptyState icon={Ticket} title="Noch keine Gutscheine"
-                        desc="Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an." />
+                      <EmptyState icon={Ticket}
+                        title={store.vouchers.length === 0 ? 'Noch keine Gutscheine' : 'Kein gültiger Gutschein'}
+                        desc={store.vouchers.length === 0
+                          ? 'Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an.'
+                          : 'Alle angelegten Gutscheine sind abgelaufen — für den Gast ist gerade nichts zu holen. Blende sie oben ein, um sie zu verlängern.'} />
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {[...store.vouchers].sort((a, b) => a.points - b.points).map(v => {
-                        const redeemed = store.guest.redeemed.includes(v.id);
+                      {visibleVouchers.map(v => {
+                        const expired = voucherExpired(v);
                         return (
-                          <div key={v.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                          <div key={v.id} className={`bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden ${expired ? 'border-gray-200 dark:border-gray-700 opacity-60' : 'border-gray-100 dark:border-gray-700'}`}>
                             <div className="h-28 bg-gray-100 dark:bg-gray-900">
-                              <img src={v.img} alt="" className="w-full h-full object-cover" />
+                              <img src={v.img} alt="" className={`w-full h-full object-cover ${expired ? 'grayscale' : ''}`} />
                             </div>
                             <div className="p-4 space-y-2">
                               <div className="flex items-start justify-between gap-2">
                                 <p className="text-[14px] font-semibold text-gray-900 dark:text-white leading-snug">{v.title}</p>
                                 <span className="text-[11px] px-2 py-1 rounded-full font-medium text-white flex-shrink-0" style={{ backgroundColor: 'var(--ba)' }}>{v.points} P</span>
                               </div>
-                              <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
-                                <Clock size={11} strokeWidth={1.5} /> Gültig bis {v.expiry}
-                                {redeemed && <span className="text-emerald-600 dark:text-emerald-400 ml-1">· eingelöst</span>}
+                              <p className="text-[12px] flex items-center gap-1.5 text-gray-400">
+                                <Clock size={11} strokeWidth={1.5} />
+                                {expired
+                                  ? <span className="text-red-600 dark:text-red-400 font-medium">Abgelaufen am {v.expiry}</span>
+                                  : <>Gültig bis {v.expiry}</>}
                               </p>
                               <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
                                 <Building2 size={11} strokeWidth={1.5} />
@@ -3575,6 +4284,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
       <AnimatePresence>
         {dishDialog && <DishDialog dish={dishDialog.dish} onClose={() => setDishDialog(null)} />}
+        {importOpen && <DishImportDialog onClose={() => setImportOpen(false)} />}
         {voucherDialog && <VoucherDialog voucher={voucherDialog.voucher} onClose={() => setVoucherDialog(null)} />}
         {branchDialog && <BranchDialog branch={branchDialog.branch} onClose={() => setBranchDialog(null)} />}
       </AnimatePresence>
@@ -3641,6 +4351,54 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="flex gap-3 pt-1">
                   <SecondaryBtn onClick={() => { setShowInvite(false); setInviteError(null); }}>Abbrechen</SecondaryBtn>
                   <PrimaryBtn onClick={handleInviteSubmit}>Benutzer anlegen</PrimaryBtn>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {roleDialog && (
+          <>
+            <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setRoleDialog(null)} />
+            <motion.div className="fixed inset-0 flex items-center justify-center z-50 p-4 sm:p-8"
+              initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }}>
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Rolle &amp; Filiale</p>
+                  <button onClick={() => setRoleDialog(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
+                </div>
+                <p className="text-[13px] text-gray-500 dark:text-gray-400">{roleDialog.user.name} · {roleDialog.user.email}</p>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-[12px] text-gray-500 mb-1 block">Rolle</label>
+                    <select value={roleDialog.role}
+                      onChange={e => setRoleDialog(p => p && { ...p, role: e.target.value as AdminUser['role'], error: null })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
+                      {(['Kellner', 'Manager', 'Admin'] as const).map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[12px] text-gray-500 mb-1 block">Filiale</label>
+                    <select value={roleDialog.branchId}
+                      onChange={e => setRoleDialog(p => p && { ...p, branchId: e.target.value, error: null })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
+                      {/* Ohne Filiale heißt: die ganze Kette. Für einen Admin
+                          ist das der Normalfall, für Kellner und Filialleitung
+                          die Ausnahme — deshalb steht es oben, aber benannt. */}
+                      <option value="">Alle Filialen (Kette)</option>
+                      {store.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  Die neue Rolle gilt, sobald sich die Person das nächste Mal anmeldet —
+                  ein laufendes Token trägt noch die alte. Die eigene Rolle und die des
+                  letzten Admins lassen sich nicht ändern.
+                </p>
+                {roleDialog.error && <p className="text-[13px] text-red-600 dark:text-red-400">{roleDialog.error}</p>}
+                <div className="flex gap-3 pt-1">
+                  <SecondaryBtn onClick={() => setRoleDialog(null)}>Abbrechen</SecondaryBtn>
+                  <PrimaryBtn onClick={handleSaveRole}>Speichern</PrimaryBtn>
                 </div>
               </div>
             </motion.div>
@@ -3766,6 +4524,10 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     try { localStorage.setItem('bitely.theme', dark ? 'dark' : 'light'); } catch { /* Privatmodus */ }
   }, [dark]);
   useGoogleFont(store.brand?.font);
+  useDocumentTitle(store.brand?.name,
+    view === 'admin' ? 'Verwaltung'
+      : view === 'waiter' ? 'Service'
+      : tableNumber != null ? `Tisch ${tableNumber}` : null);
 
   const needsLogin = view === 'admin' || view === 'waiter';
 
@@ -4011,7 +4773,22 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   // Eine bereits entwertete, aber noch nicht eingetragene Einlösung dieses
   // Gutscheins. Damit lässt sich der Bildschirm wieder aufmachen: der Gast darf
   // ihn schließen, ohne den Code zu verlieren, den er noch vorzeigen muss.
-  const pending = store.redemptions.find(r => r.voucherId === voucher.id && r.status === 'entwertet');
+  //
+  // `loggedIn` steht bewusst in der Bedingung. Ohne Konto kann es keine EIGENE
+  // Einlösung geben — einlösen setzt eines voraus. Was hier ohne Anmeldung
+  // auftaucht, gehört also jemand anderem, und darauf zu antworten hieße: der
+  // Wisch entfällt, es werden keine Punkte abgebucht, und der Gast sieht ein
+  // Häkchen für einen Gutschein, den er nie eingelöst hat.
+  //
+  // Der Server liefert einem Gast seit dem Umbau ohnehin nur seine eigenen
+  // Einlösungen. Die Prüfung bleibt trotzdem, weil es einen Weg gibt, auf dem
+  // er sie NICHT als Gast sieht: wer die Verwaltung im selben Browser offen
+  // hat und daneben den QR-Code aufruft, hat nur ein Personal-Token — der
+  // Server hält ihn dann für Personal und schickt die Einlösungen der ganzen
+  // Filiale. Genau so testet man diese App.
+  const pending = store.guest.loggedIn
+    ? store.redemptions.find(r => r.voucherId === voucher.id && r.status === 'entwertet')
+    : undefined;
   // Immer den Server-Stand nehmen, falls vorhanden: die Servicekraft trägt in
   // ihrer App ein, und das erfahren wir nur über den Zustand.
   const live = started
@@ -4053,12 +4830,20 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
                 <p className="text-[19px] font-bold text-gray-900 dark:text-white">{voucher.title}</p>
                 <p className="text-[13px] text-gray-400 mt-1">{voucher.points} Punkte · {branch.name}</p>
               </div>
-              {/* Kein Erklärtext zur Geste: gewischt wird vor der Servicekraft,
-                  und der Wisch erklärt sich in dem Moment von selbst. Was er
-                  kostet, steht dagegen dabei — er ist nicht umkehrbar. */}
+              {/* Der Wisch gilt für JEDEN Gutschein, auch für einen ohne
+                  Punktepreis. Er ist nicht nur eine Sperre gegen den
+                  unabsichtlichen Daumen — er ist der Vorgang, den die
+                  Servicekraft am Tisch zu sehen bekommt. Ein Knopf, der
+                  lautlos ein Häkchen setzt, sieht aus wie ein Screenshot;
+                  die Geste tut das nicht, und genau darum geht es.
+
+                  Kein Erklärtext zur Geste selbst: gewischt wird vor der
+                  Servicekraft, und in dem Moment erklärt sie sich. Was sie
+                  kostet, steht dagegen dabei — sie ist nicht umkehrbar. */}
               <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center leading-relaxed max-w-[280px] mx-auto">
-                Wischen bucht die {voucher.points} Punkte sofort ab. Erst danach
-                zeigst du den Code der Servicekraft.
+                {voucher.points > 0
+                  ? <>Wischen bucht die {voucher.points} Punkte sofort ab. Erst danach zeigst du ihn der Servicekraft.</>
+                  : <>Wischen entwertet den Gutschein sofort. Erst danach zeigst du ihn der Servicekraft.</>}
               </p>
               {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
               <SwipeToRedeem onRedeem={start} redeemed={busy} />
@@ -4278,6 +5063,7 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
 }) {
   const store = useStore();
   useGoogleFont(store.brand?.font);
+  useDocumentTitle(store.brand?.name);
   const branch = branchSlug ? store.branches.find(b => b.slug === branchSlug) ?? null : null;
 
   if (store.loading) return <FullScreenMessage>Lädt…</FullScreenMessage>;
@@ -4329,11 +5115,22 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
   );
 }
 
+/**
+ * Wohin „/" führt.
+ *
+ * Stand als fester Pfad im Router — der Name genau eines Restaurants,
+ * einkompiliert in eine Anwendung, die mandantenfähig ist. Wer sie für ein
+ * anderes Lokal betreibt, landete auf der Startseite eines fremden. Jetzt eine
+ * Variable zur Buildzeit; ohne sie bleibt es beim bisherigen Ziel, damit die
+ * bestehende Netlify-Seite unverändert weiterläuft.
+ */
+const DEFAULT_ORG_PATH = import.meta.env.VITE_DEFAULT_ORG_PATH ?? '/sakura-sushi/herrengasse';
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/sakura-sushi/herrengasse" replace />} />
+        <Route path="/" element={<Navigate to={DEFAULT_ORG_PATH} replace />} />
         <Route path="/:orgSlug/:branchSlug/table/:tableNumber" element={<OrgShell view="guest" />} />
         <Route path="/:orgSlug/staff" element={<OrgShell view="waiter" />} />
         <Route path="/:orgSlug/admin" element={<OrgShell view="admin" />} />
@@ -4343,7 +5140,7 @@ export default function App() {
             Server aussieht — mit Weg zurück statt Sackgasse. */}
         <Route path="/:orgSlug/table/:tableNumber" element={
           <FullScreenMessage error action={
-            <Link to="/" className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+            <Link to={DEFAULT_ORG_PATH} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
               Zur Startseite
             </Link>
           }>
@@ -4356,7 +5153,7 @@ export default function App() {
         <Route path="/:orgSlug/:branchSlug/*" element={<OrgLanding notFound />} />
         <Route path="*" element={
           <FullScreenMessage error action={
-            <Link to="/" className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+            <Link to={DEFAULT_ORG_PATH} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
               Zur Startseite
             </Link>
           }>

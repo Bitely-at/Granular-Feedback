@@ -1,6 +1,6 @@
 # Weitermachen auf einem anderen Rechner
 
-Stand: 22. August 2026. Diese Datei ist der Einstieg nach einem Rechnerwechsel —
+Stand: 24. August 2026. Diese Datei ist der Einstieg nach einem Rechnerwechsel —
 sie sagt, was NICHT im Repository liegt, wo das Projekt gerade steht und was als
 Nächstes ansteht. Die Regeln des Systems stehen in `CLAUDE.md`, der Überblick
 für Außenstehende im Handbuch (Links unten).
@@ -40,7 +40,19 @@ Fertig und live:
   mit E-Mail/Passwort oder Google. Beim Personal meldet Google nur an, wer schon
   eingeladen ist; ein Konto entsteht dabei nicht.
 - Gutschein-Einlösung per Wischgeste: der Wisch entwertet endgültig, die
-  Servicekraft trägt danach nur noch die Ausgabe ein
+  Servicekraft trägt danach nur noch die Ausgabe ein. Abgelaufene Gutscheine
+  verschwinden beim Gast und lassen sich nicht mehr einlösen; ein Gutschein
+  ohne Punktepreis kommt ohne Wisch aus.
+- Dashboard neu gebaut (24.08.): Zeitraum inkl. eigenem Von–Bis, Filialfilter
+  mit Mehrfachauswahl, eine Karte für Ø/Bewertungen/**Bestellungen** samt
+  Feedback-Quote, Verlauf mit Balken UND Schnittlinie, vier benannte
+  Gerichtsfelder statt des Streudiagramms, Gerichtsliste als Karten am Handy.
+- Verwaltung ohne obere Leiste: Filiale, Seiten und Konto stehen links, am
+  Handy als Schublade. **Tische & QR sind eine eigene Seite.**
+- **Rolle und Filiale eines Kontos** lassen sich in der Benutzerliste ändern
+  (nur Ketten-Admin). **Speisekarte per CSV importieren** auf der Menüseite.
+- Gastansicht: nur noch eine Pauschalfrage (Service), Konto-Symbol oben rechts
+  im Empfang, zentrierter Dank mit einem Knopf, der weiterführt.
 - Vier Prüfsuiten: `verify:tables` (27), `verify:admin` (61), `verify:guests`
   (39) — zuletzt alle grün. `verify:redemptions` ist nach dem Umbau der
   Einlösung neu geschrieben und **noch nicht gegen einen Server gelaufen**.
@@ -48,6 +60,13 @@ Fertig und live:
 Zugänge und Rollen: siehe Handbuch. Konten auflisten:
 `npm run set-password --prefix server` (ohne Argumente).
 Punkte für eine Vorführung: `npm run guest-points --prefix server -- <e-mail> <punkte>`.
+Zahlen für das Dashboard (Bildschirmfotos, Vorführung):
+`npm run demo-reviews --prefix server -- 10` legt zehn Wochen erfundener
+Bestellungen und Bewertungen an, `-- --reset` entfernt sie restlos wieder.
+Am 26.08.2026 einmal gegen die Atlas-Datenbank gelaufen: 1102 Bestellungen,
+486 Bewertungen, Ø 4,28 ★. Die Gerichtsschnitte in `dishes.ratingsByBranch`
+rechnet das Skript danach neu aus den Bewertungen — die vom Seed erfundenen
+Sternchen sind damit weg, dafür stimmen Menü und Dashboard überein.
 
 ## 3. Offene Punkte
 
@@ -69,7 +88,13 @@ In der Reihenfolge, in der sie zuletzt besprochen wurden:
    eigener Buchhaltung = eigene Organisation; Filialen desselben Betreibers =
    Filialen. Preis skaliert am sinnvollsten pro Filiale. Bei Zahlungsverzug nur
    das Schreiben sperren — die QR-Codes hängen gedruckt an den Tischen.
-5. Kleinkram: keine Ratenbegrenzung auf den Anmelderouten, CORS offen, kein
+5. **Bestellungen zählen erst ab dem 24.08.2026.** Die Sammlung `orders` ist
+   neu; Bestellungen davor haben keinen Eintrag. Die Feedback-Quote auf dem
+   Dashboard ist deshalb in den ersten Wochen zu hoch und auf 100 % gedeckelt.
+6. **Die Prüfsuiten sind seit diesem Umbau nicht gelaufen** (kein Passwort auf
+   diesem Rechner). Vor dem nächsten Deploy nachholen:
+   `ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run verify:admin` und die drei anderen.
+7. Kleinkram: keine Ratenbegrenzung auf den Anmelderouten, CORS offen, kein
    "Passwort vergessen", kein Filialpreis. (Tische geben sich inzwischen nach
    zwei Stunden von selbst frei, siehe `releaseStaleTables`.)
 
