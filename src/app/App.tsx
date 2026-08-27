@@ -4621,8 +4621,12 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     if (store.authLoading) return <FullScreenMessage>Anmeldung wird geprüft…</FullScreenMessage>;
     if (!store.authUser) {
       return (
+        // Ohne Kopfleiste: wer noch nicht angemeldet ist, hat dort nichts zu
+        // holen — kein Name, kein Abmelden, nur der Markenname, und der steht
+        // jetzt in der Maske selbst. Der Hell/Dunkel-Schalter fällt hier damit
+        // weg; die Wahl steckt in localStorage und gilt nach der Anmeldung
+        // weiter.
         <div className={dark ? 'dark' : ''}>
-          <TopBar dark={dark} setDark={setDark} />
           <LoginScreen
             title={view === 'admin' ? 'Verwaltung' : 'Servicekraft-Bereich'}
             hint="Bitte mit deinem Mitarbeiterkonto anmelden."

@@ -12,7 +12,9 @@ import {
  * Miete — die Rechte werden serverseitig erzwungen (requireAuth in index.ts).
  *
  * Aussehen: die gemeinsamen Bausteine aus `authUi.tsx`, damit die Maske mit der
- * Gast-Anmeldung (`GuestAuthSheet`) übereinstimmt.
+ * Gast-Anmeldung (`GuestAuthSheet`) übereinstimmt. Einzige Abweichung ist der
+ * Bitely-Schriftzug im Kopf — diese Maske steht ohne die schwarze Leiste da,
+ * die den Namen sonst getragen hat.
  */
 export function LoginScreen({ title, hint }: { title: string; hint: string }) {
   const { login, googleLogin, authOptions, brand } = useStore();
@@ -55,9 +57,9 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
   );
 
   return (
-    <div className="min-h-[calc(100dvh-40px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
+    <div className="min-h-dvh flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
       <AuthCard>
-        <AuthHeader title={title} subtitle={hint} brandName={brand?.name} />
+        <AuthHeader title={title} subtitle={hint} brandName={brand?.name} mark="bitely" />
 
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
           <AuthInput icon={Mail} type="email" placeholder="E-Mail" value={email}

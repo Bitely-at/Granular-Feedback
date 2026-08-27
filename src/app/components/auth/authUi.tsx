@@ -20,15 +20,35 @@ export function AuthCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Kopf jeder Maske: Icon, Titel, eine Zeile Erklärung, optional der Markenname. */
-export function AuthHeader({ title, subtitle, brandName }: {
-  title: string; subtitle: string; brandName?: string;
+/**
+ * Kopf jeder Maske: Zeichen, Titel, eine Zeile Erklärung, optional der Markenname.
+ *
+ * `mark` ist die eine Stelle, an der sich die beiden Masken unterscheiden dürfen.
+ * Die Personal-Anmeldung steht ohne die schwarze Kopfleiste da, die sonst den
+ * Namen Bitely trug — dort tritt der Schriftzug an die Stelle des Symbols und
+ * sagt, wo man gerade ist. Der Gast sieht stattdessen den Namen seines Lokals,
+ * für ihn wäre unsere Marke an dieser Stelle nur Beiwerk.
+ */
+export function AuthHeader({ title, subtitle, brandName, mark = 'icon' }: {
+  title: string; subtitle: string; brandName?: string; mark?: 'icon' | 'bitely';
 }) {
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white dark:bg-gray-800 mb-5 shadow-lg shadow-gray-900/5 border border-gray-100 dark:border-gray-700">
-        <LogIn className="w-7 h-7 text-gray-900 dark:text-white" strokeWidth={1.75} />
-      </div>
+      {mark === 'bitely' ? (
+        // Zwei Dateien statt einer eingefärbten: das Navy verschwindet auf
+        // dunklem Grund. Die zweite ist für Vorleseprogramme unsichtbar,
+        // sonst stünde „Bitely" doppelt.
+        <>
+          <img src="/logo-bitely-wordmark.png" alt="Bitely"
+            className="h-10 w-auto mb-5 dark:hidden" />
+          <img src="/logo-bitely-wordmark-light.png" alt="" aria-hidden="true"
+            className="h-10 w-auto mb-5 hidden dark:block" />
+        </>
+      ) : (
+        <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white dark:bg-gray-800 mb-5 shadow-lg shadow-gray-900/5 border border-gray-100 dark:border-gray-700">
+          <LogIn className="w-7 h-7 text-gray-900 dark:text-white" strokeWidth={1.75} />
+        </div>
+      )}
       <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">{title}</h2>
       <p className="text-gray-500 dark:text-gray-400 text-sm mt-2 leading-relaxed max-w-[300px]">{subtitle}</p>
       {brandName && <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-2">{brandName}</p>}
