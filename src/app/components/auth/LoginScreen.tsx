@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from 'react';
-import { Loader2, Lock } from 'lucide-react';
+import { Loader2, Lock, Mail } from 'lucide-react';
 import { useStore } from '../../store';
 import { useGoogleSignIn } from './googleSignIn';
+import {
+  AuthCard, AuthHeader, AuthInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink,
+} from './authUi';
 
 /**
  * Anmeldung für Mitarbeiter (Admin, Manager, Servicekraft). Steht vor
  * /staff und /admin. Das Verstecken der Oberfläche ist dabei nur die halbe
  * Miete — die Rechte werden serverseitig erzwungen (requireAuth in index.ts).
+ *
+ * Aussehen: die gemeinsamen Bausteine aus `authUi.tsx`, damit die Maske mit der
+ * Gast-Anmeldung (`GuestAuthSheet`) übereinstimmt.
  */
 export function LoginScreen({ title, hint }: { title: string; hint: string }) {
   const { login, googleLogin, authOptions, brand } = useStore();
@@ -30,7 +36,8 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
 
   // Google meldet nur an, wer schon ein Konto hat — angelegt wird hier keines.
   // Für das Personal ist das der schnelle Weg: keine Adresse tippen, kein
-  // Passwort suchen, das ohnehin alle Konten teilen.
+  // Passwort suchen, das ohnehin alle Konten teilen. `type: 'icon'` rendert den
+  // quadratischen Knopf für die Dienste-Reihe.
   const googleRef = useGoogleSignIn(
     authOptions.google ? authOptions.googleClientId : null,
     async credential => {
@@ -44,64 +51,46 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
         setBusy(false);
       }
     },
+    { type: 'icon', shape: 'square', theme: 'outline', size: 'large' },
   );
 
   return (
     <div className="min-h-[calc(100dvh-40px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 flex items-center justify-center mb-3">
-            <Lock size={20} strokeWidth={1.5} className="text-gray-500 dark:text-gray-400" />
+      <AuthCard>
+        <AuthHeader title={title} subtitle={hint} brandName={brand?.name} />
+
+        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
+          <AuthInput icon={Mail} type="email" placeholder="E-Mail" value={email}
+            autoComplete="username" required autoFocus
+            onChange={e => setEmail(e.target.value)} />
+          <AuthInput icon={Lock} type="password" placeholder="Passwort" value={password}
+            autoComplete="current-password" required
+            onChange={e => setPassword(e.target.value)} />
+
+          <div className="w-full flex justify-end">
+            <ForgotPasswordLink />
           </div>
-          <p className="text-[17px] font-semibold text-gray-900 dark:text-white">{title}</p>
-          <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{hint}</p>
-          {brand && <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-2">{brand.name}</p>}
-        </div>
 
-        <form onSubmit={handleSubmit}
-          className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 space-y-3">
-          <label className="block">
-            <span className="text-[12px] text-gray-500 dark:text-gray-400">E-Mail</span>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-              autoComplete="username" required autoFocus
-              className="mt-1 w-full px-3 py-2.5 rounded-xl text-[14px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white outline-none focus:border-gray-400 dark:focus:border-gray-500" />
-          </label>
+          {error && <p className="w-full text-xs text-red-500">{error}</p>}
 
-          <label className="block">
-            <span className="text-[12px] text-gray-500 dark:text-gray-400">Passwort</span>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              autoComplete="current-password" required
-              className="mt-1 w-full px-3 py-2.5 rounded-xl text-[14px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white outline-none focus:border-gray-400 dark:focus:border-gray-500" />
-          </label>
-
-          {error && (
-            <p className="text-[13px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2">
-              {error}
-            </p>
-          )}
-
-          <button type="submit" disabled={busy}
-            className="w-full py-3 rounded-xl font-medium text-white text-[15px] transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+          <AuthPrimaryButton type="submit" disabled={busy}>
             {busy && <Loader2 size={15} className="animate-spin" />}
             {busy ? 'Wird angemeldet…' : 'Anmelden'}
-          </button>
-
-          {authOptions.google && (
-            <div className="pt-2">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
-                <span className="text-[11px] uppercase tracking-widest text-gray-400">oder</span>
-                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
-              </div>
-              <div className="flex justify-center"><div ref={googleRef} /></div>
-              <p className="text-[11px] text-gray-400 text-center mt-3 leading-relaxed">
-                Nur mit der Adresse, unter der dich die Verwaltung eingeladen hat.
-              </p>
-            </div>
-          )}
+          </AuthPrimaryButton>
         </form>
-      </div>
+
+        <AuthSocialRow
+          googleSlot={authOptions.google
+            ? <div ref={googleRef} className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0" />
+            : undefined}
+        />
+
+        {authOptions.google && (
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center leading-relaxed -mt-1">
+            Google meldet nur an, wen die Verwaltung schon eingeladen hat.
+          </p>
+        )}
+      </AuthCard>
     </div>
   );
 }

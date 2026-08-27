@@ -10,6 +10,7 @@ import {
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw, Menu,
   Trash2, UserPlus, Lock, Building2, ImagePlus,
   AlertOctagon, Loader2, MessageSquare, Ticket, ArrowRight,
+  Mail, User,
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -27,6 +28,7 @@ import {
 } from './store';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { useGoogleSignIn } from './components/auth/googleSignIn';
+import { AuthHeader, AuthInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink } from './components/auth/authUi';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
 // ═══════════════════════════════════════════════════════════
@@ -4770,61 +4772,58 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
 
   const googleRef = useGoogleSignIn(
     store.authOptions.google ? store.authOptions.googleClientId : null,
-    credential => { run(() => store.guestGoogleLogin(credential)); }
+    credential => { run(() => store.guestGoogleLogin(credential)); },
+    { type: 'icon', shape: 'square', theme: 'outline', size: 'large' },
   );
 
   const submit = () => run(() => mode === 'login'
     ? store.guestLogin(form.email.trim(), form.password)
     : store.guestRegister(form.email.trim(), form.name.trim(), form.password));
 
-  const field = 'w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[15px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors';
-
   return (
     <>
       <motion.div className="fixed inset-0 bg-black/50 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl z-50 max-h-[92vh] overflow-y-auto"
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}>
-        <div className="p-5 pb-8 space-y-4">
-          <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto" />
-          <div className="text-center">
-            <p className="text-[19px] font-bold text-gray-900 dark:text-white">
-              {mode === 'login' ? 'Willkommen zurück' : 'Punkte dauerhaft sichern'}
-            </p>
-            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed max-w-[300px] mx-auto">
-              Deine Punkte hängen an deinem Konto — damit sind sie auf jedem Gerät da,
-              auch beim nächsten Besuch.
-            </p>
+        <div className="p-6 pb-8 flex flex-col items-center gap-4">
+          <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full" />
+
+          <AuthHeader
+            title={mode === 'login' ? 'Willkommen zurück' : 'Punkte dauerhaft sichern'}
+            subtitle="Deine Punkte hängen an deinem Konto — damit sind sie auf jedem Gerät da, auch beim nächsten Besuch."
+          />
+
+          <div className="w-full flex flex-col gap-3">
+            {mode === 'register' && (
+              <AuthInput icon={User} type="text" placeholder="Dein Name" value={form.name}
+                onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+            )}
+            <AuthInput icon={Mail} type="email" placeholder="E-Mail" autoComplete="email" value={form.email}
+              onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+            <AuthInput icon={Lock} type="password" value={form.password}
+              placeholder={mode === 'login' ? 'Passwort' : 'Passwort (mind. 8 Zeichen)'}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
           </div>
 
-          {store.authOptions.google && (
-            <div className="flex flex-col items-center gap-3">
-              <div ref={googleRef} />
-              <div className="flex items-center gap-3 w-full">
-                <span className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
-                <span className="text-[12px] text-gray-400">oder</span>
-                <span className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
-              </div>
+          {mode === 'login' && (
+            <div className="w-full flex justify-end -mt-1">
+              <ForgotPasswordLink />
             </div>
           )}
 
-          <div className="space-y-2.5">
-            {mode === 'register' && (
-              <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                placeholder="Dein Name" type="text" className={field} />
-            )}
-            <input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-              placeholder="E-Mail" type="email" autoComplete="email" className={field} />
-            <input value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-              placeholder={mode === 'login' ? 'Passwort' : 'Passwort (mind. 8 Zeichen)'}
-              type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className={field} />
-          </div>
+          {error && <p className="w-full text-[13px] text-red-500 text-center">{error}</p>}
 
-          {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
-
-          <PrimaryBtn onClick={submit}>
+          <AuthPrimaryButton onClick={submit} disabled={busy}>
             {busy ? 'Einen Moment…' : mode === 'login' ? 'Anmelden' : 'Konto anlegen'}
-          </PrimaryBtn>
+          </AuthPrimaryButton>
+
+          <AuthSocialRow
+            googleSlot={store.authOptions.google
+              ? <div ref={googleRef} className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0" />
+              : undefined}
+          />
 
           <button onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(null); }}
             className="w-full text-[13px] text-gray-500 dark:text-gray-400 py-1">

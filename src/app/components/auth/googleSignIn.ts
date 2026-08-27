@@ -9,11 +9,19 @@ import { useEffect, useRef } from 'react';
  * Gastes (Punkte) und die des Personals (Zugang zu Kellner- und Admin-Bereich).
  * Das Skript lädt trotzdem nur einmal, erkennbar am `data-google-signin`.
  */
-export function useGoogleSignIn(clientId: string | null, onCredential: (credential: string) => void) {
+export function useGoogleSignIn(
+  clientId: string | null,
+  onCredential: (credential: string) => void,
+  // Überschreibt die Vorgaben von `renderButton` — z. B. `{ type: 'icon' }` für
+  // den quadratischen Knopf in der Dienste-Reihe. Ohne das der breite Knopf.
+  buttonOptions?: Record<string, unknown>,
+) {
   const buttonRef = useRef<HTMLDivElement>(null);
-  // In einer Ref, damit ein neu erzeugter Callback nicht das ganze Skript neu lädt.
+  // In einer Ref, damit ein neu erzeugter Callback nicht das ganze Skript lädt.
   const handler = useRef(onCredential);
   handler.current = onCredential;
+  const options = useRef(buttonOptions);
+  options.current = buttonOptions;
 
   useEffect(() => {
     if (!clientId || !buttonRef.current) return;
@@ -28,7 +36,7 @@ export function useGoogleSignIn(clientId: string | null, onCredential: (credenti
           if (res.credential) handler.current(res.credential);
         },
       });
-      google.accounts.id.renderButton(buttonRef.current, {
+      google.accounts.id.renderButton(buttonRef.current, options.current ?? {
         theme: 'outline', size: 'large', width: 280, text: 'continue_with', locale: 'de',
       });
     };
