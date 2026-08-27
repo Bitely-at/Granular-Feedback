@@ -2,6 +2,39 @@
   command = "npm run build"
   publish = "dist"
 
+# Die Landingpage ist eine eigene Netlify-Site (bitely-demo-site, Next.js).
+# status = 200 ist ein Proxy und kein Redirect: der Besucher sieht weiterhin
+# bitely.at in der Adresszeile, Netlify holt den Inhalt nur von dort.
+#
+# Reihenfolge ist hier alles — die erste passende Regel gewinnt, also müssen
+# diese drei vor dem SPA-Fallback ganz unten stehen. Aus demselben Grund
+# stehen alle Regeln in dieser Datei und nicht mehr zusätzlich in
+# public/_redirects: welche der beiden Netlify zuerst liest, wäre sonst der
+# Unterschied zwischen Landingpage und App auf "/".
+
+# "/" gehört der Landingpage. force ist nötig, weil dist/index.html existiert
+# und ohne force als statische Datei ausgeliefert würde, bevor die Regel greift.
+[[redirects]]
+  from = "/"
+  to = "https://bitely-demo-site.netlify.app/"
+  status = 200
+  force = true
+
+# Das Build-Output von Next.js. Die App selbst liegt unter /assets/*, hier
+# kollidiert also nichts.
+[[redirects]]
+  from = "/_next/*"
+  to = "https://bitely-demo-site.netlify.app/_next/:splat"
+  status = 200
+
+# Bilder und Wordmark der Landingpage.
+[[redirects]]
+  from = "/images/*"
+  to = "https://bitely-demo-site.netlify.app/images/:splat"
+  status = 200
+
+# Alles andere ist die App: /:orgSlug/admin, /:orgSlug/staff und vor allem die
+# QR-Code-Route /:orgSlug/:branchSlug/table/:nummer. Muss letzte Regel bleiben.
 [[redirects]]
   from = "/*"
   to = "/index.html"
