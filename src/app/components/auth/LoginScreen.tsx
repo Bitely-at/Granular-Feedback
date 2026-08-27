@@ -11,12 +11,18 @@ import {
  * /staff und /admin. Das Verstecken der Oberfläche ist dabei nur die halbe
  * Miete — die Rechte werden serverseitig erzwungen (requireAuth in index.ts).
  *
+ * Eine Maske für beide Wege, deshalb ohne Titel-Prop: welchen Bereich jemand
+ * angesteuert hat, ist vor der Anmeldung belanglos — die Rolle am Konto
+ * entscheidet ohnehin, was danach aufgeht, und ein Admin darf beides. Zwei
+ * verschieden beschriftete Masken haben nur eine Trennung vorgetäuscht, die
+ * es zwischen den Konten gar nicht gibt.
+ *
  * Aussehen: die gemeinsamen Bausteine aus `authUi.tsx`, damit die Maske mit der
  * Gast-Anmeldung (`GuestAuthSheet`) übereinstimmt. Einzige Abweichung ist der
  * Bitely-Schriftzug im Kopf — diese Maske steht ohne die schwarze Leiste da,
  * die den Namen sonst getragen hat.
  */
-export function LoginScreen({ title, hint }: { title: string; hint: string }) {
+export function LoginScreen() {
   const { login, googleLogin, authOptions, brand } = useStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,7 +65,8 @@ export function LoginScreen({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="min-h-dvh flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
       <AuthCard>
-        <AuthHeader title={title} subtitle={hint} brandName={brand?.name} mark="bitely" />
+        <AuthHeader title="Anmelden" subtitle="Bitte mit deinem Mitarbeiterkonto anmelden."
+          brandName={brand?.name} mark="bitely" />
 
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
           <AuthInput icon={Mail} type="email" placeholder="E-Mail" value={email}

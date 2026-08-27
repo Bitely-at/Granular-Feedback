@@ -4627,10 +4627,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
         // weg; die Wahl steckt in localStorage und gilt nach der Anmeldung
         // weiter.
         <div className={dark ? 'dark' : ''}>
-          <LoginScreen
-            title={view === 'admin' ? 'Verwaltung' : 'Servicekraft-Bereich'}
-            hint="Bitte mit deinem Mitarbeiterkonto anmelden."
-          />
+          <LoginScreen />
         </div>
       );
     }
