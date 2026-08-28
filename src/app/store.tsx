@@ -547,6 +547,10 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const applyGuestSession = useCallback(async (data: { token: string; guest: GuestAccount }) => {
     writeGuestToken(orgSlug, data.token);
     setGuestUser(data.guest);
+    // Wie bei `login`: der Zustand galt bisher für einen anonymen Aufruf. Bis der
+    // neue geladen ist, den Ladebildschirm zeigen — sonst blitzt kurz die
+    // „Organisation nicht gefunden"-Meldung auf (leerer Zustand, brand === null).
+    setLoading(true);
     await refresh();
   }, [orgSlug, refresh]);
 
@@ -562,6 +566,9 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     });
     writeToken(orgSlug, data.token);
     setAuthUser(data.user);
+    // Wie bei `login`: bis der Zustand des angemeldeten Kontos geladen ist, den
+    // Ladebildschirm zeigen statt die „Organisation nicht gefunden"-Meldung.
+    setLoading(true);
     await refresh();
   }, [orgSlug, refresh]);
 

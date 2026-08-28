@@ -49,6 +49,17 @@ const PERMISSIONS = [
 // DESIGN SYSTEM PRIMITIVES
 // ═══════════════════════════════════════════════════════════
 
+// Die Akzentfarbe (`--ba`) ist AUSSCHLIESSLICH die Marke des Restaurants und
+// gilt nur in der Gastansicht. Verwaltung, Servicekraft und das Dashboard
+// laufen auf dieser festen Bitely-Farbe — sonst färbt das Branding eines
+// Kunden Bedienoberflächen ein, die ihm gar nicht gehören.
+const BITELY_ACCENT = '#16A34A';
+
+// Sterne sind immer goldorange — unabhängig vom Branding. Eine Bewertung in
+// der Markenfarbe des Lokals liest sich wie ein Werturteil des Lokals über
+// sich selbst.
+const STAR_COLOR = '#F59E0B';
+
 function Sk({ h = 16, w = '100%', r = 8 }: { h?: number; w?: string | number; r?: number }) {
   return <div className="animate-pulse bg-gray-200 dark:bg-gray-700" style={{ height: h, width: w, borderRadius: r }} />;
 }
@@ -62,8 +73,8 @@ function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: 
         <button key={s} onClick={() => onChange?.(s)}
           onMouseEnter={() => onChange && setHov(s)} onMouseLeave={() => onChange && setHov(0)}
           className={`p-0.5 transition-transform active:scale-90 ${onChange ? 'cursor-pointer' : 'cursor-default'}`}>
-          <Star size={size} fill={s <= fill ? 'var(--ba, #16A34A)' : 'none'}
-            stroke={s <= fill ? 'var(--ba, #16A34A)' : '#D1D5DB'} strokeWidth={1.5} />
+          <Star size={size} fill={s <= fill ? STAR_COLOR : 'none'}
+            stroke={s <= fill ? STAR_COLOR : '#D1D5DB'} strokeWidth={1.5} />
         </button>
       ))}
     </div>
@@ -4005,7 +4016,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 </span>
                               </div>
                               {rated.length > 0 && (
-                                <span className="flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: 'var(--ba)' }}>
+                                <span className="flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: STAR_COLOR }}>
                                   <Star size={13} fill="currentColor" strokeWidth={0} />{avg.toFixed(1)}
                                 </span>
                               )}
@@ -4709,8 +4720,12 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   // nichts tat, und ein Schalter für Hell/Dunkel, der eine Einstellung ist.
   const showTopBar = view === 'waiter';
 
+  // `--ba` trägt die Markenfarbe nur in die Gastansicht. Personal und
+  // Verwaltung bekommen die feste Bitely-Farbe (siehe BITELY_ACCENT).
+  const accent = view === 'guest' ? store.brand.accent : BITELY_ACCENT;
+
   return (
-    <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand.accent } as React.CSSProperties}>
+    <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': accent } as React.CSSProperties}>
       {showTopBar && <TopBar dark={dark} setDark={setDark} />}
 
       {view === 'guest' && branch && (
@@ -4817,6 +4832,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
           {error && <p className="w-full text-[13px] text-red-500 text-center">{error}</p>}
 
           <AuthPrimaryButton onClick={submit} disabled={busy}>
+            {busy && <Loader2 size={15} className="animate-spin" />}
             {busy ? 'Einen Moment…' : mode === 'login' ? 'Anmelden' : 'Konto anlegen'}
           </AuthPrimaryButton>
 
@@ -5158,7 +5174,7 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
 
   return (
     <div className="min-h-[100dvh] bg-[#F7F8FA] dark:bg-[#0D1117] flex items-center justify-center p-6"
-      style={{ fontFamily: `'${store.brand?.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': store.brand?.accent } as React.CSSProperties}>
+      style={{ fontFamily: `'${store.brand?.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': BITELY_ACCENT } as React.CSSProperties}>
       <div className="w-full max-w-md">
         <div className="text-center mb-7">
           {store.brand && (
