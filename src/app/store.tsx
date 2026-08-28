@@ -11,6 +11,9 @@ export interface Brand {
   name: string; accent: string; logo: string;
   logoImage?: string | null; coverImage?: string | null;
   font?: string; cardStyle?: 'standard' | 'kompakt' | 'editorial';
+  // Hell/Dunkel der GASTANSICHT — Markenauftritt, getrennt vom Hell/Dunkel
+  // der Verwaltung (das liegt lokal unter `bitely.theme`).
+  guestTheme?: 'hell' | 'dunkel';
 }
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.

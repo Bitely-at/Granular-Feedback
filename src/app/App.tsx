@@ -2443,8 +2443,9 @@ function rangeStart(key: RangeKey): string | null {
 function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   orgSlug: string; branch: Branch | null; canSwitchBranch: boolean;
   onPick: (p: string | 'all') => void;
-  // Die Darstellung kommt von oben, weil sie für die ganze Ansicht gilt —
-  // gestellt wird sie hier, in den Einstellungen.
+  // Hell/Dunkel der Verwaltung — kommt von oben (persönliche Einstellung pro
+  // Gerät), gestellt wird es hier unter „Einstellungen". Die Gastansicht hat
+  // ihr eigenes (`brand.guestTheme`, unter „Design").
   dark: boolean; setDark: (fn: (p: boolean) => boolean) => void;
 }) {
   const store = useStore();
@@ -2472,6 +2473,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     coverImage: store.brand?.coverImage ?? null as string | null,
     font: store.brand?.font ?? 'Inter',
     cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
+    guestTheme: (store.brand?.guestTheme ?? 'hell') as NonNullable<Brand['guestTheme']>,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2531,6 +2533,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       name: store.brand.name, accent: store.brand.accent, logoImage: store.brand.logoImage ?? null,
       coverImage: store.brand.coverImage ?? null,
       font: store.brand.font ?? 'Inter', cardStyle: store.brand.cardStyle ?? 'standard',
+      guestTheme: store.brand.guestTheme ?? 'hell',
     });
   }, [store.brand]);
 
@@ -2800,7 +2803,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       await store.updateBrand({
         name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
         coverImage: brandForm.coverImage,
-        font: brandForm.font, cardStyle: brandForm.cardStyle,
+        font: brandForm.font, cardStyle: brandForm.cardStyle, guestTheme: brandForm.guestTheme,
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -3649,6 +3652,25 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                       </div>
 
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Erscheinungsbild der Gastansicht</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            Gilt nur für den Gast. Hell oder Dunkel der Verwaltung stellst du unter „Einstellungen" ein.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          {([['hell', 'Hell', 'Weißer Hintergrund'], ['dunkel', 'Dunkel', 'Dunkler Hintergrund']] as const).map(([id, label, desc]) => (
+                            <button key={id} onClick={() => setBrandForm(p => ({ ...p, guestTheme: id }))}
+                              className="text-left p-4 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
+                              style={brandForm.guestTheme === id ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
+                              <p className="text-[13px] font-semibold text-gray-900 dark:text-white mb-1">{label}</p>
+                              <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">{desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* TITELBILD — das Bild, das beim Gast über dem halben
                           Startbildschirm liegt. Ohne eines bleibt dort eine
                           Fläche in der Akzentfarbe: der Bildschirm funktioniert,
@@ -3696,7 +3718,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           dem Namen, Fußzeile —, damit die Vorschau nicht etwas
                           verspricht, was am Tisch anders aussieht. Darunter der
                           Gerichtsblock für das Listenlayout. */}
+                      {/* Der Rahmen bleibt im Modus der Verwaltung, der „Bildschirm"
+                          darin zeigt die Gastansicht in ihrem eigenen Hell/Dunkel —
+                          das `light`/`dark` hier setzt den Modus der Verwaltung für
+                          diesen Ausschnitt außer Kraft (siehe theme.css). */}
                       <div className="bg-gray-200 dark:bg-gray-950 rounded-[32px] p-3 shadow-inner">
+                       <div className={brandForm.guestTheme === 'dunkel' ? 'dark' : 'light'}>
                         <div className="relative rounded-[24px] overflow-hidden bg-white dark:bg-gray-900"
                           style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': brandForm.accent } as React.CSSProperties}>
                           <div className="relative">
@@ -3738,6 +3765,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             )}
                           </div>
                         </div>
+                       </div>
                       </div>
                       <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen — noch ungespeicherte Änderungen.</p>
                     </div>
@@ -3864,7 +3892,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         {dark ? <Moon size={15} strokeWidth={1.5} className="text-gray-400" /> : <Sun size={15} strokeWidth={1.5} className="text-gray-400" />} Darstellung
                       </p>
                       <p className="text-[12px] text-gray-400 mt-1">
-                        Gilt für dieses Gerät. Die Gastansicht folgt weiterhin dem Restaurant, nicht dieser Wahl.
+                        Gilt für dieses Gerät und nur für die Verwaltung. Das Erscheinungsbild der Gastansicht legst du unter „Design" fest.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -4722,6 +4750,13 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     );
   }
 
+  // Hell oder Dunkel entscheidet sich getrennt: die Gastansicht folgt der
+  // Marke (`guestTheme`, in den Design-Einstellungen gesetzt), Personal und
+  // Verwaltung der persönlichen Einstellung `dark`. Sonst gäbe der Schalter
+  // in den Verwaltungs-Einstellungen versehentlich das Erscheinungsbild
+  // vor, das die Gäste sehen.
+  const viewDark = view === 'guest' ? store.brand.guestTheme === 'dunkel' : dark;
+
   // ── Welche Filiale gilt in dieser Ansicht? ──
   // Gast: aus dem QR-Link. Wer im Konto eine feste Filiale hat, ist daran
   // gebunden — kein Umschalter. Nur der Ketten-Admin wählt frei; null heißt
@@ -4741,14 +4776,14 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
     const firstBranch = store.branches[0];
     if (view === 'waiter' && firstBranch) {
       return (
-        <div className={dark ? 'dark' : ''}>
+        <div className={viewDark ? 'dark' : ''}>
           <TopBar dark={dark} setDark={setDark} />
           <BranchPicker branches={store.branches} onPick={onPick} />
         </div>
       );
     }
     return (
-      <div className={dark ? 'dark' : ''}>
+      <div className={viewDark ? 'dark' : ''}>
         <TopBar dark={dark} setDark={setDark} />
         <FullScreenMessage error>
           {view === 'guest'
@@ -4771,7 +4806,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   const accent = view === 'guest' ? store.brand.accent : BITELY_ACCENT;
 
   return (
-    <div className={dark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': accent } as React.CSSProperties}>
+    <div className={viewDark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': accent } as React.CSSProperties}>
       {showTopBar && <TopBar dark={dark} setDark={setDark} />}
 
       {view === 'guest' && branch && (

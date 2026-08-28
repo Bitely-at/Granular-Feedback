@@ -177,6 +177,10 @@ export interface BrandDoc {
   coverImage?: string | null; // Data-URI (Base64) — Titelbild auf dem Gast-Willkommensbildschirm
   font?: string; // Name aus der kuratierten Schriftart-Liste
   cardStyle?: 'standard' | 'kompakt' | 'editorial';
+  // Hell oder Dunkel für die GASTANSICHT — Teil des Markenauftritts, vom
+  // Restaurant in den Design-Einstellungen gesetzt. Der Hell/Dunkel-Schalter
+  // in den Verwaltungs-Einstellungen betrifft nur die Verwaltung selbst.
+  guestTheme?: 'hell' | 'dunkel';
 }
 
 /**

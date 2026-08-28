@@ -1,6 +1,10 @@
-@custom-variant dark (&:is(.dark *));
+/* `.dark` schaltet Dunkel für alles darunter — es sei denn, ein `.light`
+ * dazwischen schaltet es wieder aus. Das braucht die Design-Vorschau: sie
+ * zeigt die Gastansicht in deren eigenem Hell/Dunkel, auch wenn die
+ * Verwaltung ringsum im anderen Modus läuft. */
+@custom-variant dark (&:is(.dark *):not(:is(.light *)));
 
-:root {
+:root, .light {
   --font-size: 15px;
   --background: #F7F8FA;
   --foreground: #111827;

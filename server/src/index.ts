@@ -588,6 +588,7 @@ async function getFullState(
       name: brandDoc.name, accent: brandDoc.accent, logo: brandDoc.logo,
       logoImage: brandDoc.logoImage ?? null, coverImage: brandDoc.coverImage ?? null,
       font: brandDoc.font ?? 'Inter', cardStyle: brandDoc.cardStyle ?? 'standard',
+      guestTheme: brandDoc.guestTheme ?? 'hell',
     } : null,
     dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
@@ -1806,7 +1807,7 @@ router.put('/users/:id/password', branchAdmin(async (req: OrgRequest, res) => {
 
 // ── Admin: Branding-Einstellungen (inkl. Design-Studio: Logo, Schrift, Karten-Layout) ──
 router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
-  const { name, accent, logo, logoImage, coverImage, font, cardStyle } = req.body ?? {};
+  const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
@@ -1815,6 +1816,7 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (coverImage !== undefined) update.coverImage = coverImage;
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
+  if (guestTheme === 'hell' || guestTheme === 'dunkel') update.guestTheme = guestTheme;
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
   res.json(await stateFor(req));
 }));
