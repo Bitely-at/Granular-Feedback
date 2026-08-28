@@ -559,15 +559,16 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
             {store.brand?.coverImage ? (
               <img src={store.brand.coverImage} alt="" aria-hidden
-                className="w-full h-full object-cover opacity-85 dark:opacity-55 dark:grayscale" />
+                className="w-full h-full object-cover dark:opacity-70 dark:grayscale" />
             ) : (
               <div className="w-full h-full opacity-35 dark:opacity-25"
                 style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
             )}
             {/* Der Schleier trägt die Schrift, deshalb bleibt er unten dicht
-                und wird nach oben schnell durchsichtig. Zu viel davon, und das
-                Bild ist nur noch eine Ahnung. */}
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-white/70 to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/65" />
+                und wird nach oben schnell durchsichtig. Er sitzt tief: die
+                obere Hälfte des Bildes bleibt in voller Farbe, erst darunter
+                blendet er nach Weiß, damit die Schlagzeile trotzdem trägt. */}
+            <div className="absolute inset-0 bg-gradient-to-t from-white from-15% via-white/25 via-55% to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/50" />
           </div>
 
           <div className="relative z-10 min-h-full flex flex-col px-8 pt-8 pb-8">
@@ -3730,12 +3731,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <div className="relative">
                             <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
                               {brandForm.coverImage ? (
-                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover opacity-60" />
+                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover dark:opacity-70 dark:grayscale" />
                               ) : (
                                 <div className="w-full h-full opacity-25"
                                   style={{ background: `linear-gradient(160deg, ${brandForm.accent}, transparent 70%)` }} />
                               )}
-                              <div className="absolute inset-0 bg-gradient-to-t from-white via-white/90 to-transparent dark:from-gray-900 dark:via-gray-900/80" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-white from-15% via-white/25 via-55% to-transparent dark:from-gray-900 dark:via-gray-900/50" />
                             </div>
                             <div className="relative z-10 px-5 pt-16 pb-5">
                               <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2">
