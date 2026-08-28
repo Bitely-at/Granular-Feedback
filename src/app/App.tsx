@@ -2455,6 +2455,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
   });
   const [brandSaved, setBrandSaved] = useState(false);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
   const [previewStars, setPreviewStars] = useState(4);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -2764,27 +2768,60 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     }
   };
 
+  // Das Titelbild reist als Base64 im selben PATCH mit und kann groß sein — der
+  // Aufruf dauert dann spürbar. Ohne „Speichert…" und ohne sichtbaren Fehler
+  // wirkt der Knopf tot, und ein abgelehnter Speichervorgang (Bild zu groß,
+  // Netz weg) verschwindet stumm.
   const handleSaveBrand = async () => {
-    await store.updateBrand({
-      name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
-      coverImage: brandForm.coverImage,
-      font: brandForm.font, cardStyle: brandForm.cardStyle,
-    });
-    setBrandSaved(true);
-    setTimeout(() => setBrandSaved(false), 2000);
+    if (brandSaving) return;
+    setBrandSaving(true);
+    setBrandError(null);
+    setBrandSaved(false);
+    try {
+      await store.updateBrand({
+        name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
+        coverImage: brandForm.coverImage,
+        font: brandForm.font, cardStyle: brandForm.cardStyle,
+      });
+      setBrandSaved(true);
+      setTimeout(() => setBrandSaved(false), 2500);
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+    } finally {
+      setBrandSaving(false);
+    }
   };
 
+  // Das Verkleinern läuft im Browser und dauert bei einem großen Foto spürbar.
+  // Ohne sichtbares „wird verarbeitet" wirkt der Auswahlknopf, als hätte er
+  // nichts getan — dann sucht man das Bild ein zweites Mal aus.
   const handleLogoFile = async (file: File) => {
-    const dataUri = await compressImageFile(file, 240, 0.85);
-    setBrandForm(p => ({ ...p, logoImage: dataUri }));
+    setLogoBusy(true);
+    setBrandError(null);
+    try {
+      const dataUri = await compressImageFile(file, 240, 0.85);
+      setBrandForm(p => ({ ...p, logoImage: dataUri }));
+    } catch {
+      setBrandError('Das Logo konnte nicht verarbeitet werden.');
+    } finally {
+      setLogoBusy(false);
+    }
   };
 
   // Das Titelbild füllt beim Gast den halben Bildschirm, darf aber nicht die
   // 8-MB-Grenze des Servers sprengen — es liegt als Base64 im Marken-Datensatz.
   // 1400 Pixel reichen für jedes Handy, auch bei doppelter Pixeldichte.
   const handleCoverFile = async (file: File) => {
-    const dataUri = await compressImageFile(file, 1400, 0.8);
-    setBrandForm(p => ({ ...p, coverImage: dataUri }));
+    setCoverBusy(true);
+    setBrandError(null);
+    try {
+      const dataUri = await compressImageFile(file, 1400, 0.8);
+      setBrandForm(p => ({ ...p, coverImage: dataUri }));
+    } catch {
+      setBrandError('Das Titelbild konnte nicht verarbeitet werden.');
+    } finally {
+      setCoverBusy(false);
+    }
   };
 
   const previewDish = store.dishes[0];
@@ -3533,7 +3570,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="space-y-5">
                   <div>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">Design</p>
-                    <p className="text-[13px] text-gray-400 mt-0.5">Wie deine Gäste die App sehen — Änderungen wirken sich auf Gast, Kellner &amp; Admin aus.</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5">Wie deine Gäste die App sehen. Logo, Name und Schrift gelten überall; Farbe, Titelbild und Karten-Stil sieht nur der Gast.</p>
                   </div>
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5 items-start">
                     <div className="space-y-5">
@@ -3542,9 +3579,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         <div className="flex flex-col sm:flex-row gap-6">
                           <div className="flex-shrink-0">
                             <p className="text-[12px] text-gray-400 mb-2">Logo</p>
-                            <button type="button" onClick={() => logoInputRef.current?.click()}
-                              className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors overflow-hidden">
-                              <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={80} textSize={36} rounded="rounded-none" />
+                            <button type="button" onClick={() => logoInputRef.current?.click()} disabled={logoBusy}
+                              className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors overflow-hidden disabled:opacity-60">
+                              {logoBusy
+                                ? <Loader2 size={18} className="animate-spin text-gray-400" />
+                                : <BrandLogo brand={{ logo: store.brand?.logo ?? '🍽️', logoImage: brandForm.logoImage }} size={80} textSize={36} rounded="rounded-none" />}
                             </button>
                             <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
                               onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = ''; }} />
@@ -3562,7 +3601,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                             </div>
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe — wird auf Gast, Kellner &amp; Admin übernommen</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe — sieht nur der Gast. Verwaltung und Service bleiben im Bitely-Blau.</p>
                               <div className="flex items-center gap-3 flex-wrap">
                                 <input type="color" value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
                                   className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
@@ -3623,11 +3662,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             verschwinden im Verlauf.
                           </p>
                         </div>
-                        <button type="button" onClick={() => coverInputRef.current?.click()}
-                          className="w-full aspect-[16/9] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center">
-                          {brandForm.coverImage
-                            ? <img src={brandForm.coverImage} alt="Titelbild" className="w-full h-full object-cover" />
-                            : <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Upload size={12} /> Bild auswählen</span>}
+                        <button type="button" onClick={() => coverInputRef.current?.click()} disabled={coverBusy}
+                          className="w-full aspect-[16/9] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center disabled:opacity-60">
+                          {coverBusy
+                            ? <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> Wird verarbeitet…</span>
+                            : brandForm.coverImage
+                              ? <img src={brandForm.coverImage} alt="Titelbild" className="w-full h-full object-cover" />
+                              : <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Upload size={12} /> Bild auswählen</span>}
                         </button>
                         <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
                           onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
@@ -3637,9 +3678,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <PrimaryBtn full={false} sm onClick={handleSaveBrand}>Änderungen speichern</PrimaryBtn>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <PrimaryBtn full={false} sm onClick={handleSaveBrand} disabled={brandSaving || logoBusy || coverBusy}>
+                          {brandSaving ? 'Speichert…' : 'Änderungen speichern'}
+                        </PrimaryBtn>
                         {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> Gespeichert</span>}
+                        {brandError && <span className="text-[12px] text-red-600 dark:text-red-400 flex items-center gap-1"><AlertTriangle size={13} /> {brandError}</span>}
                       </div>
                     </div>
 
