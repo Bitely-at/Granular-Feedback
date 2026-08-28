@@ -7,7 +7,7 @@ import {
   LayoutDashboard, UtensilsCrossed, Users, Settings,
   MoreHorizontal, Download, QrCode, Pencil, AlertTriangle, TrendingUp,
   TrendingDown, Sun, Moon, ChevronDown, Clock, CheckCircle2,
-  Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, RefreshCw, Menu,
+  Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, Menu,
   Trash2, UserPlus, Lock, Building2, ImagePlus,
   AlertOctagon, Loader2, MessageSquare, Ticket, ArrowRight,
   Mail, User,
@@ -2466,7 +2466,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     { user: AdminUser; role: AdminUser['role']; branchId: string; error: string | null } | null
   >(null);
   const [branchDrop, setBranchDrop] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [brandForm, setBrandForm] = useState({
     name: store.brand?.name ?? '', accent: store.brand?.accent ?? '#16A34A',
     logoImage: store.brand?.logoImage ?? null as string | null,
@@ -2876,18 +2875,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     downloadCsv(`bewertungen-${today()}.csv`, rows);
   };
 
-  // Die Skeleton-Anzeigen hingen zuvor an einem Testschalter mit Attrappen-Timer.
-  // Jetzt zeigen sie das, was sie sollen: ein tatsächlich laufendes Nachladen.
-  const handleRefresh = async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      await store.refresh();
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Neue Tische landen immer in der oben gewählten Filiale — ein zweiter
   // Filial-Wähler direkt am Formular wäre eine zweite Wahrheit daneben.
   const handleAddTables = async () => {
@@ -3012,8 +2999,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           ))}
         </nav>
 
-        {/* Konto und Abmelden gehören ans Ende der Navigation. Das Neuladen
-            steht dazu: es betrifft die ganze Ansicht, nicht eine Seite. */}
+        {/* Konto und Abmelden gehören ans Ende der Navigation. */}
         <div className="p-3 border-t border-gray-100 dark:border-gray-800">
           {store.authUser && (
             <div className="flex items-center gap-2.5 px-3 py-2">
@@ -3027,10 +3013,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               </div>
             </div>
           )}
-          <button onClick={handleRefresh} disabled={loading}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
-            <RefreshCw size={15} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} /> {loading ? 'Lädt…' : 'Neu laden'}
-          </button>
           <button onClick={store.logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
@@ -3059,10 +3041,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               </p>
               <p className="text-[11px] text-gray-400 truncate">{branch ? branch.name : 'Alle Filialen'}</p>
             </div>
-            <button onClick={handleRefresh} disabled={loading} title="Daten neu laden"
-              className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
-              <RefreshCw size={16} strokeWidth={1.5} className={`text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
-            </button>
             <div className="relative" onClick={e => e.stopPropagation()}>
               <button onClick={() => setAccountOpen(p => !p)} title="Konto"
                 className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
