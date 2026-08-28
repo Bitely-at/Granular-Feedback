@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { LogIn } from 'lucide-react';
+import { BitelyWordmark } from '../BitelyWordmark';
 
 /**
  * Gemeinsame Bausteine der beiden Anmelde-Masken — Personal (`LoginScreen`) und
@@ -35,15 +36,7 @@ export function AuthHeader({ title, subtitle, brandName, mark = 'icon' }: {
   return (
     <div className="flex flex-col items-center text-center">
       {mark === 'bitely' ? (
-        // Zwei Dateien statt einer eingefärbten: das Navy verschwindet auf
-        // dunklem Grund. Die zweite ist für Vorleseprogramme unsichtbar,
-        // sonst stünde „Bitely" doppelt.
-        <>
-          <img src="/logo-bitely-wordmark.png" alt="Bitely"
-            className="h-10 w-auto mb-5 dark:hidden" />
-          <img src="/logo-bitely-wordmark-light.png" alt="" aria-hidden="true"
-            className="h-10 w-auto mb-5 hidden dark:block" />
-        </>
+        <BitelyWordmark className="h-9 mb-5" />
       ) : (
         <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-white dark:bg-gray-800 mb-5 shadow-lg shadow-gray-900/5 border border-gray-100 dark:border-gray-700">
           <LogIn className="w-7 h-7 text-gray-900 dark:text-white" strokeWidth={1.75} />

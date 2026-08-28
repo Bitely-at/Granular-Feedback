@@ -29,6 +29,7 @@ import {
 import { LoginScreen } from './components/auth/LoginScreen';
 import { useGoogleSignIn } from './components/auth/googleSignIn';
 import { AuthHeader, AuthInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink } from './components/auth/authUi';
+import { BitelyWordmark } from './components/BitelyWordmark';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
 // ═══════════════════════════════════════════════════════════
@@ -123,9 +124,9 @@ function PrimaryBtn({ children, onClick, disabled, full = true, sm }: {
  */
 function PoweredByBitely() {
   return (
-    <div className="w-full flex items-center gap-1.5 mt-10 pt-5 border-t border-gray-200/70 dark:border-gray-800">
+    <div className="w-full flex items-center gap-2 mt-10 pt-5 border-t border-gray-200/70 dark:border-gray-800">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
-      <span className="text-[15px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
+      <BitelyWordmark className="h-3.5 opacity-80" />
     </div>
   );
 }
@@ -2929,7 +2930,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             {/* Die Wortmarke stand in der weggefallenen Leiste. Sie gehört
                 weiterhin genau einmal auf den Bildschirm: hier, klein unter dem
                 Namen des Lokals — wer verwaltet wessen Laden womit. */}
-            <p className="text-[11px] text-gray-400">Admin · <span className="lowercase font-semibold tracking-tight">bitely</span></p>
+            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">Admin · <BitelyWordmark className="h-3 opacity-70" /></p>
           </div>
           <button onClick={() => setMobileNav(false)} title="Menü schließen"
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -3747,9 +3748,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
                                 Feedback starten <ArrowRight size={16} strokeWidth={1.75} />
                               </button>
-                              <div className="flex items-center justify-center gap-1.5 pt-5">
+                              <div className="flex items-center justify-center gap-2 pt-5">
                                 <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
-                                <span className="text-[13px] font-bold tracking-tight lowercase text-gray-800 dark:text-gray-200">bitely</span>
+                                <BitelyWordmark className="h-3 opacity-80" />
                               </div>
                             </div>
                           </div>
@@ -4622,7 +4623,7 @@ function TopBar({ dark, setDark }: {
     // Am Handy nur Symbole: mit ausgeschriebenen Beschriftungen war diese Zeile
     // breiter als der Bildschirm und hat die ganze Seite seitlich scrollbar gemacht.
     <div className="bg-gray-950 text-white px-3 sm:px-4 h-10 flex items-center gap-2 sm:gap-3 text-[12px] sticky top-0 z-50 overflow-hidden">
-      <span className="font-semibold tracking-tight text-white flex-shrink-0">Bitely</span>
+      <BitelyWordmark tone="light" className="h-3.5 flex-shrink-0" />
       {authUser && (
         <>
           <span className="hidden sm:inline text-gray-700 mx-1">|</span>
