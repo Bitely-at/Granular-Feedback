@@ -3318,7 +3318,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 : [String(v ?? 0), 'Bewertungen'] as [string, string]}
                               labelFormatter={(_l: unknown, payload: any) => payload?.[0]?.payload?.full ?? ''} />
                             <Bar key="bars" yAxisId="left" dataKey="reviews" fill="var(--ba, #16A34A)" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                            <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke="#111827" strokeWidth={2}
+                            <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke={dark ? '#FFFFFF' : '#111827'} strokeWidth={2}
                               dot={false} connectNulls />
                           </ComposedChart>
                         </ResponsiveContainer>
