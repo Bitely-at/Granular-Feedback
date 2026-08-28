@@ -64,6 +64,26 @@ function Sk({ h = 16, w = '100%', r = 8 }: { h?: number; w?: string | number; r?
   return <div className="animate-pulse bg-gray-200 dark:bg-gray-700" style={{ height: h, width: w, borderRadius: r }} />;
 }
 
+/**
+ * Standort-Symbol — die vom Nutzer vorgegebene Ortsmarke mit Messer und Gabel.
+ * Steht überall, wo eine EINZELNE Filiale gemeint ist (Umschalter, Filterchip,
+ * Filiallisten). „Alle Filialen" behält das Gebäude-Symbol: das ist kein Ort,
+ * sondern die ganze Kette.
+ *
+ * Ein einziger Pfad mit `fillRule="evenodd"`: die Marke füllt, der Kreis darin
+ * ist ein Loch, Gabel und Messer im Loch füllen wieder. Keine feste weiße
+ * Fläche — der Ausschnitt zeigt den Hintergrund und trägt hell wie dunkel.
+ * Zeichnet in `currentColor`, übernimmt also die Textfarbe am Einsatzort.
+ */
+function BranchIcon({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 384 512" fill="currentColor"
+      className={className} aria-hidden="true">
+      <path fillRule="evenodd" clipRule="evenodd" d="M215.7 499.2C267 435 384 279.4 384 192 384 86 298 0 192 0S0 86 0 192c0 87.4 117 243 168.3 307.2 12.3 15.3 35.1 15.3 47.4 0zM102 178a90 90 0 1 0 180 0 90 90 0 1 0-180 0zM137 104h9v44h-9zM148 104h9v44h-9zM159 104h9v44h-9zM133 148h38v17h-38zM145 165h15v76a7.5 7.5 0 0 1-15 0zM232 100c-10 0-16 13-16 38 0 30 6 52 16 58 10-6 16-28 16-58 0-25-6-38-16-38zM225 196h14v54a7 7 0 0 1-14 0z" />
+    </svg>
+  );
+}
+
 function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: (v: number) => void; size?: number }) {
   const [hov, setHov] = useState(0);
   const fill = hov || value;
@@ -2935,7 +2955,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
             disabled={!canSwitchBranch}
             className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left transition-colors ${canSwitchBranch ? 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600' : 'border-transparent bg-gray-50 dark:bg-gray-800/60'}`}>
-            <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+            {branch
+              ? <BranchIcon size={14} className="text-gray-400 flex-shrink-0" />
+              : <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />}
             <span className="flex-1 min-w-0 text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">
               {branch ? branch.name : 'Alle Filialen'}
             </span>
@@ -2959,7 +2981,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 {store.branches.map(b => (
                   <button key={b.id} onClick={() => { onPick(b.slug); setBranchDrop(false); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <span className="text-base">🏠</span>
+                    <BranchIcon size={16} className="text-gray-400 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{b.name}</p>
                       <p className="text-[11px] text-gray-400 truncate">{b.address}</p>
@@ -3105,7 +3127,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <div className="relative" onClick={e => e.stopPropagation()}>
                         <button onClick={() => setBranchFilterOpen(p => !p)}
                           className="flex items-center gap-2 text-[13px] px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors">
-                          <Building2 size={13} strokeWidth={1.5} className="text-gray-400" />
+                          {branchFilter.length === 1
+                            ? <BranchIcon size={13} className="text-gray-400" />
+                            : <Building2 size={13} strokeWidth={1.5} className="text-gray-400" />}
                           {branchFilter.length === 0
                             ? 'Alle Filialen'
                             : branchFilter.length === 1
@@ -3893,7 +3917,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         const tableCount = store.tables.filter(t => t.branchId === b.id).length;
                         return (
                           <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
-                            <span className="text-2xl">🏠</span>
+                            <BranchIcon size={24} className="text-gray-400 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                               <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
                               <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
@@ -3964,7 +3988,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           {store.branches.map(b => (
                             <button key={b.id} onClick={() => onPick(b.slug)}
                               className="flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 text-left hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
-                              <span className="text-xl">🏠</span>
+                              <BranchIcon size={20} className="text-gray-400 flex-shrink-0" />
                               <span className="min-w-0 flex-1">
                                 <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">{b.name}</span>
                                 <span className="block text-[12px] text-gray-400 truncate">
