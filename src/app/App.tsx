@@ -53,7 +53,7 @@ const PERMISSIONS = [
 // gilt nur in der Gastansicht. Verwaltung, Servicekraft und das Dashboard
 // laufen auf dieser festen Bitely-Farbe — sonst färbt das Branding eines
 // Kunden Bedienoberflächen ein, die ihm gar nicht gehören.
-const BITELY_ACCENT = '#16A34A';
+const BITELY_ACCENT = '#5265AF';
 
 // Sterne sind immer goldorange — unabhängig vom Branding. Eine Bewertung in
 // der Markenfarbe des Lokals liest sich wie ein Werturteil des Lokals über
@@ -4647,7 +4647,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
         <div className={dark ? 'dark' : ''}>
           <TopBar dark={dark} setDark={setDark} />
           <FullScreenMessage error action={
-            <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>
+            <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: BITELY_ACCENT }}>
               Zur Tischübersicht
             </Link>
           }>
