@@ -1,11 +1,13 @@
 /**
- * Der Bitely-Schriftzug als Bild — überall dort, wo vorher schlicht das Wort
- * „bitely" als Text stand (Gast-Fußzeile, Kopf der Personal-Anmeldung, die
- * schwarze Kellner-Leiste, die Admin-Seitenleiste).
+ * Das Bitely-Logo als Bild — Keks-mit-Stern-Symbol und Schriftzug zusammen,
+ * überall dort, wo vorher schlicht das Wort „bitely" als Text stand
+ * (Gast-Fußzeile, Kopf der Personal-Anmeldung, die schwarze Kellner-Leiste,
+ * die Admin-Seitenleiste).
  *
- * Zwei Dateien statt einer eingefärbten: das Navy verschwindet auf dunklem
- * Grund. Die jeweils verborgene ist für Vorleseprogramme unsichtbar, sonst
- * stünde „Bitely" doppelt.
+ * Zwei Dateien statt einer eingefärbten: das Blau verschwindet auf dunklem
+ * Grund, deshalb eine weiße Fassung, bei der der Stern den Untergrund
+ * durchscheinen lässt. Die jeweils verborgene ist für Vorleseprogramme
+ * unsichtbar, sonst stünde „Bitely" doppelt.
  *
  * `className` setzt die Höhe (z. B. `h-4`); die Breite ergibt sich. Auf fest
  * dunklem Grund (schwarze Leiste) stattdessen direkt die helle Datei mit
