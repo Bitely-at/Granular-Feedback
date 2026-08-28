@@ -559,15 +559,16 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
             {store.brand?.coverImage ? (
               <img src={store.brand.coverImage} alt="" aria-hidden
-                className="w-full h-full object-cover dark:opacity-70 dark:grayscale" />
+                className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full opacity-35 dark:opacity-25"
                 style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
             )}
             {/* Der Schleier trägt die Schrift, deshalb bleibt er unten dicht
                 und wird nach oben schnell durchsichtig. Er sitzt tief: die
-                obere Hälfte des Bildes bleibt in voller Farbe, erst darunter
-                blendet er nach Weiß, damit die Schlagzeile trotzdem trägt. */}
+                obere Bildhälfte bleibt in voller Farbe — hell wie dunkel, das
+                Bild wird nicht entsättigt —, erst darunter blendet er nach Weiß
+                bzw. `#0D1117`, damit die Schlagzeile trägt. */}
             <div className="absolute inset-0 bg-gradient-to-t from-white from-15% via-white/25 via-55% to-transparent dark:from-[#0D1117] dark:via-[#0D1117]/50" />
           </div>
 
@@ -3731,7 +3732,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <div className="relative">
                             <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
                               {brandForm.coverImage ? (
-                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover dark:opacity-70 dark:grayscale" />
+                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover" />
                               ) : (
                                 <div className="w-full h-full opacity-25"
                                   style={{ background: `linear-gradient(160deg, ${brandForm.accent}, transparent 70%)` }} />

@@ -19,11 +19,11 @@ Vorlage für alles, was noch dazukommt.
 ## 1. Startbildschirm (nach dem QR-Scan)
 
 Vollflächiges Titelbild, das oben am Rand beginnt und nach unten im Hintergrund
-verschwindet (hell: volle Deckkraft, Farbe des Originals; dunkel: 70 %,
-entsättigt, Verlauf nach `#0D1117`). Der Schleier sitzt tief: die obere Hälfte
-des Bildes bleibt in voller Farbe, erst ab etwa der Mitte blendet er nach Weiß
-(bzw. `#0D1117`), damit die Schlagzeile darunter trägt. Darüber, linksbündig und
-unten sitzend:
+verschwindet. Volle Deckkraft und volle Farbe des Originals — hell wie dunkel,
+das Bild wird nicht entsättigt. Der Schleier sitzt tief: die obere Bildhälfte
+bleibt in voller Farbe, erst ab etwa der Mitte blendet er nach Weiß (hell) bzw.
+`#0D1117` (dunkel), damit die Schlagzeile darunter trägt. Darüber, linksbündig
+und unten sitzend:
 
 | Element | Wie |
 |---|---|
