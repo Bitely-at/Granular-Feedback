@@ -622,7 +622,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // Woher der Gast zu den Gutscheinen kam — der Zurück-Knopf dort führte sonst
   // immer auf den Dank-Bildschirm, auch wenn es gar keine Bewertung gab.
   const [vouchersBack, setVouchersBack] = useState<GuestScreen>('welcome');
-  const openVouchers = (from: GuestScreen) => { setVouchersBack(from); go('vouchers'); };
+  // Der Reiter darf mitkommen: „Eingelöst" im Konto anzutippen und dann auf
+  // der Gutscheinseite noch einmal den richtigen Reiter suchen zu müssen, wäre
+  // genau das Suchen, das hier wegsoll.
+  const openVouchers = (from: GuestScreen, tab?: string) => {
+    setVouchersBack(from);
+    if (tab) setVTab(tab);
+    go('vouchers');
+  };
   // Dasselbe für das Konto: es hängt jetzt an zwei Stellen (Gutscheinseite und
   // Symbol oben rechts im Empfang), und ein fester Rückweg führte von dort
   // zurück auf einen Bildschirm, auf dem der Gast nie war.
@@ -1091,17 +1098,23 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
               </div>
             ) : (
-              // Der Weg ins eigene Konto. Vorher stand hier nur „Angemeldet
-              // als …" mit einem Abmelden-Link — wer sein Konto ansehen oder
-              // löschen wollte, hatte keinen.
+              /* Der Weg ins eigene Konto. Er war eine 12-Pixel-Zeile in Grau
+                 („Angemeldet als …"), und Punktestand prüfen, eingelöste
+                 Gutscheine nachsehen und das Konto löschen kamen im
+                 Usability-Test alle nur mit Suchen zustande. Jetzt ein Block
+                 mit der Initiale, dem Namen und einem Pfeil: dieselbe Form,
+                 in der Konten überall stehen. */
               <button onClick={() => openProfile('vouchers')}
-                className="w-full flex items-center justify-between px-1 pb-1 text-left">
-                <p className="text-[12px] text-gray-400 truncate">
-                  Angemeldet als <span className="text-gray-600 dark:text-gray-300">{store.guest.name ?? store.guest.email}</span>
-                </p>
-                <span className="text-[12px] flex-shrink-0 flex items-center gap-0.5" style={{ color: 'var(--ba)' }}>
-                  Dein Konto <ChevronLeft size={12} className="rotate-180" strokeWidth={2} />
+                className={`w-full flex items-center gap-3 p-3 min-h-[56px] rounded-2xl text-left bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${FOCUS_RING}`}>
+                <span className="w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[14px] font-bold"
+                  style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                  {(store.guest.name ?? store.guest.email ?? '?').slice(0, 1).toUpperCase()}
                 </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">Dein Konto</span>
+                  <span className="block text-[12px] text-gray-500 dark:text-gray-400 truncate">{store.guest.name ?? store.guest.email}</span>
+                </span>
+                <ChevronLeft size={16} className="rotate-180 flex-shrink-0 text-gray-400" strokeWidth={2} />
               </button>
             )}
 
@@ -1150,15 +1163,21 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   <p className="text-[13px] text-gray-500 dark:text-gray-400 truncate">{store.guest.email}</p>
                 </div>
               </div>
+              {/* Die beiden Zahlen sind keine Anzeige, sondern der Weg zu dem,
+                  was dahintersteht: die Punkte zu den verfügbaren Gutscheinen,
+                  die Zahl der eingelösten zu deren Liste. Vorher standen sie
+                  als Sackgasse da, und wer nachsehen wollte, welchen Gutschein
+                  er schon verbraucht hat, ging zurück und suchte den Reiter. */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 {([
-                  ['Punkte', String(store.guest.points)],
-                  ['Eingelöst', String(store.guest.redeemed.length)],
-                ] as const).map(([label, value]) => (
-                  <div key={label} className="bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5">
+                  ['Punkte', String(store.guest.points), 'Verfügbar'],
+                  ['Eingelöst', String(store.guest.redeemed.length), 'Eingelöst'],
+                ] as const).map(([label, value, tab]) => (
+                  <button key={label} onClick={() => openVouchers('profile', tab)}
+                    className={`bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5 text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${FOCUS_RING}`}>
                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{value}</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
