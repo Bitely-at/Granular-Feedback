@@ -476,6 +476,62 @@ function PointsExplainer({ rule, points, loggedIn }: {
   );
 }
 
+/**
+ * Der Punktestand, auf jedem Bildschirm an derselben Stelle.
+ *
+ * Im Usability-Test kam der ausdrückliche Wunsch nach einer gut sichtbaren,
+ * jederzeit erreichbaren Punkteanzeige. Bisher stand der Stand auf der
+ * Gutscheinseite und im Konto — also genau dort, wo man ohnehin schon
+ * hingefunden hat, und nirgends auf dem Weg dorthin.
+ *
+ * Zwei Fälle, und der Unterschied ist wichtig:
+ *
+ *   angemeldet   der Stand am Konto, in der Akzentfarbe. Er gehört dem Gast.
+ *   ohne Konto   was gerade OFFEN ist: die Punkte der laufenden Bewertung,
+ *                die noch niemandem gutgeschrieben sind. Grau und mit „offen"
+ *                beschriftet, weil eine Zahl in der Akzentfarbe hier ein
+ *                Guthaben behaupten würde, das es nicht gibt.
+ *
+ * Mit `onClick` ist der Chip der Weg zu Punkten und Gutscheinen. Ohne ihn ist
+ * er nur Anzeige — auf der Gutscheinseite selbst, wo ein Knopf auf die eigene
+ * Seite führen würde.
+ */
+function GuestPointsChip({ points, loggedIn, live = 0, onClick }: {
+  points: number; loggedIn: boolean; live?: number; onClick?: () => void;
+}) {
+  const label = loggedIn ? `${points} Pkt.` : live > 0 ? `${live} Pkt. offen` : '0 Pkt.';
+  const aria = loggedIn
+    ? `${points} Punkte auf deinem Konto`
+    : live > 0 ? `${live} Punkte, noch nicht gesichert` : 'Noch keine Punkte';
+
+  const body = (
+    <>
+      <Zap size={14} strokeWidth={2} />
+      <span className="tabular-nums">{label}</span>
+      {loggedIn && live > 0 && <span className="tabular-nums opacity-70">+{live}</span>}
+    </>
+  );
+
+  const look = `flex items-center gap-1.5 px-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap flex-shrink-0${
+    loggedIn ? '' : ' bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+  }`;
+  // Die Tönung wie überall sonst über `color-mix` im style-Attribut, nicht als
+  // Tailwind-Kurzform: die Akzentfarbe steht erst zur Laufzeit fest.
+  const color = loggedIn
+    ? { color: 'var(--ba)', backgroundColor: 'color-mix(in srgb, var(--ba, #16A34A) 12%, transparent)' }
+    : undefined;
+
+  if (!onClick) {
+    return <span className={`${look} h-8`} style={color} aria-label={aria}>{body}</span>;
+  }
+  return (
+    <button onClick={onClick} aria-label={`${aria}. Punkte und Gutscheine ansehen`}
+      className={`${look} min-h-[44px] transition-transform active:scale-95 ${FOCUS_RING}`} style={color}>
+      {body}
+    </button>
+  );
+}
+
 function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
   const store = useStore();
   const [screen, setScreen] = useState<GuestScreen>('welcome');
@@ -771,21 +827,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               </button>
               <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white truncate">Deine Gerichte</p>
               <span className="text-[13px] text-gray-400 tabular-nums flex-shrink-0">{stepsDone}/{stepsTotal}</span>
-              {/* Was gerade zusammenkommt. Der Betrag springt bei jedem
-                  bewerteten Gericht hoch — das ist die einzige Stelle, an der
-                  „mehr Bewertungen = mehr Punkte" nicht behauptet, sondern
-                  vorgeführt wird. Vor der ersten Bewertung steht hier nichts:
-                  ein „+0" wäre eine Absage. */}
-              <AnimatePresence>
-                {livePoints > 0 && (
-                  <motion.span key={livePoints}
-                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                    className="text-[13px] font-semibold tabular-nums flex-shrink-0"
-                    style={{ color: 'var(--ba)' }}>
-                    +{livePoints} Pkt.
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              {/* Der Stand und was gerade dazukommt, in einem. Der Zuwachs
+                  springt bei jedem bewerteten Gericht hoch — das ist die
+                  einzige Stelle, an der „mehr Bewertungen = mehr Punkte" nicht
+                  behauptet, sondern vorgeführt wird. Hier ohne `onClick`:
+                  mitten im Bewerten darf ein Antippen nicht wegführen. */}
+              <motion.div key={livePoints} initial={{ scale: 0.94 }} animate={{ scale: 1 }}>
+                <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn} live={livePoints} />
+              </motion.div>
             </div>
             <div className="h-[2px] bg-gray-100 dark:bg-gray-800">
               <div className="h-full transition-all duration-500" style={{ width: `${stepsTotal ? (stepsDone / stepsTotal) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
@@ -862,9 +911,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 pt-10 pb-8 flex flex-col items-center text-center">
             {/* Wie ein Briefkopf: Zeichen und Name des Lokals, dann der Dank.
                 Der Weg des Gastes beginnt und endet beim Restaurant. */}
-            <div className="flex items-center gap-2.5 mb-8">
+            <div className="flex items-center gap-2.5 mb-8 w-full">
               <BrandLogo brand={store.brand} size={28} textSize={24} rounded="rounded-lg" />
-              <p className="text-[13px] font-medium text-gray-500 dark:text-gray-400">{store.brand?.name}</p>
+              <p className="text-[13px] font-medium text-gray-500 dark:text-gray-400 truncate">{store.brand?.name}</p>
+              <div className="ml-auto">
+                <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn}
+                  live={store.guest.loggedIn ? 0 : missedPts}
+                  onClick={() => openVouchers('thanks')} />
+              </div>
             </div>
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 320, damping: 22 }}
               className="w-16 h-16 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
@@ -1018,8 +1072,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <button onClick={() => go(vouchersBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Gutscheine</p>
-              <span className="ml-auto text-[13px] font-semibold" style={{ color: 'var(--ba)' }}>{store.guest.points} Pkt.</span>
+              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">Deine Gutscheine</p>
+              <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn} />
             </div>
             <div className="px-4 pb-3"><TabBar tabs={['Verfügbar', 'Gesperrt', 'Eingelöst']} active={vTab} onChange={setVTab} /></div>
           </div>
@@ -1080,7 +1134,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <button onClick={() => go(profileBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Dein Konto</p>
+              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">Dein Konto</p>
+              <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn}
+                onClick={() => openVouchers('profile')} />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
