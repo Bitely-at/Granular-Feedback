@@ -288,14 +288,18 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
   dish: Dish; stars: number; note: string; expanded: boolean; cardStyle?: NonNullable<Brand['cardStyle']>;
   onRate: (v: number) => void; onToggleExpand: () => void; onNoteChange: (v: string) => void;
 }) {
+  // Der Auslöser braucht eine eigene Kennung, damit `aria-controls` auf etwas
+  // zeigt — bei mehreren Gerichten untereinander sonst mehrfach dieselbe.
+  const noteId = `anmerkung-${dish.id}`;
+
   const notesBlock = (
     <AnimatePresence>
       {expanded && (
-        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+        <motion.div id={noteId} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
           <div className="px-5 pb-5">
             <textarea rows={2} value={note} onChange={e => onNoteChange(e.target.value)}
-              placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Anmerkung hinzufügen… (optional)'}
-              className="w-full text-[14px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-xl px-3.5 py-3 outline-none resize-none" />
+              placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Was ist dir aufgefallen? (optional)'}
+              className="w-full text-[14px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-xl px-3.5 py-3 outline-none resize-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white" />
           </div>
         </motion.div>
       )}
@@ -306,9 +310,28 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
   // braucht keine Sonderbehandlung — darunter kommt der nächste Abschnitt.
   const shell = 'bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800';
 
-  const chevron = (
-    <button onClick={onToggleExpand} className="p-1.5 -mt-1 -mr-1 text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors flex-shrink-0">
-      <ChevronDown size={18} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+  /**
+   * Der Auslöser für die Anmerkung.
+   *
+   * Er war ein nackter Pfeil in Hellgrau, oben rechts am Gericht. Im
+   * Usability-Test fand der Teilnehmer erst durch Herumprobieren heraus, dass
+   * sich dahinter ein Textfeld verbirgt — ein Symbol allein sagt nicht, was
+   * es aufklappt. Jetzt steht es daneben. Der Text sagt außerdem, ob schon
+   * etwas drinsteht: sonst sieht der zugeklappte Block aus, als wäre die
+   * Anmerkung weg.
+   *
+   * Unter den Sternen, nicht neben dem Namen: dort steht er in allen drei
+   * Kartenlayouts an derselben Stelle, und dort wird er auch gebraucht —
+   * erst bewerten, dann dazuschreiben.
+   */
+  const noteToggle = (
+    <button onClick={onToggleExpand}
+      aria-expanded={expanded} aria-controls={noteId}
+      className={`-ml-2 px-2 min-h-[44px] flex items-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors ${FOCUS_RING}
+        ${note.trim() ? 'text-gray-700 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}>
+      <MessageSquare size={15} strokeWidth={1.75} />
+      {expanded ? 'Anmerkung ausblenden' : note.trim() ? 'Anmerkung bearbeiten' : 'Anmerkung hinzufügen'}
+      <ChevronDown size={15} strokeWidth={2} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
     </button>
   );
 
@@ -317,14 +340,10 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
       <div className={shell}>
         <img src={dish.img} alt={dish.name} className="w-full h-44 object-cover" />
         <div className="px-5 py-5">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[19px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
-              <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
-            </div>
-            {chevron}
-          </div>
+          <p className="text-[19px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
+          <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
           <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={30} /></div>
+          <div className="mt-1">{noteToggle}</div>
         </div>
         {notesBlock}
       </div>
@@ -334,13 +353,13 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
   if (cardStyle === 'kompakt') {
     return (
       <div className={shell}>
-        <div className="flex items-center gap-3.5 px-5 py-3.5">
+        <div className="flex items-start gap-3.5 px-5 py-3.5">
           <img src={dish.img} alt={dish.name} className="w-12 h-12 rounded-[12px] object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-800" />
           <div className="flex-1 min-w-0">
             <p className="text-[15px] font-medium text-gray-900 dark:text-white leading-tight truncate">{dish.name}</p>
             <div className="mt-1 -ml-1"><StarRating value={stars} onChange={onRate} size={22} /></div>
+            {noteToggle}
           </div>
-          {chevron}
         </div>
         {notesBlock}
       </div>
@@ -352,17 +371,13 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
       <div className="flex gap-4 px-5 py-5">
         <img src={dish.img} alt={dish.name} className="w-16 h-16 rounded-[14px] object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-800" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[17px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
-              <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
-            </div>
-            {chevron}
-          </div>
+          <p className="text-[17px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
+          <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
           {/* Große Trefferfläche: gewischt und getippt wird am Tisch, oft
               einhändig, und ein danebengegangener Stern ist ärgerlicher als
               ein paar Pixel mehr Platz. */}
           <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={28} /></div>
+          <div className="mt-1">{noteToggle}</div>
         </div>
       </div>
       {notesBlock}
@@ -782,7 +797,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
                 onRate={v => {
                   setRatings(p => ({ ...p, [dish.id]: v }));
-                  if (v > 0 && v <= 3) setExpanded(p => new Set(p).add(dish.id));
+                  // Aufklappen an den Rändern der Skala: wer ein Gericht sehr
+                  // schlecht oder sehr gut findet, hat meistens einen Grund
+                  // dafür, und genau dort will er ihn hinschreiben. Bei drei
+                  // und vier Sternen bleibt das Feld zu — dort schreibt kaum
+                  // jemand etwas, und ein aufgeklapptes Feld je Gericht macht
+                  // aus der Liste ein Formular.
+                  if (v > 0 && (v <= 3 || v === 5)) setExpanded(p => new Set(p).add(dish.id));
                 }}
                 onToggleExpand={() => setExpanded(p => { const n = new Set(p); n.has(dish.id) ? n.delete(dish.id) : n.add(dish.id); return n; })}
                 onNoteChange={v => setNotes(p => ({ ...p, [dish.id]: v }))} />
