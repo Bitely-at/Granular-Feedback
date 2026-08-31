@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Loader2, Lock, Mail } from 'lucide-react';
+import { Loader2, Mail } from 'lucide-react';
 import { useStore } from '../../store';
 import { useGoogleSignIn } from './googleSignIn';
 import {
-  AuthCard, AuthHeader, AuthInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink,
+  AuthCard, AuthHeader, AuthInput, AuthPasswordInput, AuthPrimaryButton, AuthSocialRow,
+  ForgotPasswordLink,
 } from './authUi';
 
 /**
@@ -72,7 +73,7 @@ export function LoginScreen() {
           <AuthInput icon={Mail} type="email" placeholder="E-Mail" value={email}
             autoComplete="username" required autoFocus
             onChange={e => setEmail(e.target.value)} />
-          <AuthInput icon={Lock} type="password" placeholder="Passwort" value={password}
+          <AuthPasswordInput placeholder="Passwort" value={password}
             autoComplete="current-password" required
             onChange={e => setPassword(e.target.value)} />
 
@@ -96,7 +97,7 @@ export function LoginScreen() {
 
         {authOptions.google && (
           <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center leading-relaxed -mt-1">
-            Google meldet nur an, wen die Verwaltung schon eingeladen hat.
+            Google meldet nur an, wer schon ein Mitarbeiterkonto hat.
           </p>
         )}
       </AuthCard>

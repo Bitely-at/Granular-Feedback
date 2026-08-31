@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Lock } from 'lucide-react';
 import { BitelyWordmark } from '../BitelyWordmark';
 
 /**
@@ -62,6 +62,45 @@ export function AuthInput({ icon: Icon, ...props }: {
         {...props}
         className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-black dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-gray-600 transition"
       />
+    </div>
+  );
+}
+
+/**
+ * Passwortfeld mit Auge zum Einblenden.
+ *
+ * Im Usability-Test war die Angst vor dem Vertipper der Grund, aus dem der
+ * Teilnehmer beim Passwort zögerte: was man nicht sieht, kann man nicht
+ * gegenlesen, und am Handy tippt sich ein Passwort ohnehin schlechter als am
+ * Rechner. Eine zweite Eingabe zur Bestätigung ersetzt das nicht — sie
+ * verdoppelt nur die Tipparbeit und beweist bloß, dass man sich zweimal gleich
+ * vertippt hat. Deshalb hier ein Schalter und kein zweites Feld.
+ *
+ * `type` gehört der Komponente: sie schaltet zwischen `password` und `text`.
+ * Alles andere (vor allem `autoComplete`) reicht der Aufrufer durch, damit die
+ * Passwortverwaltungen wissen, ob sie ein bestehendes einsetzen oder ein neues
+ * vorschlagen sollen.
+ */
+export function AuthPasswordInput({ ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [shown, setShown] = React.useState(false);
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+        <Lock className="w-4 h-4" />
+      </span>
+      <input
+        {...props}
+        type={shown ? 'text' : 'password'}
+        className="w-full pl-10 pr-12 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-black dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-gray-600 transition"
+      />
+      {/* Der Schalter liegt IM Feld, rechts. Er ist kein Formularknopf:
+          `type="button"`, sonst schickt ein Klick darauf das Formular ab. */}
+      <button type="button" onClick={() => setShown(v => !v)}
+        aria-label={shown ? 'Passwort verbergen' : 'Passwort anzeigen'}
+        aria-pressed={shown}
+        className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400">
+        {shown ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
     </div>
   );
 }

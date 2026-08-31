@@ -28,7 +28,9 @@ import {
 } from './store';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { useGoogleSignIn } from './components/auth/googleSignIn';
-import { AuthHeader, AuthInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink } from './components/auth/authUi';
+import {
+  AuthHeader, AuthInput, AuthPasswordInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink,
+} from './components/auth/authUi';
 import { BitelyWordmark } from './components/BitelyWordmark';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
@@ -5032,7 +5034,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
             )}
             <AuthInput icon={Mail} type="email" placeholder="E-Mail" autoComplete="email" value={form.email}
               onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
-            <AuthInput icon={Lock} type="password" value={form.password}
+            <AuthPasswordInput value={form.password}
               placeholder={mode === 'login' ? 'Passwort' : 'Passwort (mind. 8 Zeichen)'}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
