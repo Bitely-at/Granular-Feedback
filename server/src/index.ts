@@ -65,6 +65,22 @@ const TABLE_TTL_MS = 2 * 60 * 60 * 1000;
 const REDEMPTION_PAGE_SIZE = 100;
 
 /**
+ * Was eine Bewertung wert ist.
+ *
+ * Die Regel steht hier und nur hier. Der Gesamtzustand trägt sie als
+ * `pointsRule` mit hinaus, damit die Gastansicht sie ANSAGEN kann, bevor
+ * bewertet wird ("pro Gericht 20 Punkte") und während bewertet wird (der
+ * Zähler, der beim Bewerten hochläuft). Vorher erfuhr der Gast die Zahl erst
+ * NACH dem Absenden, und damit nie, wofür er sie eigentlich bekommt.
+ *
+ * Nicht ins Frontend kopieren: gerechnet wird weiterhin ausschließlich hier,
+ * und eine zweite Kopie der Zahlen liefe irgendwann auseinander.
+ */
+const POINTS_PER_DISH = 20;
+const POINTS_PER_REVIEW = 30;
+const pointsFor = (ratedCount: number) => ratedCount * POINTS_PER_DISH + POINTS_PER_REVIEW;
+
+/**
  * Vierstelliger Code zum Abgleich mit bloßem Auge — die Servicekraft sieht
  * dieselbe Zahl in ihrer eigenen App und vergleicht.
  *
@@ -600,6 +616,9 @@ async function getFullState(
     reviews: reviews.map(serialize),
     redemptions: redemptions.map(r => serializeRedemption(r, isStaff)),
     guest,
+    // Damit die Gastansicht sagen kann, wofür es Punkte gibt, BEVOR bewertet
+    // wird. Gerechnet wird trotzdem nur auf dem Server (siehe pointsFor).
+    pointsRule: { perDish: POINTS_PER_DISH, perReview: POINTS_PER_REVIEW },
   };
 }
 
@@ -1014,7 +1033,7 @@ router.post('/branches/:branchSlug/tables/:number/review', withBranch(async (req
     // Was die Bewertung wert ist. Gutgeschrieben wird sie nur einem Konto —
     // ohne Anmeldung bleibt es beim Betrag, den der Gast verpasst hat, und die
     // Oberfläche sagt ihm das (pointsEarned: 0, pointsPossible: …).
-    const pointsPossible = ratedCount * 20 + 30;
+    const pointsPossible = pointsFor(ratedCount);
     const guestAccount = await currentGuest(req);
     const pointsEarned = guestAccount ? pointsPossible : 0;
 

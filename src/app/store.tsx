@@ -262,6 +262,28 @@ interface OrgState {
   reviews: Review[];
   redemptions: Redemption[];
   guest: GuestProfile;
+  /**
+   * Was eine Bewertung wert ist. Kommt vom Server, wird hier nicht gerechnet:
+   * die Punkte vergibt ohnehin nur er, und eine zweite Kopie der Zahlen liefe
+   * irgendwann auseinander. Gebraucht wird sie, um dem Gast VOR dem Bewerten
+   * zu sagen, wofür es Punkte gibt.
+   */
+  pointsRule: PointsRule;
+}
+
+export interface PointsRule {
+  /** Punkte je bewertetem Gericht. */
+  perDish: number;
+  /** Punkte für die abgeschickte Bewertung an sich. */
+  perReview: number;
+}
+
+/**
+ * Was eine Bewertung mit so vielen bewerteten Gerichten einbringt. Dieselbe
+ * Rechnung wie `pointsFor` auf dem Server, nur mit dessen Zahlen gefüttert.
+ */
+export function pointsFor(rule: PointsRule, ratedCount: number): number {
+  return ratedCount * rule.perDish + rule.perReview;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -444,6 +466,9 @@ const EMPTY_STATE: OrgState = {
   branches: [], dishes: [], tables: [], vouchers: [], users: [], alerts: [], reviews: [],
   redemptions: [],
   guest: { loggedIn: false, points: 0, redeemed: [] },
+  // Bis der Server antwortet: keine Punkte versprechen, die es womöglich
+  // anders gibt. Der Hinweis in der Gastansicht bleibt so lange aus.
+  pointsRule: { perDish: 0, perReview: 0 },
 };
 
 /**

@@ -19,9 +19,9 @@ import {
 import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
   BRAND_FONTS, BRAND_CARD_STYLES,
-  availableIn, voucherExpired,
+  availableIn, voucherExpired, pointsFor,
   type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
-  type Branch, type BranchScope, type Redemption,
+  type Branch, type BranchScope, type Redemption, type PointsRule,
   // Highlight heißt auch ein DOM-Typ (CSS Custom Highlight API) — der Import
   // hier überdeckt ihn in dieser Datei, sonst greift TypeScript zum falschen.
   type Insights, type Highlight,
@@ -385,6 +385,67 @@ const OVERALL_FIELDS = [
   { key: 'service', label: 'Service', emoji: '🤝' },
 ] as const;
 
+/**
+ * Wofür es Punkte gibt. Steht ÜBER dem Bewertungsformular, nicht danach.
+ *
+ * Im Usability-Test wusste der Teilnehmer zu keinem Zeitpunkt, wofür es
+ * Punkte gibt und wozu sie gut sind. Kein Wunder: die Zahl tauchte erst auf
+ * dem Dank-Bildschirm auf, also nachdem er alles getan hatte, wofür es sie
+ * gibt. Die Regel gehoert davor, im Klartext und mit der Zahl.
+ *
+ * Bewusst kein Modal und kein Overlay: der Hinweis darf den Weg zum Bewerten
+ * nicht versperren, sondern soll beim Vorbeigehen mitgelesen werden. Was
+ * darüber hinausgeht (sammeln, einlösen) hängt deshalb hinter
+ * "Mehr erfahren" und nicht in der Zeile, die jeder liest.
+ *
+ * Die Zahlen kommen vom Server (`pointsRule`), gerechnet wird auch dort. Sind
+ * sie noch nicht da, bleibt der Block aus: ein Betrag, den wir nur raten,
+ * wäre schlimmer als keiner.
+ */
+function PointsExplainer({ rule, points, loggedIn }: {
+  rule: PointsRule; points: number; loggedIn: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (rule.perDish <= 0) return null;
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-4">
+      <div className="flex items-start gap-2.5">
+        <Zap size={16} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--ba)' }} />
+        <div className="min-w-0">
+          <p className="text-[14px] leading-relaxed text-gray-700 dark:text-gray-200">
+            Für jedes Gericht, das du bewertest, bekommst du{' '}
+            <strong className="font-semibold text-gray-900 dark:text-white">{rule.perDish} Punkte</strong>.
+            Je mehr du bewertest, desto mehr Punkte.
+          </p>
+          <button onClick={() => setOpen(o => !o)}
+            aria-expanded={open} aria-controls="punkte-erklaerung"
+            className="mt-1 -ml-1 px-1 min-h-[44px] flex items-center gap-1 text-[13px] font-medium rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
+            style={{ color: 'var(--ba)' }}>
+            {open ? 'Weniger' : 'Mehr erfahren'}
+            <ChevronDown size={15} strokeWidth={2} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div id="punkte-erklaerung"
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden">
+            <div className="pt-1 pl-[26px] space-y-2 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400">
+              <p>Für die abgeschickte Bewertung kommen {rule.perReview} Punkte dazu.</p>
+              <p>Deine Punkte sammeln sich auf deinem Konto und gelten in allen Filialen.</p>
+              <p>Ab einem bestimmten Stand schaltest du Gutscheine frei und löst sie direkt am Tisch ein.</p>
+              {loggedIn && <p className="text-gray-600 dark:text-gray-300">Du hast gerade {points} Punkte.</p>}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
   const store = useStore();
   const [screen, setScreen] = useState<GuestScreen>('welcome');
@@ -435,6 +496,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const overallDone = OVERALL_FIELDS.filter(f => overall[f.key] > 0).length;
   const stepsTotal = tableDishes.length + OVERALL_FIELDS.length;
   const stepsDone = ratedCount + overallDone;
+  // Was die Bewertung im JETZIGEN Stand einbringt. Läuft beim Bewerten
+  // weiterer Gerichte mit hoch und macht damit sichtbar, was der Erklärblock
+  // behauptet: mehr Bewertungen sind mehr Punkte. Gerechnet wird mit der Regel
+  // vom Server, vergeben werden die Punkte ohnehin nur dort.
+  const livePoints = ratedCount > 0 ? pointsFor(store.pointsRule, ratedCount) : 0;
 
   useEffect(() => {
     if (screen === 'thanks' && earnedPts > 0) {
@@ -663,8 +729,23 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <button onClick={() => go('welcome')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white">Deine Gerichte</p>
-              <span className="text-[13px] text-gray-400 tabular-nums">{stepsDone}/{stepsTotal}</span>
+              <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white truncate">Deine Gerichte</p>
+              <span className="text-[13px] text-gray-400 tabular-nums flex-shrink-0">{stepsDone}/{stepsTotal}</span>
+              {/* Was gerade zusammenkommt. Der Betrag springt bei jedem
+                  bewerteten Gericht hoch — das ist die einzige Stelle, an der
+                  „mehr Bewertungen = mehr Punkte" nicht behauptet, sondern
+                  vorgeführt wird. Vor der ersten Bewertung steht hier nichts:
+                  ein „+0" wäre eine Absage. */}
+              <AnimatePresence>
+                {livePoints > 0 && (
+                  <motion.span key={livePoints}
+                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="text-[13px] font-semibold tabular-nums flex-shrink-0"
+                    style={{ color: 'var(--ba)' }}>
+                    +{livePoints} Pkt.
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
             <div className="h-[2px] bg-gray-100 dark:bg-gray-800">
               <div className="h-full transition-all duration-500" style={{ width: `${stepsTotal ? (stepsDone / stepsTotal) * 100 : 0}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
@@ -672,6 +753,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           </div>
 
           <div className="flex-1 overflow-y-auto">
+            <PointsExplainer rule={store.pointsRule} points={store.guest.points} loggedIn={store.guest.loggedIn} />
             {tableDishes.map(dish => (
               <DishRatingCard key={dish.id} dish={dish} stars={ratings[dish.id] || 0} note={notes[dish.id] ?? ''}
                 expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
@@ -713,7 +795,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <button onClick={handleSubmitReview} disabled={!allRated || !allOverall || submitting}
               className="w-full h-[54px] rounded-[16px] shadow-lg flex items-center justify-between px-6 text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
               style={{ backgroundColor: (!allRated || !allOverall || submitting) ? '#9CA3AF' : 'var(--ba, #16A34A)' }}>
-              <span className="text-[16px] font-medium">{submitting ? 'Wird gesendet…' : 'Absenden & Punkte sichern'}</span>
+              <span className="text-[16px] font-medium">
+                {submitting ? 'Wird gesendet…' : livePoints > 0 ? `Absenden · +${livePoints} Punkte` : 'Absenden'}
+              </span>
               <ArrowRight size={20} strokeWidth={1.75} />
             </button>
           </div>
