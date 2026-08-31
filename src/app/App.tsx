@@ -1054,15 +1054,17 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 Aufforderung „Punkte sichern" steht oben beim Betrag, um den
                 es geht. Wer angemeldet ist, bekommt hier das, was jetzt
                 wirklich ansteht. */}
-            {store.guest.loggedIn && (unlockedVouchers.length > 0 ? (
-              <PrimaryBtn onClick={() => { setRedeeming(unlockedVouchers[0]); }}>
-                „{unlockedVouchers[0].title}" jetzt einlösen
-              </PrimaryBtn>
-            ) : (
+            {/* Kein Knopf mehr, der einen bestimmten Gutschein direkt in den
+                Wisch führt. Er trug den Namen des Gutscheins in voller Breite
+                und in der Akzentfarbe des Lokals und war damit das Lauteste
+                auf einem Bildschirm, der sich bedanken soll. Der Weg zum
+                Einlösen bleibt: über die Gutscheinseite, wo der Gast sieht,
+                was er sonst noch hat, statt einen vorgesetzt zu bekommen. */}
+            {store.guest.loggedIn && (
               <PrimaryBtn onClick={() => openVouchers('thanks')}>
                 Punkte &amp; Gutscheine ansehen
               </PrimaryBtn>
-            ))}
+            )}
             {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
                 einzige Weg zurück über das Neuladen der Seite. */}
             <button onClick={() => go('welcome')}
@@ -5017,7 +5019,14 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
       {view === 'guest' && branch && (
         // Mobil (der eigentliche Anwendungsfall über QR-Code): randlos, bildschirmfüllend,
         // kein Geräte-Mockup. Ab sm-Breakpoint (Desktop-Vorschau): zentrierte Karte.
-        <div className="h-[100dvh] overflow-hidden sm:h-auto sm:min-h-[100dvh] sm:overflow-visible bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
+        //
+        // Genau eine Bildschirmhöhe, hier wie dort, und `overflow-hidden` gilt
+        // auf jeder Breite. Vorher stand am Desktop `min-h-[100dvh]` neben
+        // `py-8`: die Seite war damit 64 Pixel höher als das Fenster, und dafür
+        // legte der Browser eine Rollleiste an den rechten Rand, die nichts zu
+        // rollen hatte. Gerollt wird INNERHALB der Karte, das erledigen die
+        // Bildschirme selbst.
+        <div className="h-[100dvh] overflow-hidden bg-[#F7F8FA] dark:bg-[#0D1117] sm:bg-gray-200 sm:dark:bg-gray-950 flex justify-center sm:py-8 sm:px-4">
           <div className="w-full h-full flex flex-col overflow-hidden sm:w-full sm:max-w-[420px] sm:h-[calc(100dvh-64px)] sm:rounded-[28px] sm:shadow-xl sm:border sm:border-gray-200 dark:sm:border-gray-800 bg-[#F7F8FA] dark:bg-[#0D1117]">
             <GuestApp branch={branch} tableNumber={tableNumber ?? 1} />
           </div>
