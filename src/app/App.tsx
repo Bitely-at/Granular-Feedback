@@ -93,7 +93,8 @@ function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: 
       {[1, 2, 3, 4, 5].map(s => (
         <button key={s} onClick={() => onChange?.(s)}
           onMouseEnter={() => onChange && setHov(s)} onMouseLeave={() => onChange && setHov(0)}
-          className={`p-0.5 transition-transform active:scale-90 ${onChange ? 'cursor-pointer' : 'cursor-default'}`}>
+          aria-label={onChange ? `${s} von 5 Sternen` : undefined}
+          className={`p-0.5 rounded transition-transform active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white ${onChange ? 'cursor-pointer' : 'cursor-default'}`}>
           <Star size={size} fill={s <= fill ? STAR_COLOR : 'none'}
             stroke={s <= fill ? STAR_COLOR : '#D1D5DB'} strokeWidth={1.5} />
         </button>
@@ -102,12 +103,24 @@ function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: 
   );
 }
 
+/**
+ * Sichtbarer Fokusring, an einer Stelle.
+ *
+ * Die Gastansicht hatte gar keinen: mit der Tastatur wusste niemand, wo er
+ * steht. `focus-visible` statt `focus`, damit der Ring beim Tippen mit dem
+ * Finger nicht auftaucht — am Tisch wird nicht getabbt, und ein Ring, der nach
+ * jedem Antippen stehen bleibt, sieht aus wie ein Fehler. Der Versatz braucht
+ * eine Grundfarbe, sonst schneidet der Ring auf dunklem Grund ins Weiße.
+ */
+const FOCUS_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white ring-offset-white dark:ring-offset-gray-900';
+
 function PrimaryBtn({ children, onClick, disabled, full = true, sm }: {
   children: React.ReactNode; onClick?: () => void; disabled?: boolean; full?: boolean; sm?: boolean;
 }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className={`${full ? 'w-full' : ''} ${sm ? 'py-2 px-4 text-[13px]' : 'py-3 px-6 text-[15px]'} rounded-xl font-medium text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed`}
+      className={`${full ? 'w-full' : ''} ${sm ? 'py-2 px-4 text-[13px] min-h-[44px]' : 'py-3 px-6 text-[15px] min-h-[48px]'} ${FOCUS_RING} rounded-xl font-medium text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed`}
       style={{ backgroundColor: disabled ? '#9CA3AF' : 'var(--ba, #16A34A)' }}>
       {children}
     </button>
@@ -134,7 +147,7 @@ function PoweredByBitely() {
 function SecondaryBtn({ children, onClick, full }: { children: React.ReactNode; onClick?: () => void; full?: boolean }) {
   return (
     <button onClick={onClick}
-      className={`${full ? 'w-full' : ''} py-3 px-6 rounded-xl text-[15px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors active:scale-[0.98]`}>
+      className={`${full ? 'w-full' : ''} py-3 px-6 min-h-[48px] ${FOCUS_RING} rounded-xl text-[15px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors active:scale-[0.98]`}>
       {children}
     </button>
   );
@@ -655,7 +668,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 onClick={() => store.guest.loggedIn ? openProfile('welcome') : setAuthOpen(true)}
                 title={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
                 aria-label={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
-                className="w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-transform active:scale-95 shadow-sm border border-black/5 dark:border-white/10"
+                className={`w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-transform active:scale-95 shadow-sm border border-black/5 dark:border-white/10 ${FOCUS_RING}`}
                 style={store.guest.loggedIn
                   ? { backgroundColor: 'var(--ba, #16A34A)' }
                   : { backgroundColor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(4px)' }}>
@@ -699,11 +712,24 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   gibt es nichts zu bewerten — dann wäre der Bildschirm ohne den
                   Gutschein-Zugang eine Sackgasse, besonders für den, der sich
                   gerade angemeldet hat. */}
+              {/* Der Weg zum Einlösen. Er war eine graue Textzeile am unteren
+                  Rand und wurde im Usability-Test nicht als anklickbar
+                  erkannt — das kostete einen ganzen Punkt auf der
+                  Schwierigkeitsskala. Jetzt eine Fläche mit Umriss, in der
+                  Höhe des Hauptknopfs, mit Symbol und Pfeil: dass hier etwas
+                  passiert, muss man nicht mehr vermuten. Umriss statt Füllung,
+                  damit „Feedback starten" darüber die Hauptsache bleibt. */}
               <button onClick={() => openVouchers('welcome')}
-                className="block text-[14px] font-medium mt-5 py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+                className={`w-full h-[52px] mt-4 rounded-[16px] border flex items-center justify-between px-5 transition-colors ${FOCUS_RING}
+                  border-gray-300 dark:border-gray-700 bg-white/70 dark:bg-gray-900/50 backdrop-blur-sm
+                  hover:bg-white dark:hover:bg-gray-900 active:scale-[0.98]`}>
+                <span className="flex items-center gap-2.5 text-[15px] font-medium text-gray-900 dark:text-white">
+                  <Ticket size={18} strokeWidth={1.75} style={{ color: 'var(--ba)' }} />
+                  Punkte &amp; Gutscheine
+                </span>
                 {store.guest.loggedIn
-                  ? `Punkte & Gutscheine · ${store.guest.points} Pkt.`
-                  : 'Punkte & Gutscheine ansehen'}
+                  ? <span className="text-[14px] font-semibold tabular-nums" style={{ color: 'var(--ba)' }}>{store.guest.points} Pkt.</span>
+                  : <ArrowRight size={18} strokeWidth={1.75} className="text-gray-400" />}
               </button>
               {/* Kein zweiter Textknopf zum Anmelden: das Konto sitzt oben
                   rechts, wo es in jeder App sitzt. Zwei Wege ins selbe
@@ -723,7 +749,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               wird gearbeitet. Ruhiger Grund, weiße Blöcke, sonst nichts. */}
           <div className="bg-white dark:bg-gray-900 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go('welcome')} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => go('welcome')} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white truncate">Deine Gerichte</p>
@@ -954,7 +980,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
                 einzige Weg zurück über das Neuladen der Seite. */}
             <button onClick={() => go('welcome')}
-              className="w-full text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
+              className={`w-full min-h-[44px] rounded-xl text-[14px] font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors ${FOCUS_RING}`}>
               Zurück zum Start
             </button>
             <PoweredByBitely />
@@ -966,7 +992,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="vouchers" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go(vouchersBack)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => go(vouchersBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Deine Gutscheine</p>
@@ -1028,7 +1054,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="profile" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go(profileBack)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+              <button onClick={() => go(profileBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Dein Konto</p>
@@ -1194,9 +1220,9 @@ function VoucherCard({ v, state, onAction, pointsMissing, pending }: {
         </div>
         {state === 'locked' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">noch {pointsMissing} Pkt.</span>}
         {state === 'redeemed' && (pending
-          ? <button onClick={onAction} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap text-white" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Vorzeigen</button>
+          ? <button onClick={onAction} className={`text-[13px] font-semibold px-4 min-h-[44px] rounded-xl whitespace-nowrap text-white ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Vorzeigen</button>
           : <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">Eingelöst</span>)}
-        {state === 'available' && <button onClick={onAction} className="text-[13px] font-medium px-4 py-2 rounded-xl text-white whitespace-nowrap" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Einlösen</button>}
+        {state === 'available' && <button onClick={onAction} className={`text-[14px] font-semibold px-5 min-h-[44px] rounded-xl text-white whitespace-nowrap active:scale-[0.98] transition-transform ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Einlösen</button>}
       </div>
     </div>
   );
