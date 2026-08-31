@@ -47,7 +47,7 @@ export interface HighlightResult {
   source: 'llm' | 'fallback';
 }
 
-const HIGHLIGHT_SYSTEM = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber — jemand mit wenig Zeit, der wissen will, was diese Woche zählt.
+const HIGHLIGHT_SYSTEM = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber, jemand mit wenig Zeit, der wissen will, was diese Woche zählt.
 
 Regeln:
 - Zwei bis vier Sätze, deutscher Fließtext, keine Aufzählung, keine Überschrift.
@@ -56,6 +56,7 @@ Regeln:
 - Wenn Gäste dasselbe mehrfach anmerken, ist genau das die Nachricht.
 - Erfinde nichts. Nur was in den Daten steht. Sind es zu wenige Bewertungen für eine Aussage, sag das.
 - Kein Marketing-Ton, keine Floskeln, keine Emojis, keine Ratgeber-Empfehlungen.
+- Keine Gedankenstriche. Wo einer stehen würde, nimm Komma oder Punkt.
 
 Gib ausschließlich den Rückblick aus.`;
 
@@ -71,7 +72,7 @@ export function fallbackHighlight(input: HighlightInput): string {
     : Math.abs(diff) < 0.1 ? 'genauso viel wie in der Vorwoche'
     : diff > 0 ? `${diff.toFixed(1)} Sterne mehr als in der Vorwoche`
     : `${Math.abs(diff).toFixed(1)} Sterne weniger als in der Vorwoche`;
-  parts.push(`${current.reviews} ${current.reviews === 1 ? 'Bewertung' : 'Bewertungen'} in den letzten sieben Tagen, im Schnitt ${current.avg.toFixed(1)} Sterne — ${trend}.`);
+  parts.push(`${current.reviews} ${current.reviews === 1 ? 'Bewertung' : 'Bewertungen'} in den letzten sieben Tagen, im Schnitt ${current.avg.toFixed(1)} Sterne, ${trend}.`);
   if (best[0]) parts.push(`Am besten kam ${best[0].name} an (${best[0].avg.toFixed(1)} Sterne aus ${best[0].count} Bewertungen).`);
   if (worst[0] && worst[0].avg < 3.5) parts.push(`Schwächster Posten ist ${worst[0].name} mit ${worst[0].avg.toFixed(1)} Sternen.`);
   return parts.join(' ');

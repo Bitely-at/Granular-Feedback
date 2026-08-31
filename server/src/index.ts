@@ -1177,7 +1177,7 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   // Anmeldung gäbe es niemanden, dem sie abgezogen und zurückgebucht werden.
   const guest = await currentGuest(req);
   if (!guest) {
-    res.status(401).json({ error: 'Zum Einlösen bitte anmelden — deine Punkte hängen an deinem Konto.' });
+    res.status(401).json({ error: 'Zum Einlösen bitte anmelden. Deine Punkte hängen an deinem Konto.' });
     return;
   }
   const guestId = String(guest._id);

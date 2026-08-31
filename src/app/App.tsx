@@ -984,7 +984,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   <p className="text-[17px] font-medium text-gray-900 dark:text-white">Auch öffentlich teilen?</p>
                 </div>
                 <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Aus deiner Bewertung ist dieser Text entstanden — kopieren, bei Google einfügen, fertig.
+                  Aus deiner Bewertung ist dieser Text entstanden. Kopieren, bei Google einfügen, fertig.
                 </p>
               </div>
               {reviewTextPending && !reviewText ? (
@@ -1029,7 +1029,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Gutscheine</p>
               {unlockedVouchers.length === 0 ? (
                 <p className="text-[14px] text-gray-500 dark:text-gray-400">
-                  Noch kein Gutschein freigeschaltet — {nextRewardPoints - store.guest.points} Punkte fehlen.
+                  Noch kein Gutschein freigeschaltet. Es fehlen {nextRewardPoints - store.guest.points} Punkte.
                 </p>
               ) : unlockedVouchers.map(v => (
                 <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
@@ -1092,7 +1092,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3 text-center">
                 <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gutscheine brauchen ein Konto</p>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Punkte sammeln und einlösen geht nur mit Anmeldung — sonst wüssten
+                  Punkte sammeln und einlösen geht nur mit Anmeldung. Sonst wüssten
                   wir nicht, wem die Punkte gehören.
                 </p>
                 <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
@@ -1119,7 +1119,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             )}
 
             {vTab === 'Verfügbar' && (unlockedVouchers.length === 0
-              ? <EmptyState icon={Zap} title="Noch nichts verfügbar" desc="Sammle weiter Punkte durch Bewertungen — dein nächster Gutschein wartet." />
+              ? <EmptyState icon={Zap} title="Noch nichts verfügbar" desc="Sammle weiter Punkte durch Bewertungen. Dein nächster Gutschein wartet." />
               : unlockedVouchers.map(v => <VoucherCard key={v.id} v={v} state="available" onAction={() => setRedeeming(v)} />))}
             {vTab === 'Gesperrt' && lockedVouchers.map(v => <VoucherCard key={v.id} v={v} state="locked" pointsMissing={v.points - store.guest.points} />)}
             {vTab === 'Eingelöst' && (redeemedVouchers.length === 0
@@ -1196,7 +1196,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Konto löschen</p>
               <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
                 Punkte und eingelöste Gutscheine verfallen dabei. Deine abgegebenen
-                Bewertungen bleiben beim Restaurant — sie hängen am Tisch, nicht an dir.
+                Bewertungen bleiben beim Restaurant. Sie hängen am Tisch, nicht an dir.
               </p>
               {deleteError && <p className="text-[12px] text-red-500">{deleteError}</p>}
               {confirmDelete ? (
@@ -1665,7 +1665,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
               <div>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">Bon fotografieren</p>
                 <p className="text-[15px] text-gray-500 mt-1">
-                  Fotografiere den POS-Bon — die Gerichte werden erkannt und in den Warenkorb gelegt.
+                  Fotografiere den POS-Bon. Die Gerichte werden erkannt und in den Warenkorb gelegt.
                   Gebucht wird erst, wenn du sie geprüft und gespeichert hast.
                 </p>
               </div>
@@ -1717,7 +1717,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
                 </p>
                 <p className="text-[15px] text-gray-500 mt-1">
                   {scanHits.length > 0
-                    ? 'Prüfe die Liste — falsches einfach entfernen.'
+                    ? 'Prüfe die Liste, falsches einfach entfernen.'
                     : 'Auf dem Bild war keine Position der Karte zu finden. Versuch es noch einmal, näher dran und heller.'}
                 </p>
               </div>
@@ -1753,7 +1753,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
               )}
               {!activeTable && scanHits.length > 0 && (
                 <p className="text-[12px] text-gray-400">
-                  Noch kein Tisch gewählt — die Gerichte landen im Warenkorb, den du beim nächsten Tisch vorfindest.
+                  Noch kein Tisch gewählt. Die Gerichte landen im Warenkorb, den du beim nächsten Tisch vorfindest.
                 </p>
               )}
               <div className="flex gap-3">
@@ -2351,7 +2351,7 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
             {done.created} {done.created === 1 ? 'Gericht' : 'Gerichte'} angelegt.
           </p>
           <p className="text-[12px] text-gray-400 leading-relaxed">
-            Preise und Kategorien stehen jetzt in der Karte; Fotos fehlen noch — die
+            Preise und Kategorien stehen jetzt in der Karte. Fotos fehlen noch, die
             lädst du je Gericht in der Liste hoch.
           </p>
         </div>
@@ -2365,7 +2365,7 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
               <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Preis</code>
               und
               <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Kategorie</code>.
-              Komma oder Semikolon als Trennzeichen — beides wird erkannt, wie auch
+              Komma oder Semikolon als Trennzeichen, beides wird erkannt, wie auch
               die Datei aus „Export" auf dieser Seite.
             </p>
             <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden"
@@ -2517,7 +2517,7 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
         </div>
         <ImageField label="Bild" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} aspect="wide" />
         <BranchScopeField label="Einlösbar in" value={form.branchIds}
-          hint="Punkte sammelt der Gast in der ganzen Kette — ein Gutschein nur für eine Filiale sollte die Ausnahme bleiben."
+          hint="Punkte sammelt der Gast in der ganzen Kette. Ein Gutschein nur für eine Filiale sollte die Ausnahme bleiben."
           onChange={v => setForm(p => ({ ...p, branchIds: v }))} />
         <DialogError message={error} />
       </div>
@@ -3466,7 +3466,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       ) : highlight ? (
                         <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed">{highlight.text}</p>
                       ) : (
-                        <p className="text-[13px] text-gray-400">Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.</p>
+                        <p className="text-[13px] text-gray-400">Noch kein Rückblick. Er entsteht, sobald Bewertungen vorliegen.</p>
                       )}
                     </div>
                   </div>
@@ -3804,12 +3804,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           </div>
                           <div className="flex-1 space-y-4">
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname — steht beim Gast in der Schlagzeile</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname, steht beim Gast in der Schlagzeile</p>
                               <input value={brandForm.name} onChange={e => setBrandForm(p => ({ ...p, name: e.target.value }))}
                                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                             </div>
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe — sieht nur der Gast. Verwaltung und Service bleiben im Bitely-Blau.</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe, sieht nur der Gast. Verwaltung und Service bleiben im Bitely-Blau.</p>
                               <div className="flex items-center gap-3 flex-wrap">
                                 <input type="color" value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
                                   className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
@@ -3842,7 +3842,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       </div>
 
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Kartenlayout — Gerichte bewerten</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Kartenlayout für das Bewerten der Gerichte</p>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           {BRAND_CARD_STYLES.map(cs => (
                             <button key={cs.id} onClick={() => setBrandForm(p => ({ ...p, cardStyle: cs.id }))}
@@ -3885,7 +3885,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           </p>
                           <p className="text-[12px] text-gray-400 mt-1">
                             Liegt beim Gast hinter der Begrüßung und läuft nach unten weich aus.
-                            Am besten ein ruhiges Bild vom Lokal — Gesichter und Schrift darauf
+                            Am besten ein ruhiges Bild vom Lokal. Gesichter und Schrift darauf
                             verschwinden im Verlauf.
                           </p>
                         </div>
@@ -3970,7 +3970,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                        </div>
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen — noch ungespeicherte Änderungen.</p>
+                      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen. Noch ungespeicherte Änderungen.</p>
                     </div>
                   </div>
                 </div>
@@ -4161,13 +4161,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><QrCode size={15} strokeWidth={1.5} className="text-gray-400" /> QR-Codes per Tisch</p>
                     <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                      Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/&lt;filiale&gt;/table/&lt;nummer&gt;</code> — das ist die Route, die Gäste beim Scannen öffnen. Die Filiale steht mit drin: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.
+                      Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/&lt;filiale&gt;/table/&lt;nummer&gt;</code>. Das ist die Route, die Gäste beim Scannen öffnen. Die Filiale steht mit drin: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.
                     </p>
                     {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
                       <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
                         <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
                         <p className="text-[12px] text-amber-800 dark:text-amber-200 leading-relaxed">
-                          Diese QR-Codes zeigen auf <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">localhost</code> — die funktionieren nur auf diesem Rechner, nicht wenn ein Handy sie scannt.
+                          Diese QR-Codes zeigen auf <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">localhost</code>. Die funktionieren nur auf diesem Rechner, nicht wenn ein Handy sie scannt.
                           Öffne diese Admin-Seite stattdessen über die Netzwerk-Adresse deines Rechners (z. B. <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">http://192.168.x.x:5173/…</code>), dann werden die QR-Codes automatisch mit dieser Adresse erzeugt. Für den echten Einsatz später: eine öffentliche Domain statt der lokalen IP verwenden.
                         </p>
                       </div>
@@ -4189,7 +4189,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           </div>
                           <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Welche Filiale?</p>
                           <p className="text-[13px] text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                            Tische und QR-Codes gehören immer genau einer Filiale — Tisch 5
+                            Tische und QR-Codes gehören immer genau einer Filiale. Tisch 5
                             hier ist ein anderer Tisch als Tisch 5 dort.
                           </p>
                         </div>
@@ -4229,7 +4229,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                         {branchTables.length === 0 ? (
                           <EmptyState icon={QrCode} title={`Noch keine Tische in ${branch.name}`}
-                            desc="Lege oben Tische an — jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
+                            desc="Lege oben Tische an. Jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
                             {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
@@ -4259,7 +4259,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     <div>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        Was Gäste zu einzelnen Gerichten geschrieben haben — neueste zuerst · {branch ? branch.name : 'alle Filialen'}
+                        Was Gäste zu einzelnen Gerichten geschrieben haben, neueste zuerst · {branch ? branch.name : 'alle Filialen'}
                       </p>
                     </div>
                     {store.reviews.length > 0 && (
@@ -4273,7 +4273,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   {store.reviews.length === 0 ? (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
                       <EmptyState icon={MessageSquare} title="Noch keine Bewertungen"
-                        desc="Sobald Gäste über den QR-Code Feedback abgeben, erscheinen die Rückmeldungen hier — inklusive der Freitexte zu einzelnen Gerichten." />
+                        desc="Sobald Gäste über den QR-Code Feedback abgeben, erscheinen die Rückmeldungen hier, inklusive der Freitexte zu einzelnen Gerichten." />
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -4388,7 +4388,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.dishes.length === 0 ? (
                       <EmptyState icon={UtensilsCrossed} title="Noch keine Gerichte"
-                        desc="Lege die Karte an — jedes Gericht kann danach am Tisch einzeln bewertet werden." />
+                        desc="Lege die Karte an. Jedes Gericht kann danach am Tisch einzeln bewertet werden." />
                     ) : (
                     <div className="overflow-x-auto">
                     <table className="w-full">
@@ -4517,7 +4517,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.redemptions.length === 0 ? (
                       <EmptyState icon={Ticket} title="Noch keine Einlösungen"
-                        desc="Sobald ein Gast einen Gutschein am Tisch entwertet, erscheint er hier — mit Zeitpunkt, Tisch und der Servicekraft, die die Ausgabe eingetragen hat." />
+                        desc="Sobald ein Gast einen Gutschein am Tisch entwertet, erscheint er hier, mit Zeitpunkt, Tisch und der Servicekraft, die die Ausgabe eingetragen hat." />
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
@@ -4602,7 +4602,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         title={store.vouchers.length === 0 ? 'Noch keine Gutscheine' : 'Kein gültiger Gutschein'}
                         desc={store.vouchers.length === 0
                           ? 'Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an.'
-                          : 'Alle angelegten Gutscheine sind abgelaufen — für den Gast ist gerade nichts zu holen. Blende sie oben ein, um sie zu verlängern.'} />
+                          : 'Alle angelegten Gutscheine sind abgelaufen. Für den Gast ist gerade nichts zu holen, blende sie oben ein, um sie zu verlängern.'} />
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -4708,7 +4708,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       placeholder="wird beim Anlegen gesetzt" type="text" autoComplete="off"
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                     <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
-                      Es wird keine E-Mail verschickt — gib das Passwort persönlich weiter.
+                      Es wird keine E-Mail verschickt, gib das Passwort persönlich weiter.
                       Die Person meldet sich damit und der E-Mail-Adresse an; ändern lässt es
                       sich hier jederzeit wieder.
                     </p>
@@ -4758,7 +4758,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-400 leading-relaxed">
-                  Die neue Rolle gilt, sobald sich die Person das nächste Mal anmeldet —
+                  Die neue Rolle gilt, sobald sich die Person das nächste Mal anmeldet.
                   ein laufendes Token trägt noch die alte. Die eigene Rolle und die des
                   letzten Admins lassen sich nicht ändern.
                 </p>
@@ -4790,7 +4790,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <input value={pwDialog.value} autoFocus type="text" autoComplete="off"
                     onChange={e => setPwDialog(p => p && { ...p, value: e.target.value, error: null })}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
-                  <p className="text-[11px] text-gray-400 mt-1.5">Gib es der Person persönlich weiter — verschickt wird nichts.</p>
+                  <p className="text-[11px] text-gray-400 mt-1.5">Gib es der Person persönlich weiter, verschickt wird nichts.</p>
                 </div>
                 {pwDialog.error && <p className="text-[13px] text-red-600 dark:text-red-400">{pwDialog.error}</p>}
                 <div className="flex gap-3 pt-1">
@@ -5404,7 +5404,7 @@ function BranchPicker({ branches, onPick }: { branches: Branch[]; onPick: (slug:
       <div className="w-full max-w-sm">
         <p className="text-[17px] font-semibold text-gray-900 dark:text-white mb-1">Filiale wählen</p>
         <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4">
-          Dein Konto ist an keine Filiale gebunden — wähle, an welcher du arbeiten möchtest.
+          Dein Konto ist an keine Filiale gebunden. Wähle, an welcher du arbeiten möchtest.
         </p>
         <div className="space-y-2">
           {branches.map(b => (
@@ -5528,7 +5528,7 @@ export default function App() {
               Zur Startseite
             </Link>
           }>
-            Dieser QR-Code ist veraltet — er nennt keine Filiale. Bitte verwende den neuen Code am Tisch.
+            Dieser QR-Code ist veraltet, er nennt keine Filiale. Bitte verwende den neuen Code am Tisch.
           </FullScreenMessage>
         } />
         {/* Adressen ohne Tisch landen auf dem Wegweiser statt im Nichts. */}

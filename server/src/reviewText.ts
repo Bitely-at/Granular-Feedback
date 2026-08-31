@@ -34,7 +34,8 @@ const STAR_WORDS: Record<number, string> = {
 const SYSTEM_PROMPT = `Du schreibst kurze Restaurant-Rezensionen auf Deutsch, so wie ein echter Gast sie auf Google Maps oder TripAdvisor hinterlassen würde.
 
 Regeln:
-- Schreibe in der Ich-Form, natürlich und umgangssprachlich — kein Marketing-Ton.
+- Schreibe in der Ich-Form, natürlich und umgangssprachlich, kein Marketing-Ton.
+- Keine Gedankenstriche. Wo einer stehen würde, nimm Komma oder Punkt.
 - 40 bis 70 Wörter, ein bis zwei Absätze, reiner Fließtext.
 - Nenne die bewerteten Gerichte beim Namen. Die Tonlage muss zu den Sternen passen: 5 = begeistert, 4 = gut, 3 = durchwachsen, 2 = enttäuscht, 1 = schlecht.
 - Greife die Freitext-Anmerkungen des Gasts inhaltlich auf, statt sie wörtlich zu kopieren.
@@ -42,7 +43,7 @@ Regeln:
 - Bei niedrigen Bewertungen bleibt die Kritik sachlich und fair, nicht beleidigend.
 - Keine Emojis, keine Hashtags, keine Überschrift, keine Anführungszeichen um den Text.
 
-Gib ausschließlich den Rezensionstext aus — keine Einleitung, keine Alternativen, keine Erklärung.`;
+Gib ausschließlich den Rezensionstext aus. Keine Einleitung, keine Alternativen, keine Erklärung.`;
 
 /** Deterministische Vorlage — Notausgang ohne API-Key oder bei API-Fehlern. */
 export function fallbackReviewText(input: ReviewTextInput): string {
@@ -60,7 +61,7 @@ export function fallbackReviewText(input: ReviewTextInput): string {
   const parts: string[] = [];
   parts.push(
     avg >= 4 ? `War im ${input.restaurantName} und hat sich gelohnt.`
-      : avg >= 3 ? `War im ${input.restaurantName} — insgesamt solide.`
+      : avg >= 3 ? `War im ${input.restaurantName}, insgesamt solide.`
       : `War im ${input.restaurantName}, leider nicht überzeugend.`
   );
   if (liked.length > 0) parts.push(`${list(liked)} kann ich empfehlen.`);

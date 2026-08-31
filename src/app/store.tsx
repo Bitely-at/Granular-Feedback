@@ -27,9 +27,9 @@ export const BRAND_FONTS = [
 ] as const;
 
 export const BRAND_CARD_STYLES: { id: NonNullable<Brand['cardStyle']>; label: string; desc: string }[] = [
-  { id: 'standard', label: 'Standard', desc: 'Bild links, Infos rechts — kompakt und bewährt.' },
-  { id: 'kompakt', label: 'Kompakt', desc: 'Kleineres Bild, engere Abstände — mehr Gerichte auf einen Blick.' },
-  { id: 'editorial', label: 'Editorial', desc: 'Großes Bild oben, Text darunter — wirkt hochwertiger.' },
+  { id: 'standard', label: 'Standard', desc: 'Bild links, Infos rechts, kompakt und bewährt.' },
+  { id: 'kompakt', label: 'Kompakt', desc: 'Kleineres Bild, engere Abstände, mehr Gerichte auf einen Blick.' },
+  { id: 'editorial', label: 'Editorial', desc: 'Großes Bild oben, Text darunter, wirkt hochwertiger.' },
 ];
 
 // Verkleinert/komprimiert ein Bild im Browser vor dem Upload, damit die
