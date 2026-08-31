@@ -705,12 +705,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   ? `Punkte & Gutscheine · ${store.guest.points} Pkt.`
                   : 'Punkte & Gutscheine ansehen'}
               </button>
-              {!store.guest.loggedIn && (
-                <button onClick={() => setAuthOpen(true)}
-                  className="block text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
-                  Anmelden, um Punkte zu sichern
-                </button>
-              )}
+              {/* Kein zweiter Textknopf zum Anmelden: das Konto sitzt oben
+                  rechts, wo es in jeder App sitzt. Zwei Wege ins selbe
+                  Anmeldeblatt, untereinander, lasen sich wie zwei Angebote. */}
               </div>
             </div>
 
@@ -838,11 +835,17 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               gerade erledigt hat. */}
           {missedPts > 0 && !store.guest.loggedIn ? (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Punkte</p>
+              <p className="text-[44px] font-bold tracking-tight leading-none" style={{ color: 'var(--ba, #16A34A)' }}>+{missedPts}</p>
               <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed">
-                Deine Bewertung ist angekommen. <strong className="text-gray-900 dark:text-white">{missedPts} Punkte</strong> warten
-                auf ein Konto — ohne Anmeldung können wir sie niemandem gutschreiben.
+                Deine Bewertung ist angekommen. Die Punkte warten auf ein Konto:
+                ohne Anmeldung können wir sie niemandem gutschreiben.
               </p>
-              <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden und Punkte sichern</PrimaryBtn>
+              <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
+              <p className="text-[12px] text-gray-400 leading-relaxed">
+                Ohne Konto kannst du weiterhin alles bewerten. Die Punkte dafür
+                werden dann nur nirgends gutgeschrieben.
+              </p>
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7">
@@ -906,24 +909,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             </div>
           )}
 
-          {!store.guest.loggedIn ? (
-            <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
-                  <p className="text-[17px] font-medium text-gray-900 dark:text-white">Punkte sichern</p>
-                </div>
-                <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Melde dich an, um deine Punkte dauerhaft zu speichern.
-                </p>
-              </div>
-              <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
-              <p className="text-[12px] text-gray-400 leading-relaxed">
-                Ohne Konto kannst du weiterhin alles bewerten — die Punkte dafür
-                werden aber nirgends gutgeschrieben.
-              </p>
-            </div>
-          ) : (
+          {/* Ohne Konto steht die Aufforderung schon oben am Punktestand, mit
+              dem Betrag daneben. Ein zweiter Kasten mit demselben Ziel stand
+              hier, ein dritter Knopf ganz unten — im Usability-Test war genau
+              das der meistgenannte Störpunkt: es sah aus, als müsste man
+              dreimal dasselbe tun. Es bleibt bei einer Aufforderung. */}
+          {store.guest.loggedIn && (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-3">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Gutscheine</p>
               {unlockedVouchers.length === 0 ? (
@@ -933,10 +924,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               ) : unlockedVouchers.map(v => (
                 <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
               ))}
-              <button onClick={() => openVouchers('thanks')}
-                className="text-[14px] font-medium py-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
-                Alle Gutscheine →
-              </button>
+              {/* Kein „Alle Gutscheine" mehr: derselbe Weg steht als Knopf am
+                  Fuß des Bildschirms, und zwei Wege zum selben Ziel auf einem
+                  Bildschirm lesen sich wie zwei verschiedene Angebote. */}
             </div>
           )}
 
@@ -948,9 +938,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               Gutschein wird angeboten, sonst der Weg zu den Punkten, und ohne
               Konto führt er dorthin, wo Punkte überhaupt erst hingehören. */}
           <div className="px-6 pt-7 pb-8 mt-auto space-y-3">
-            {!store.guest.loggedIn ? (
-              <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern — Konto anlegen</PrimaryBtn>
-            ) : unlockedVouchers.length > 0 ? (
+            {/* Ohne Konto steht hier KEINE Hauptaktion mehr: die eine
+                Aufforderung „Punkte sichern" steht oben beim Betrag, um den
+                es geht. Wer angemeldet ist, bekommt hier das, was jetzt
+                wirklich ansteht. */}
+            {store.guest.loggedIn && (unlockedVouchers.length > 0 ? (
               <PrimaryBtn onClick={() => { setRedeeming(unlockedVouchers[0]); }}>
                 „{unlockedVouchers[0].title}" jetzt einlösen
               </PrimaryBtn>
@@ -958,7 +950,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <PrimaryBtn onClick={() => openVouchers('thanks')}>
                 Punkte &amp; Gutscheine ansehen
               </PrimaryBtn>
-            )}
+            ))}
             {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
                 einzige Weg zurück über das Neuladen der Seite. */}
             <button onClick={() => go('welcome')}
@@ -993,7 +985,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   Punkte sammeln und einlösen geht nur mit Anmeldung — sonst wüssten
                   wir nicht, wem die Punkte gehören.
                 </p>
-                <PrimaryBtn onClick={() => setAuthOpen(true)}>Anmelden oder Konto anlegen</PrimaryBtn>
+                <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
               </div>
             ) : (
               // Der Weg ins eigene Konto. Vorher stand hier nur „Angemeldet
@@ -4973,9 +4965,18 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
           <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full" />
 
           <AuthHeader
-            title={mode === 'login' ? 'Willkommen zurück' : 'Punkte dauerhaft sichern'}
-            subtitle="Deine Punkte hängen an deinem Konto — damit sind sie auf jedem Gerät da, auch beim nächsten Besuch."
+            title="Punkte sichern"
+            subtitle="Deine Punkte hängen an deinem Konto. Damit sind sie auf jedem Gerät da, auch beim nächsten Besuch."
           />
+
+          {/* Google steht ZUERST. Es ist der kürzeste Weg zu einem Konto: kein
+              Passwort ausdenken, keins vergessen. Wer lieber tippt, findet das
+              Formular direkt darunter. Ohne hinterlegte Client-ID entfällt der
+              ganze Block, statt eine tote Reihe zu zeigen. */}
+          {store.authOptions.google && (
+            <AuthSocialRow placeholders={false} label="Am schnellsten"
+              googleSlot={<div ref={googleRef} className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0" />} />
+          )}
 
           <div className="w-full flex flex-col gap-3">
             {mode === 'register' && (
@@ -5004,17 +5005,15 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
             {busy ? 'Einen Moment…' : mode === 'login' ? 'Anmelden' : 'Konto anlegen'}
           </AuthPrimaryButton>
 
-          <AuthSocialRow
-            googleSlot={store.authOptions.google
-              ? <div ref={googleRef} className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0" />
-              : undefined}
-          />
-
+          {/* Anmelden und Registrieren sind nicht zwei Angebote, sondern zwei
+              Zustände derselben Maske. Deshalb ein Textlink und kein zweiter
+              Knopf neben dem ersten. */}
           <button onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(null); }}
-            className="w-full text-[13px] text-gray-500 dark:text-gray-400 py-1">
+            className="w-full min-h-[44px] text-[13px] font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-600">
             {mode === 'login' ? 'Noch kein Konto? Jetzt anlegen' : 'Schon ein Konto? Anmelden'}
           </button>
-          <button onClick={onClose} className="w-full text-[13px] text-gray-400 py-1">
+          <button onClick={onClose}
+            className="w-full min-h-[44px] text-[13px] rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-600">
             Ohne Konto weiter
           </button>
         </div>

@@ -85,15 +85,25 @@ const SOCIAL_SQUARE =
  * Gestrichelte Trennlinie und die Dienste-Knöpfe. Google ist echt (der Knopf
  * kommt von Google Identity Services und wird als `googleSlot` hereingereicht,
  * sofern der Server eine Client-ID hinterlegt hat). Facebook und Apple sind
- * noch nicht angebunden — `googleAuth.ts` kennt nur Google — und stehen bis
+ * noch nicht angebunden (`googleAuth.ts` kennt nur Google) und stehen bis
  * dahin nur für das Layout.
+ *
+ * `placeholders` schaltet die beiden Attrappen ab. Im Gast-Blatt stehen die
+ * Dienste ganz oben, als erster Weg hinein: dort dürfen keine Knöpfe liegen,
+ * die nichts tun. In der Personal-Anmeldung bleiben sie vorerst.
+ *
+ * `label` beschriftet die Trennlinie. „Oder weiter mit" stimmt nur, wenn die
+ * Reihe UNTER dem Formular steht; steht sie darüber, ist sie der erste Weg
+ * und nicht das Oder.
  */
-export function AuthSocialRow({ googleSlot }: { googleSlot?: React.ReactNode }) {
+export function AuthSocialRow({ googleSlot, placeholders = true, label = 'Oder weiter mit' }: {
+  googleSlot?: React.ReactNode; placeholders?: boolean; label?: string;
+}) {
   return (
     <div className="w-full">
       <div className="flex items-center w-full">
         <div className="flex-grow border-t border-dashed border-gray-200 dark:border-gray-700" />
-        <span className="mx-3 text-xs text-gray-400">Oder weiter mit</span>
+        <span className="mx-3 text-xs text-gray-400">{label}</span>
         <div className="flex-grow border-t border-dashed border-gray-200 dark:border-gray-700" />
       </div>
       <div className="flex gap-3 w-full justify-center mt-3">
@@ -103,12 +113,16 @@ export function AuthSocialRow({ googleSlot }: { googleSlot?: React.ReactNode }) 
           </span>
         )}
         {/* TODO: Facebook- und Apple-Login nachrüsten (Server-Prüfung wie in googleAuth.ts). */}
-        <button type="button" title="Bald verfügbar" className={SOCIAL_SQUARE}>
-          <FacebookGlyph />
-        </button>
-        <button type="button" title="Bald verfügbar" className={SOCIAL_SQUARE}>
-          <AppleGlyph />
-        </button>
+        {placeholders && (
+          <>
+            <button type="button" title="Bald verfügbar" className={SOCIAL_SQUARE}>
+              <FacebookGlyph />
+            </button>
+            <button type="button" title="Bald verfügbar" className={SOCIAL_SQUARE}>
+              <AppleGlyph />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
