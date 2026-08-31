@@ -282,7 +282,10 @@ export interface PointsRule {
  * Was eine Bewertung mit so vielen bewerteten Gerichten einbringt. Dieselbe
  * Rechnung wie `pointsFor` auf dem Server, nur mit dessen Zahlen gefüttert.
  */
-export function pointsFor(rule: PointsRule, ratedCount: number): number {
+export function pointsFor(rule: PointsRule | undefined, ratedCount: number): number {
+  // Ohne Regel keine Zusage: 0 heißt hier „wir wissen es nicht", und die
+  // Oberfläche zeigt dann gar keinen Betrag an, statt einen falschen.
+  if (!rule) return 0;
   return ratedCount * rule.perDish + rule.perReview;
 }
 
@@ -460,6 +463,24 @@ interface StoreApi extends OrgState {
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
+
+/**
+ * Fehlende Felder auffüllen, bevor die Oberfläche den Zustand zu sehen bekommt.
+ *
+ * `setState` ersetzt den Zustand VOLLSTÄNDIG durch die Antwort des Servers, an
+ * über dreißig Stellen. Läuft die Oberfläche gegen einen älteren Server, fehlt
+ * dort, was sie inzwischen liest, und ein `undefined` an der falschen Stelle
+ * ist kein fehlendes Detail, sondern ein weißer Bildschirm: `pointsRule` nicht
+ * gesetzt hieß, dass der Bewertungsbildschirm beim Öffnen abstürzte.
+ *
+ * Frontend und Backend gehen nicht immer im selben Moment raus (Netlify und
+ * Render bauen getrennt, und Render Free schläft dazwischen ein). Das hier ist
+ * die eine Stelle, die das aushält. Wer ein neues Feld in `OrgState` aufnimmt,
+ * das die Oberfläche ohne Prüfung liest, trägt es hier ein.
+ */
+function withDefaults(s: OrgState): OrgState {
+  return { ...s, pointsRule: s.pointsRule ?? EMPTY_STATE.pointsRule };
+}
 
 const EMPTY_STATE: OrgState = {
   brand: null, dashboard: { hiddenWidgets: [] },
@@ -812,7 +833,7 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   }, [call]);
 
   const value = useMemo<StoreApi>(() => ({
-    ...state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
+    ...withDefaults(state), orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin,
     guestLogout, deleteGuestAccount, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,

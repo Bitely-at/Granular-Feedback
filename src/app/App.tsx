@@ -436,7 +436,9 @@ function PointsExplainer({ rule, points, loggedIn }: {
   rule: PointsRule; points: number; loggedIn: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  if (rule.perDish <= 0) return null;
+  // `?.` ist Absicht: fehlt die Regel (älterer Server), bleibt der Block aus,
+  // statt die ganze Ansicht mitzureißen.
+  if (!(rule?.perDish > 0)) return null;
 
   return (
     <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-4">
