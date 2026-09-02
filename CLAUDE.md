@@ -43,6 +43,14 @@ npm run server:seed      # Demo-Daten für 'sakura-sushi' anlegen
 npm run new-org --prefix server -- <slug> "<Name>" <admin-email> [passwort]
 npm run new-org --prefix server -- <slug> "<Name>" <admin-email> --demo --kind=pizza
 
+# Eine Organisation restlos entfernen (Registry + Datenbank leeren). Für
+# verunglückte new-org-Anläufe. Ohne --yes wird nur gezeigt, was ginge.
+npm run drop-org --prefix server -- <slug> --yes
+
+# Vorgefertigte Demo-Mandanten:
+npm run seed:miners --prefix server      # 'the-miners' (Wien Naschmarkt + Dresden), EUR
+npm run seed:miners-cz --prefix server   # 'the-miners-cz' (Prag JZP + Maj), CZK, Gastansicht EN
+
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
