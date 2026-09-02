@@ -329,10 +329,26 @@ nicht, sie bekommt Fremdes gar nicht erst:
 
 ## KI-Funktionen
 
-Drei Stellen fragen ein Modell (`claude-opus-5`, SDK `@anthropic-ai/sdk`):
-der **Rezensionstext** auf dem Dank-Bildschirm (`reviewText.ts`), der
+Drei Stellen fragen ein Modell (SDK `@anthropic-ai/sdk`): der
+**Rezensionstext** auf dem Dank-Bildschirm (`reviewText.ts`), der
 **Wochenrückblick** im Dashboard und der **Bon-Scan** der Servicekraft
 (beide `ai.ts`).
+
+- **Modellwahl nach Kosten.** Rezensionstext und Bon-Scan laufen auf
+  `claude-sonnet-5` — beide skalieren mit der Nutzung (Zahl der Bewertungen
+  bzw. der Scans), und weder ein kurzer Rezensionstext noch der Abgleich eines
+  Bons gegen eine Karte braucht das Spitzenmodell. Der **Wochenrückblick**
+  bleibt auf `claude-opus-5`: er läuft höchstens einmal am Tag je Filiale
+  (gespeichert in `settings`), der Kostenpunkt ist klein, und er ist das
+  Stück, das der Betreiber liest. Nur der Rückblick trägt darum noch den
+  serverseitigen `fallbacks`-Zusatz (Opus-5-Feature); die Sonnet-Aufrufe
+  fangen eine Ablehnung über `stop_reason === 'refusal'` und den `try/catch`
+  ab, wie bisher.
+- **`logUsage` (`ai.ts`) schreibt den Tokenverbrauch je Aufruf ins Log**
+  (`[ki-usage] …`). Kein Kostenzähler — es gibt noch keinen echten Verkehr,
+  also lässt sich der Preis nicht schätzen. Nach ein paar Wochen Pilotbetrieb
+  rechnet man ihn aus diesen Zeilen. Die harte Obergrenze ist das
+  Ausgabenlimit auf dem Anthropic-Workspace, nicht der Code.
 
 - **Jede hat einen Notausgang.** Ohne `ANTHROPIC_API_KEY` — und bei jedem
   Fehler der Schnittstelle — greift beim Rezensionstext und beim Rückblick eine

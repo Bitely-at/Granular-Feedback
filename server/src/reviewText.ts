@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { claudeClient } from './ai.js';
+import { claudeClient, logUsage } from './ai.js';
 
 // ═══════════════════════════════════════════════════════════
 // LLM-Rezensionstext
@@ -126,20 +126,20 @@ export async function generateReviewText(input: ReviewTextInput, apiKey?: string
 
   try {
     const response = await anthropic.beta.messages.create({
-      model: 'claude-opus-5',
+      // Sonnet statt Opus: ein kurzer Rezensionstext aus einer Handvoll
+      // Sterne ist keine Aufgabe für das Spitzenmodell, und dieser Aufruf
+      // skaliert mit der Zahl der Bewertungen. Ein Drittel des Preises.
+      model: 'claude-sonnet-5',
       max_tokens: 2048, // deckt Denk- und Antworttokens ab; der Text selbst ist kurz
       output_config: { effort: 'low' },
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: brief }],
-      // Serverseitiger Fallback: lehnt das Modell aus Policy-Gründen ab, beantwortet
-      // Anthropic die Anfrage automatisch mit einem Ersatzmodell.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
     });
 
     if (response.stop_reason === 'refusal') {
       return { text: fallbackReviewText(input), source: 'fallback', fallbackReason: 'Anfrage wurde vom Modell abgelehnt.' };
     }
+    logUsage('rezensionstext', response);
 
     const text = response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')

@@ -37,6 +37,22 @@ export function hasClaude(apiKey?: string | null): boolean {
   return Boolean(apiKey || process.env.ANTHROPIC_API_KEY);
 }
 
+/**
+ * Der Verbrauch eines Modellaufrufs ins Log. Kein Kostenzähler, nur die
+ * Grundlage dafür: Es gibt noch keinen echten Verkehr, also lässt sich der
+ * Preis nicht schätzen — nach ein paar Wochen Pilotbetrieb rechnet man ihn
+ * aus diesen Zeilen in den Render-Logs. Die harte Obergrenze ist das
+ * Ausgabenlimit auf dem Anthropic-Workspace, nicht dieser Aufruf.
+ */
+export function logUsage(
+  tag: string,
+  response: { model?: string; usage?: { input_tokens?: number; output_tokens?: number } | null },
+): void {
+  const u = response.usage;
+  if (!u) return;
+  console.log(`[ki-usage] ${tag} model=${response.model ?? '?'} in=${u.input_tokens ?? 0} out=${u.output_tokens ?? 0}`);
+}
+
 // ── Wochenrückblick ──────────────────────────────────────
 
 export interface HighlightInput {
@@ -122,7 +138,9 @@ export async function generateHighlight(input: HighlightInput, apiKey?: string |
       system: HIGHLIGHT_SYSTEM,
       messages: [{ role: 'user', content: brief }],
       // Lehnt das Modell aus Policy-Gründen ab, beantwortet Anthropic die
-      // Anfrage automatisch mit einem Ersatzmodell — wie in reviewText.ts.
+      // Anfrage automatisch mit einem Ersatzmodell. Nur hier: der Rückblick
+      // bleibt auf Opus (einmal am Tag je Filiale, der Kostenpunkt ist klein),
+      // die beiden häufigen Aufrufe laufen auf Sonnet ohne diesen Zusatz.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
     });
@@ -130,6 +148,7 @@ export async function generateHighlight(input: HighlightInput, apiKey?: string |
     if (response.stop_reason === 'refusal') {
       return { text: fallbackHighlight(input), source: 'fallback' };
     }
+    logUsage('wochenrückblick', response);
     const text = response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map(b => b.text).join('\n').trim();
@@ -179,7 +198,10 @@ export async function scanReceipt(
 
   try {
     const response = await anthropic.beta.messages.create({
-      model: 'claude-opus-5',
+      // Sonnet statt Opus: einen Bon gegen eine kurze Karte abzugleichen
+      // braucht kein Spitzenmodell, und der Scan skaliert mit der Nutzung
+      // durch das Personal. Ein Drittel des Preises bei gleicher Trefferquote.
+      model: 'claude-sonnet-5',
       max_tokens: 4096,
       output_config: {
         effort: 'low',
@@ -214,11 +236,10 @@ export async function scanReceipt(
           { type: 'text', text: `Speisekarte (ID | Name | Preis):\n${card}\n\nWelche dieser Gerichte stehen auf dem Bon?` },
         ],
       }],
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
     });
 
     if (response.stop_reason === 'refusal') return null;
+    logUsage('bon-scan', response);
 
     const text = response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
