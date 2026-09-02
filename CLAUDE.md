@@ -35,7 +35,14 @@ Ketten-Admin). Wer eine neue Route baut, hält sich daran.
 ```bash
 npm run dev              # Frontend, Port 5173
 npm run server:dev       # Backend, Port 4000
-npm run server:seed      # Demo-Daten anlegen
+npm run server:seed      # Demo-Daten für 'sakura-sushi' anlegen
+
+# Neue Organisation (Mandant). Ohne --demo nur das Minimum (Registry, eine
+# Filiale, Branding, Ketten-Admin); mit --demo dazu Speisekarte, acht Tische,
+# Gutscheine und Demo-Konten. Presets: bistro, pizza, sushi, cafe.
+npm run new-org --prefix server -- <slug> "<Name>" <admin-email> [passwort]
+npm run new-org --prefix server -- <slug> "<Name>" <admin-email> --demo --kind=pizza
+
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung

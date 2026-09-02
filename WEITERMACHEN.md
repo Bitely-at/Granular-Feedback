@@ -79,10 +79,13 @@ In der Reihenfolge, in der sie zuletzt besprochen wurden:
 2. ~~**Bewertung: Service mit der Gesamtbewertung zusammenlegen**~~ — erledigt:
    Service, Ambiente und Tempo stehen unter den Gerichten auf demselben
    Bildschirm, der zweite Schritt ist entfallen.
-3. **Neue Restaurants anlegen** — heute nur über das Seed-Skript. Empfohlener
-   erster Schritt: ein Skript `new-org` (Registry-Eintrag, Datenbank mit Indizes,
-   erste Filiale, erster Kettenadmin mit Passwort). Self-Service und Bezahlung
-   erst, wenn es zahlende Kunden gibt.
+3. ~~**Neue Restaurants anlegen**~~ — erledigt: `npm run new-org --prefix server
+   -- <slug> "<Name>" <admin-email> [passwort]` legt Registry-Eintrag, erste
+   Filiale, Branding und Ketten-Admin an; die Indizes zieht `ensureOrgSchema`
+   beim ersten Zugriff. Mit `--demo [--kind=bistro|pizza|sushi|cafe]` kommt ein
+   vorzeigbares Lokal dazu (Speisekarte, acht Tische, Gutscheine, Demo-Konten);
+   erfundene Bewertungen danach über `demo-reviews -- <wochen> <slug>`.
+   Self-Service und Bezahlung weiterhin erst, wenn es zahlende Kunden gibt.
 4. **Monetarisierung** — Felder `plan`, `status`, `trialEndsAt` in
    `bitely_platform.organizations`, durchgesetzt in `resolveOrg`. Franchise mit
    eigener Buchhaltung = eigene Organisation; Filialen desselben Betreibers =
