@@ -172,9 +172,9 @@ function PrimaryBtn({ children, onClick, disabled, full = true, sm }: {
  */
 function PoweredByBitely() {
   return (
-    <div className="w-full flex items-center gap-2 mt-10 pt-5 border-t border-gray-200/70 dark:border-gray-800">
+    <div className="w-full flex items-center gap-2.5 mt-10 pt-5 border-t border-gray-200/70 dark:border-gray-800">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
-      <BitelyWordmark className="h-4 opacity-80" />
+      <BitelyWordmark className="h-6" />
     </div>
   );
 }
@@ -1475,24 +1475,26 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
     : branchTables.find(t => t.number === activeTableNumber) ?? null;
 
   // Zwei Zustände, und der eine ist der, der Arbeit bedeutet: eine Bestellung
-  // liegt an, deren Bewertung noch aussteht. Der wird farbig hervorgehoben,
-  // der freie Tisch bleibt ruhig.
+  // liegt an, deren Bewertung noch aussteht. Der wird hervorgehoben — aber nur
+  // durch den Rahmen: schlichtes Orange außen, neutrale Fläche innen. Der
+  // getönte Hintergrund und die Orange-auf-Orange-Schrift von früher waren
+  // schwer zu lesen. Schrift innen weiß (dunkel) bzw. grau (hell).
   const statusCls: Record<TableRow['status'], string> = {
     frei: 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500',
-    offen: 'bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300',
+    offen: 'bg-white dark:bg-gray-800 border-orange-500 text-gray-600 dark:text-white',
   };
 
   const openAlerts = store.alerts.filter(a => !a.resolved && a.branchId === branch.id);
-  // Entwertet, aber noch nicht ausgegeben. 'offen' steht mit drin, weil in der
-  // Datenbank noch Einlösungen aus der Zeit der 60-Sekunden-Frist liegen können.
-  const openRedemptions = store.redemptions.filter(r => r.status === 'entwertet' || r.status === 'offen');
 
-  // Wartende Einlösungen sind sofort relevant — solange eine aussteht,
-  // regelmäßig nachladen, damit sie erscheint, ohne dass jemand neu lädt.
+  // Alle paar Sekunden nachladen, damit neue Bestellungen, Tischwechsel und
+  // Alarme ohne Zutun erscheinen. Gutschein-Einlösungen tauchen hier bewusst
+  // NICHT mehr als Banner auf — der Wisch des Gastes entwertet endgültig, mehr
+  // muss die Servicekraft dazu nicht tun. Die Übersicht steht in der
+  // Verwaltung unter „Einlösungen".
   useEffect(() => {
-    const iv = setInterval(() => { store.refresh(); }, openRedemptions.length > 0 ? 3000 : 12000);
+    const iv = setInterval(() => { store.refresh(); }, 12000);
     return () => clearInterval(iv);
-  }, [openRedemptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openTableByNumber = (number: number) => {
     const t = branchTables.find(x => x.number === number);
@@ -1579,13 +1581,6 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
             <button onClick={() => store.resolveAlert(a.id)} className="text-amber-800 dark:text-amber-300 text-[12px] font-medium underline">Erledigt</button>
           </motion.div>
         ))}
-
-        {/* Entwertete Gutscheine, deren Ausgabe noch aussteht. Der Gast hat die
-            Punkte bereits bezahlt; hier wird nur eingetragen, was tatsächlich
-            über die Theke ging. */}
-        {openRedemptions.map(r => (
-          <RedemptionBanner key={r.id} redemption={r} branch={branch} />
-        ))}
       </AnimatePresence>
 
       <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
@@ -1620,7 +1615,7 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
               </p>
             </div>
             <div className="flex items-center gap-3 sm:gap-4 text-[12px] sm:text-[13px] text-gray-500">
-              {([['bg-gray-300', 'Frei'], ['bg-amber-400', 'Bewertung offen']] as const).map(([cls, l]) => (
+              {([['bg-gray-300', 'Frei'], ['bg-orange-500', 'Bewertung offen']] as const).map(([cls, l]) => (
                 <span key={l} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${cls}`} />{l}</span>
               ))}
             </div>
@@ -3256,10 +3251,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight truncate">{store.brand?.name}</p>
-            {/* Die Wortmarke stand in der weggefallenen Leiste. Sie gehört
-                weiterhin genau einmal auf den Bildschirm: hier, klein unter dem
-                Namen des Lokals — wer verwaltet wessen Laden womit. */}
-            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">Admin · <BitelyWordmark className="h-4 opacity-70" /></p>
+            <p className="text-[11px] text-gray-400">Verwaltung</p>
           </div>
           <button onClick={() => setMobileNav(false)} title="Menü schließen"
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -3350,6 +3342,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
           </button>
+        </div>
+
+        {/* Die Bitely-Wortmarke steht genau einmal auf dem Bildschirm — hier,
+            am Fuß der Leiste, mit Platz und in lesbarer Größe: wer verwaltet
+            wessen Laden womit. */}
+        <div className="px-4 py-3.5 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2.5">
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Powered by</span>
+          <BitelyWordmark className="h-6" />
         </div>
       </aside>
 
@@ -4116,7 +4116,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               </button>
                               <div className="flex items-center justify-center gap-2 pt-5">
                                 <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
-                                <BitelyWordmark className="h-4 opacity-80" />
+                                <BitelyWordmark className="h-5" />
                               </div>
                             </div>
                           </div>
@@ -5067,8 +5067,8 @@ function TopBar({ dark, setDark }: {
   return (
     // Am Handy nur Symbole: mit ausgeschriebenen Beschriftungen war diese Zeile
     // breiter als der Bildschirm und hat die ganze Seite seitlich scrollbar gemacht.
-    <div className="bg-gray-950 text-white px-3 sm:px-4 h-10 flex items-center gap-2 sm:gap-3 text-[12px] sticky top-0 z-50 overflow-hidden">
-      <BitelyWordmark tone="light" className="h-5 flex-shrink-0" />
+    <div className="bg-gray-950 text-white px-3 sm:px-4 h-12 flex items-center gap-2 sm:gap-3 text-[12px] sticky top-0 z-50 overflow-hidden">
+      <BitelyWordmark tone="light" className="h-7 flex-shrink-0" />
       {authUser && (
         <>
           <span className="hidden sm:inline text-gray-700 mx-1">|</span>
@@ -5574,49 +5574,6 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
 }
 
 /**
- * Eine entwertete, noch nicht ausgegebene Einlösung in der Kellner-App.
- *
- * Ohne Code: der Gast sieht keinen mehr, sondern ein großes Häkchen — es gäbe
- * also nichts zu vergleichen. Was die Servicekraft braucht, um an den richtigen
- * Tisch zu gehen, steht ohnehin hier: Tisch und Gutschein.
- */
-function RedemptionBanner({ redemption, branch }: { redemption: Redemption; branch: Branch }) {
-  const store = useStore();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const confirm = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await store.confirmRedemption(branch.slug, redemption.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Eintragen fehlgeschlagen.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <motion.div initial={{ y: -56 }} animate={{ y: 0 }} exit={{ y: -56 }}
-      className="bg-emerald-50 dark:bg-emerald-950 border-b border-emerald-200 dark:border-emerald-900 px-5 py-2.5 flex items-center gap-3 z-40 relative flex-wrap">
-      <Ticket size={16} className="text-emerald-700 dark:text-emerald-400 flex-shrink-0" />
-      <p className="text-[13px] text-emerald-900 dark:text-emerald-200 flex-1 min-w-[200px]">
-        {redemption.tableNumber != null && <>Tisch {redemption.tableNumber} · </>}
-        <strong>{redemption.voucherTitle}</strong>
-      </p>
-      {error && <span className="text-[12px] text-red-600 dark:text-red-400">{error}</span>}
-      <button onClick={confirm} disabled={busy}
-        className="flex-shrink-0 px-4 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
-        style={{ backgroundColor: '#059669' }}>
-        {busy ? 'Wird eingetragen…' : 'Ausgegeben'}
-      </button>
-    </motion.div>
-  );
-}
-
-/**
  * Führt diese Filiale das Gericht? Der Schalter der Filialleitung — die
  * Stammdaten (Name, Preis, Foto) bleiben Sache der Kette.
  */
@@ -5655,7 +5612,7 @@ function DishAvailabilityToggle({ dish, branch }: { dish: Dish; branch: Branch }
 /** Filialwahl für den Ketten-Admin, der die Kellneransicht öffnet. */
 function BranchPicker({ branches, onPick }: { branches: Branch[]; onPick: (slug: string) => void }) {
   return (
-    <div className="min-h-[calc(100dvh-40px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
+    <div className="min-h-[calc(100dvh-48px)] flex items-center justify-center p-4 bg-[#F7F8FA] dark:bg-[#0D1117]">
       <div className="w-full max-w-sm">
         <p className="text-[17px] font-semibold text-gray-900 dark:text-white mb-1">Filiale wählen</p>
         <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4">
