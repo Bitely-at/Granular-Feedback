@@ -40,13 +40,13 @@ import { SwipeToRedeem } from './components/SwipeToRedeem';
 // ═══════════════════════════════════════════════════════════
 
 const PERMISSIONS = [
-  { label: 'Bewertungen einsehen', admin: true, manager: true, waiter: false },
-  { label: 'Berichte exportieren', admin: true, manager: true, waiter: false },
-  { label: 'Menü bearbeiten', admin: true, manager: true, waiter: false },
-  { label: 'Benutzer verwalten', admin: true, manager: false, waiter: false },
-  { label: 'Einstellungen ändern', admin: true, manager: false, waiter: false },
-  { label: 'Tische verwalten', admin: true, manager: true, waiter: true },
-  { label: 'Gutscheine prüfen', admin: true, manager: true, waiter: true },
+  { de: 'Bewertungen einsehen', en: 'View ratings', admin: true, manager: true, waiter: false },
+  { de: 'Berichte exportieren', en: 'Export reports', admin: true, manager: true, waiter: false },
+  { de: 'Menü bearbeiten', en: 'Edit menu', admin: true, manager: true, waiter: false },
+  { de: 'Benutzer verwalten', en: 'Manage users', admin: true, manager: false, waiter: false },
+  { de: 'Einstellungen ändern', en: 'Change settings', admin: true, manager: false, waiter: false },
+  { de: 'Tische verwalten', en: 'Manage tables', admin: true, manager: true, waiter: true },
+  { de: 'Gutscheine prüfen', en: 'Check vouchers', admin: true, manager: true, waiter: true },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -2284,7 +2284,7 @@ function BranchScopeField({ label, hint, value, onChange }: {
       <div className="space-y-1.5">
         <label className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300">
           <input type="checkbox" checked={everywhere} onChange={() => onChange(everywhere ? [store.branches[0].id] : null)} />
-          In allen Filialen
+          {t('In allen Filialen', 'At all branches')}
         </label>
         {!everywhere && (
           <div className="pl-5 space-y-1">
@@ -2459,6 +2459,7 @@ function parseDishCsv(text: string, existing: Dish[]): { rows: ImportRow[]; erro
  */
 function DishImportDialog({ onClose }: { onClose: () => void }) {
   const store = useStore();
+  const t = useT();
   const [rows, setRows] = useState<ImportRow[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -2499,18 +2500,18 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
     }
     setBusy(false);
     setDone({ created, failed });
-    if (failed > 0) setError(`${failed} ${failed === 1 ? 'Gericht' : 'Gerichte'} konnten nicht angelegt werden.`);
+    if (failed > 0) setError(t(`${failed} ${failed === 1 ? 'Gericht' : 'Gerichte'} konnten nicht angelegt werden.`, `${failed} ${failed === 1 ? 'dish' : 'dishes'} could not be created.`));
   };
 
   return (
-    <AdminModal title="Speisekarte importieren" onClose={onClose} footer={
+    <AdminModal title={t('Speisekarte importieren', 'Import menu')} onClose={onClose} footer={
       done ? (
-        <PrimaryBtn onClick={onClose}>Fertig</PrimaryBtn>
+        <PrimaryBtn onClick={onClose}>{t('Fertig', 'Done')}</PrimaryBtn>
       ) : (
         <>
-          <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
+          <SecondaryBtn onClick={onClose}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
           <PrimaryBtn onClick={run} disabled={busy || fresh.length === 0}>
-            {busy ? 'Wird angelegt…' : fresh.length > 0 ? `${fresh.length} anlegen` : 'Anlegen'}
+            {busy ? t('Wird angelegt…', 'Creating…') : fresh.length > 0 ? t(`${fresh.length} anlegen`, `Create ${fresh.length}`) : t('Anlegen', 'Create')}
           </PrimaryBtn>
         </>
       )
@@ -2518,25 +2519,19 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
       {done ? (
         <div className="space-y-2">
           <p className="text-[14px] text-gray-700 dark:text-gray-200">
-            {done.created} {done.created === 1 ? 'Gericht' : 'Gerichte'} angelegt.
+            {t(`${done.created} ${done.created === 1 ? 'Gericht' : 'Gerichte'} angelegt.`, `${done.created} ${done.created === 1 ? 'dish' : 'dishes'} created.`)}
           </p>
           <p className="text-[12px] text-gray-400 leading-relaxed">
-            Preise und Kategorien stehen jetzt in der Karte. Fotos fehlen noch, die
-            lädst du je Gericht in der Liste hoch.
+            {t('Preise und Kategorien stehen jetzt in der Karte. Fotos fehlen noch, die lädst du je Gericht in der Liste hoch.',
+               'Prices and categories are in the menu now. Photos are still missing — add them per dish in the list.')}
           </p>
         </div>
       ) : (
         <>
           <div>
             <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
-              Eine Zeile je Gericht, mit Kopfzeile. Gebraucht wird die Spalte
-              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Gericht</code>,
-              dazu gern
-              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Preis</code>
-              und
-              <code className="mx-1 text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Kategorie</code>.
-              Komma oder Semikolon als Trennzeichen, beides wird erkannt, wie auch
-              die Datei aus „Export" auf dieser Seite.
+              {t('Eine Zeile je Gericht, mit Kopfzeile. Gebraucht wird die Spalte „Gericht", dazu gern „Preis" und „Kategorie". Komma oder Semikolon als Trennzeichen, beides wird erkannt, wie auch die Datei aus „Export" auf dieser Seite.',
+                 'One row per dish, with a header line. The "Gericht" (dish) column is required; "Preis" (price) and "Kategorie" (category) are welcome too. Comma or semicolon as separator — both are recognised, as is the file from "Export" on this page.')}
             </p>
             <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden"
               onChange={e => {
@@ -2544,17 +2539,17 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
                 e.target.value = '';
                 if (!f) return;
                 f.text()
-                  .then(t => read(t, f.name))
-                  .catch(() => setParseError('Die Datei konnte nicht gelesen werden.'));
+                  .then(text => read(text, f.name))
+                  .catch(() => setParseError(t('Die Datei konnte nicht gelesen werden.', 'The file could not be read.')));
               }} />
             <button onClick={() => fileRef.current?.click()}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 text-[13px] text-gray-600 dark:text-gray-300 hover:border-gray-400 transition-colors">
-              <Upload size={14} strokeWidth={1.5} /> {fileName ?? 'CSV-Datei wählen'}
+              <Upload size={14} strokeWidth={1.5} /> {fileName ?? t('CSV-Datei wählen', 'Choose CSV file')}
             </button>
           </div>
 
           <div>
-            <p className="text-[12px] text-gray-400 mb-1.5">…oder den Inhalt hier einfügen</p>
+            <p className="text-[12px] text-gray-400 mb-1.5">{t('…oder den Inhalt hier einfügen', '…or paste the content here')}</p>
             <textarea rows={4} placeholder={'Gericht;Kategorie;Preis\nMiso-Suppe;Speisen;4,50'}
               onChange={e => read(e.target.value, null)}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] font-mono text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors resize-y" />
@@ -2566,9 +2561,9 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
           {rows && (
             <div className="space-y-2">
               <p className="text-[13px] text-gray-700 dark:text-gray-200">
-                {fresh.length} neu
-                {skipped > 0 && <span className="text-gray-400"> · {skipped} schon in der Karte</span>}
-                {broken.length > 0 && <span className="text-red-500"> · {broken.length} fehlerhaft</span>}
+                {t(`${fresh.length} neu`, `${fresh.length} new`)}
+                {skipped > 0 && <span className="text-gray-400"> · {t(`${skipped} schon in der Karte`, `${skipped} already in the menu`)}</span>}
+                {broken.length > 0 && <span className="text-red-500"> · {t(`${broken.length} fehlerhaft`, `${broken.length} with errors`)}</span>}
               </p>
               <div className="max-h-52 overflow-y-auto rounded-xl border border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-800">
                 {rows.map(r => r.ok ? (
@@ -2576,11 +2571,11 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
                     <span className="flex-1 truncate text-gray-800 dark:text-gray-200">{r.name}</span>
                     <span className="text-[11px] text-gray-400 flex-shrink-0">{r.cat}</span>
                     <span className="text-[12px] text-gray-500 dark:text-gray-400 flex-shrink-0 tabular-nums">{r.price.toFixed(2)} €</span>
-                    {r.duplicate && <span className="text-[11px] text-gray-400 flex-shrink-0">übersprungen</span>}
+                    {r.duplicate && <span className="text-[11px] text-gray-400 flex-shrink-0">{t('übersprungen', 'skipped')}</span>}
                   </div>
                 ) : (
                   <div key={r.line} className="px-3 py-2 text-[12px]">
-                    <p className="text-red-600 dark:text-red-400">Zeile {r.line}: {r.reason}</p>
+                    <p className="text-red-600 dark:text-red-400">{t('Zeile', 'Line')} {r.line}: {r.reason}</p>
                     <p className="text-gray-400 truncate font-mono">{r.raw}</p>
                   </div>
                 ))}
@@ -2595,6 +2590,7 @@ function DishImportDialog({ onClose }: { onClose: () => void }) {
 
 function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void }) {
   const store = useStore();
+  const t = useT();
   const { saving, error, save } = useDialogSave(onClose);
   const [form, setForm] = useState({
     name: dish?.name ?? '',
@@ -2617,28 +2613,28 @@ function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void 
   });
 
   return (
-    <AdminModal title={dish ? 'Gericht bearbeiten' : 'Gericht hinzufügen'} onClose={onClose}
+    <AdminModal title={dish ? t('Gericht bearbeiten', 'Edit dish') : t('Gericht hinzufügen', 'Add dish')} onClose={onClose}
       footer={<>
-        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
-        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+        <SecondaryBtn onClick={onClose}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? t('Speichern…', 'Saving…') : t('Speichern', 'Save')}</PrimaryBtn>
       </>}>
       <div className="space-y-3">
-        <Field label="Name" value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Spicy Tuna Roll" />
+        <Field label={t('Name', 'Name')} value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Spicy Tuna Roll" />
         <div className="flex gap-3">
           <div className="flex-1">
-            <Field label="Preis (€)" type="text" value={form.price} onChange={v => setForm(p => ({ ...p, price: v }))} placeholder="14.50" />
+            <Field label={t('Preis (€)', 'Price (€)')} type="text" value={form.price} onChange={v => setForm(p => ({ ...p, price: v }))} placeholder="14.50" />
           </div>
           <div className="flex-1">
-            <label className="text-[12px] text-gray-500 mb-1 block">Kategorie</label>
+            <label className="text-[12px] text-gray-500 mb-1 block">{t('Kategorie', 'Category')}</label>
             <select value={form.cat} onChange={e => setForm(p => ({ ...p, cat: e.target.value as Dish['cat'] }))}
               className={FIELD_CLASS}>
-              {(['Speisen', 'Getränke'] as const).map(c => <option key={c} value={c}>{c}</option>)}
+              {(['Speisen', 'Getränke'] as const).map(c => <option key={c} value={c}>{c === 'Speisen' ? t('Speisen', 'Food') : t('Getränke', 'Drinks')}</option>)}
             </select>
           </div>
         </div>
-        <ImageField label="Foto" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} />
-        <BranchScopeField label="Wird geführt in" value={form.branchIds}
-          hint="Die Filialleitung kann das Gericht später für ihre Filiale zusätzlich ab- oder anschalten."
+        <ImageField label={t('Foto', 'Photo')} value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} />
+        <BranchScopeField label={t('Wird geführt in', 'Served at')} value={form.branchIds}
+          hint={t('Die Filialleitung kann das Gericht später für ihre Filiale zusätzlich ab- oder anschalten.', 'Branch managers can additionally toggle the dish for their own branch later.')}
           onChange={v => setForm(p => ({ ...p, branchIds: v }))} />
         <DialogError message={error} />
       </div>
@@ -2648,6 +2644,7 @@ function DishDialog({ dish, onClose }: { dish: Dish | null; onClose: () => void 
 
 function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose: () => void }) {
   const store = useStore();
+  const t = useT();
   const { saving, error, save } = useDialogSave(onClose);
   const [form, setForm] = useState({
     title: voucher?.title ?? '',
@@ -2670,24 +2667,24 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
   });
 
   return (
-    <AdminModal title={voucher ? 'Gutschein bearbeiten' : 'Gutschein hinzufügen'} onClose={onClose}
+    <AdminModal title={voucher ? t('Gutschein bearbeiten', 'Edit voucher') : t('Gutschein hinzufügen', 'Add voucher')} onClose={onClose}
       footer={<>
-        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
-        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+        <SecondaryBtn onClick={onClose}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? t('Speichern…', 'Saving…') : t('Speichern', 'Save')}</PrimaryBtn>
       </>}>
       <div className="space-y-3">
-        <Field label="Titel" value={form.title} onChange={v => setForm(p => ({ ...p, title: v }))} placeholder="Gratis Miso Suppe" />
+        <Field label={t('Titel', 'Title')} value={form.title} onChange={v => setForm(p => ({ ...p, title: v }))} placeholder={t('Gratis Miso Suppe', 'Free miso soup')} />
         <div className="flex gap-3">
           <div className="flex-1">
-            <Field label="Punkte" type="number" value={form.points} onChange={v => setForm(p => ({ ...p, points: v }))} placeholder="100" />
+            <Field label={t('Punkte', 'Points')} type="number" value={form.points} onChange={v => setForm(p => ({ ...p, points: v }))} placeholder="100" />
           </div>
           <div className="flex-1">
-            <Field label="Gültig bis" value={form.expiry} onChange={v => setForm(p => ({ ...p, expiry: v }))} placeholder="31.12.2026" />
+            <Field label={t('Gültig bis', 'Valid until')} value={form.expiry} onChange={v => setForm(p => ({ ...p, expiry: v }))} placeholder="31.12.2026" />
           </div>
         </div>
-        <ImageField label="Bild" value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} aspect="wide" />
-        <BranchScopeField label="Einlösbar in" value={form.branchIds}
-          hint="Punkte sammelt der Gast in der ganzen Kette. Ein Gutschein nur für eine Filiale sollte die Ausnahme bleiben."
+        <ImageField label={t('Bild', 'Image')} value={form.img} onChange={v => setForm(p => ({ ...p, img: v }))} aspect="wide" />
+        <BranchScopeField label={t('Einlösbar in', 'Redeemable at')} value={form.branchIds}
+          hint={t('Punkte sammelt der Gast in der ganzen Kette. Ein Gutschein nur für eine Filiale sollte die Ausnahme bleiben.', 'Guests collect points across the whole chain. A single-branch voucher should stay the exception.')}
           onChange={v => setForm(p => ({ ...p, branchIds: v }))} />
         <DialogError message={error} />
       </div>
@@ -2697,6 +2694,7 @@ function VoucherDialog({ voucher, onClose }: { voucher: Voucher | null; onClose:
 
 function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () => void }) {
   const store = useStore();
+  const t = useT();
   const { saving, error, save } = useDialogSave(onClose);
   const [form, setForm] = useState({
     name: branch?.name ?? '', address: branch?.address ?? '',
@@ -2716,30 +2714,30 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
   });
 
   return (
-    <AdminModal title={branch ? 'Filiale bearbeiten' : 'Filiale hinzufügen'} onClose={onClose}
+    <AdminModal title={branch ? t('Filiale bearbeiten', 'Edit branch') : t('Filiale hinzufügen', 'Add branch')} onClose={onClose}
       footer={<>
-        <SecondaryBtn onClick={onClose}>Abbrechen</SecondaryBtn>
-        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? 'Speichern…' : 'Speichern'}</PrimaryBtn>
+        <SecondaryBtn onClick={onClose}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+        <PrimaryBtn onClick={handleSave} disabled={!valid || saving}>{saving ? t('Speichern…', 'Saving…') : t('Speichern', 'Save')}</PrimaryBtn>
       </>}>
       <div className="space-y-3">
-        <Field label="Name" value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Herrengasse" />
-        <Field label="Adresse" value={form.address} onChange={v => setForm(p => ({ ...p, address: v }))} placeholder="Herrengasse 12, 8010 Graz" />
+        <Field label={t('Name', 'Name')} value={form.name} onChange={v => setForm(p => ({ ...p, name: v }))} placeholder="Herrengasse" />
+        <Field label={t('Adresse', 'Address')} value={form.address} onChange={v => setForm(p => ({ ...p, address: v }))} placeholder="Herrengasse 12, 8010 Graz" />
         {/* Der Dank-Bildschirm schickt Gäste mit ihrer fertig formulierten
             Rezension hierher. Ohne Wert entsteht ein Suchlink aus Name und
             Adresse — der trifft meist, aber nicht immer. */}
-        <Field label="Google-Maps-Link" value={form.googleMapsUrl}
+        <Field label={t('Google-Maps-Link', 'Google Maps link')} value={form.googleMapsUrl}
           onChange={v => setForm(p => ({ ...p, googleMapsUrl: v }))}
           placeholder="https://maps.app.goo.gl/…"
-          hint="Optional. Dorthin schicken wir Gäste, die ihre Bewertung öffentlich teilen wollen." />
+          hint={t('Optional. Dorthin schicken wir Gäste, die ihre Bewertung öffentlich teilen wollen.', 'Optional. Where we send guests who want to share their review publicly.')} />
         {/* Standortfoto: der Gast am Tisch dieser Filiale sieht es auf dem
             Empfangsbildschirm. Ohne eines greift das kettenweite Titelbild
             aus „Design". */}
         <div>
-          <ImageField label="Standortfoto (optional)" value={form.coverImage} aspect="wide"
+          <ImageField label={t('Standortfoto (optional)', 'Location photo (optional)')} value={form.coverImage} aspect="wide"
             onChange={v => setForm(p => ({ ...p, coverImage: v }))} />
           {form.coverImage && (
             <button type="button" onClick={() => setForm(p => ({ ...p, coverImage: null }))}
-              className="text-[11px] text-gray-400 hover:text-red-500 mt-1">Entfernen</button>
+              className="text-[11px] text-gray-400 hover:text-red-500 mt-1">{t('Entfernen', 'Remove')}</button>
           )}
         </div>
         <DialogError message={error} />
@@ -2837,6 +2835,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const store = useStore();
   const t = useT();
   const { lang: uiLang, setLang: setUiLang } = useLang();
+  // Die Gerichts-Kategorie wird als Wert 'Speisen'/'Getränke' gespeichert, aber
+  // übersetzt angezeigt.
+  const catLabel = (c: string) => c === 'Speisen' ? t('Speisen', 'Food') : c === 'Getränke' ? t('Getränke', 'Drinks') : c;
+  // Rolle: Wert bleibt 'Kellner'/'Manager'/'Admin', Anzeige übersetzt.
+  const roleLabel = (r: string) => r === 'Kellner' ? t('Kellner', 'Waiter') : r === 'Manager' ? t('Manager', 'Manager') : r === 'Admin' ? t('Admin', 'Admin') : r;
+  const statusLabel = (s: string) => s === 'aktiv' ? t('aktiv', 'active') : s === 'eingeladen' ? t('eingeladen', 'invited') : s === 'inaktiv' ? t('inaktiv', 'inactive') : s;
   const [page, setPage] = useState<AdminPage>('dashboard');
   // Der Bearbeiten-Modus mit ausblendbaren Kacheln ist entfallen: er versteckte
   // Zahlen hinter einem Schalter, den niemand wiederfand, und die Kacheln, die
@@ -4342,12 +4346,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="space-y-5">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Benutzer</p>
-                      <p className="text-[13px] text-gray-400 mt-0.5">{store.users.length} Benutzer · {store.brand?.name}</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Benutzer', 'Users')}</p>
+                      <p className="text-[13px] text-gray-400 mt-0.5">{t(`${store.users.length} Benutzer`, `${store.users.length} users`)} · {store.brand?.name}</p>
                     </div>
                     <button onClick={() => setShowInvite(true)}
                       className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
-                      <UserPlus size={13} strokeWidth={1.5} /> Einladen
+                      <UserPlus size={13} strokeWidth={1.5} /> {t('Einladen', 'Invite')}
                     </button>
                   </div>
 
@@ -4356,7 +4360,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                          {['Name', 'Rolle', 'Filiale', 'Status', ''].map(h => <th key={h} className="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>)}
+                          {[t('Name', 'Name'), t('Rolle', 'Role'), t('Filiale', 'Branch'), t('Status', 'Status'), ''].map((h, i) => <th key={i} className="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
@@ -4369,13 +4373,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               </div>
                             </td>
                             <td className="px-6 py-3.5">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.role === 'Admin' ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : u.role === 'Manager' ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500'}`}>{u.role}</span>
+                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.role === 'Admin' ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : u.role === 'Manager' ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500'}`}>{roleLabel(u.role)}</span>
                             </td>
-                            <td className="px-6 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{store.branches.find(b => b.id === u.branchId)?.name ?? 'Alle Filialen'}</td>
+                            <td className="px-6 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{store.branches.find(b => b.id === u.branchId)?.name ?? t('Alle Filialen', 'All branches')}</td>
                             <td className="px-6 py-3.5">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.status === 'aktiv' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : u.status === 'eingeladen' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'}`}>{u.status}</span>
+                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.status === 'aktiv' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : u.status === 'eingeladen' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'}`}>{statusLabel(u.status)}</span>
                               {u.status === 'eingeladen' && (
-                                <p className="text-[11px] text-gray-400 mt-1">kann sich noch nicht anmelden</p>
+                                <p className="text-[11px] text-gray-400 mt-1">{t('kann sich noch nicht anmelden', 'cannot sign in yet')}</p>
                               )}
                             </td>
                             <td className="px-6 py-3.5 relative" onClick={e => e.stopPropagation()}>
@@ -4392,15 +4396,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                   {isChainAdmin && (
                                     <button onClick={() => { setRoleDialog({ user: u, role: u.role, branchId: u.branchId ?? '', error: null }); setUserMenuOpen(null); }}
                                       className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
-                                      <Shield size={12} /> Rolle &amp; Filiale
+                                      <Shield size={12} /> {t('Rolle & Filiale', 'Role & branch')}
                                     </button>
                                   )}
                                   <button onClick={() => { setPwDialog({ user: u, value: '', error: null }); setUserMenuOpen(null); }}
                                     className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
-                                    <Lock size={12} /> {u.status === 'eingeladen' ? 'Freischalten' : 'Passwort ändern'}
+                                    <Lock size={12} /> {u.status === 'eingeladen' ? t('Freischalten', 'Activate') : t('Passwort ändern', 'Change password')}
                                   </button>
                                   <button onClick={() => { store.removeUser(u.id); setUserMenuOpen(null); }} className="w-full text-left px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950 flex items-center gap-2">
-                                    <Trash2 size={12} /> Entfernen
+                                    <Trash2 size={12} /> {t('Entfernen', 'Remove')}
                                   </button>
                                 </div>
                               )}
@@ -4415,20 +4419,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
                       <Shield size={14} strokeWidth={1.5} className="text-gray-400" />
-                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Berechtigungsmatrix</p>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Berechtigungsmatrix', 'Permissions matrix')}</p>
                     </div>
                     <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                          <th className="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Berechtigung</th>
-                          {['Admin', 'Manager', 'Kellner'].map(r => <th key={r} className="text-center px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{r}</th>)}
+                          <th className="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t('Berechtigung', 'Permission')}</th>
+                          {['Admin', 'Manager', 'Kellner'].map(r => <th key={r} className="text-center px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{roleLabel(r)}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {PERMISSIONS.map((p, i) => (
                           <tr key={i} className="border-b border-gray-50 dark:border-gray-800 last:border-0">
-                            <td className="px-6 py-3 text-[14px] text-gray-700 dark:text-gray-300">{p.label}</td>
+                            <td className="px-6 py-3 text-[14px] text-gray-700 dark:text-gray-300">{t(p.de, p.en)}</td>
                             {[p.admin, p.manager, p.waiter].map((has, j) => (
                               <td key={j} className="px-6 py-3 text-center">
                                 {has ? <Check size={16} strokeWidth={2.5} className="mx-auto" style={{ color: 'var(--ba)' }} /> : <X size={14} strokeWidth={2} className="mx-auto text-gray-300 dark:text-gray-600" />}
@@ -4500,12 +4504,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <div>
                       <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Lock size={15} strokeWidth={1.5} className="text-gray-400" /> Eigener API-Schlüssel
+                        <Lock size={15} strokeWidth={1.5} className="text-gray-400" /> {t('Eigener API-Schlüssel', 'Your own API key')}
                       </p>
                       <p className="text-[12px] text-gray-400 mt-1">
-                        Treibt den Wochenrückblick im Dashboard und den Bon-Scan mit deinem eigenen
-                        Anthropic-Zugang an, statt mit dem gemeinsamen dieses Servers. Verschlüsselt
-                        gespeichert und dir nie wieder angezeigt.
+                        {t('Treibt den Wochenrückblick im Dashboard und den Bon-Scan mit deinem eigenen Anthropic-Zugang an, statt mit dem gemeinsamen dieses Servers. Verschlüsselt gespeichert und dir nie wieder angezeigt.',
+                           'Powers the weekly review and the receipt scan with your own Anthropic access instead of this server’s shared one. Stored encrypted and never shown to you again.')}
                       </p>
                     </div>
                     {apiKeyError && <p className="text-[12px] text-red-500">{apiKeyError}</p>}
@@ -4517,7 +4520,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         <div className="flex gap-2">
                           <button onClick={() => { setApiKeyOpen(false); setApiKeyInput(''); setApiKeyError(null); }}
                             className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                            Abbrechen
+                            {t('Abbrechen', 'Cancel')}
                           </button>
                           <button disabled={apiKeySaving || !apiKeyInput.trim()} onClick={async () => {
                               setApiKeySaving(true); setApiKeyError(null);
@@ -4525,40 +4528,40 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 await store.setMyApiKey(apiKeyInput.trim());
                                 setApiKeyOpen(false); setApiKeyInput('');
                               } catch (err) {
-                                setApiKeyError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+                                setApiKeyError(err instanceof Error ? err.message : t('Speichern fehlgeschlagen.', 'Saving failed.'));
                               } finally {
                                 setApiKeySaving(false);
                               }
                             }}
                             className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-white transition-colors disabled:opacity-50"
                             style={{ backgroundColor: 'var(--ba)' }}>
-                            {apiKeySaving ? 'Speichert…' : 'Speichern'}
+                            {apiKeySaving ? t('Speichert…', 'Saving…') : t('Speichern', 'Save')}
                           </button>
                         </div>
                       </div>
                     ) : store.authUser?.hasApiKey ? (
                       <div className="space-y-2">
-                        <p className="text-[13px] text-gray-700 dark:text-gray-300">Schlüssel hinterlegt.</p>
+                        <p className="text-[13px] text-gray-700 dark:text-gray-300">{t('Schlüssel hinterlegt.', 'Key stored.')}</p>
                         {confirmRemoveApiKey ? (
                           <div className="flex gap-2">
                             <button onClick={() => setConfirmRemoveApiKey(false)}
                               className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                              Abbrechen
+                              {t('Abbrechen', 'Cancel')}
                             </button>
                             <button onClick={async () => { await store.removeMyApiKey(); setConfirmRemoveApiKey(false); }}
                               className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                              Ja, entfernen
+                              {t('Ja, entfernen', 'Yes, remove')}
                             </button>
                           </div>
                         ) : (
                           <div className="flex gap-2">
                             <button onClick={() => setApiKeyOpen(true)}
                               className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                              Ersetzen
+                              {t('Ersetzen', 'Replace')}
                             </button>
                             <button onClick={() => setConfirmRemoveApiKey(true)}
                               className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                              Entfernen
+                              {t('Entfernen', 'Remove')}
                             </button>
                           </div>
                         )}
@@ -4566,7 +4569,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     ) : (
                       <button onClick={() => setApiKeyOpen(true)}
                         className="w-full py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        Schlüssel hinzufügen
+                        {t('Schlüssel hinzufügen', 'Add key')}
                       </button>
                     )}
                   </div>
@@ -4576,17 +4579,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   {isChainAdmin && (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                       <div className="flex items-center justify-between">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> Filialen</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Building2 size={15} strokeWidth={1.5} className="text-gray-400" /> {t('Filialen', 'Branches')}</p>
                         <button onClick={() => setBranchDialog({ branch: null })}
                           className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl text-white" style={{ backgroundColor: 'var(--ba)' }}>
-                          <Plus size={12} strokeWidth={2} /> Hinzufügen
+                          <Plus size={12} strokeWidth={2} /> {t('Hinzufügen', 'Add')}
                         </button>
                       </div>
                       {store.branches.map(b => {
-                        // Im Ketten-Blick sind alle Tische da; bei gewählter
-                        // Filiale liefert der Server nur deren — dann steht die
-                        // Zahl nur bei der eigenen.
-                        const tableCount = store.tables.filter(t => t.branchId === b.id).length;
+                        const tableCount = store.tables.filter(x => x.branchId === b.id).length;
                         return (
                           <div key={b.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 transition-colors">
                             <BranchIcon size={24} className="text-gray-400 flex-shrink-0" />
@@ -4594,14 +4594,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               <p className="text-[14px] font-medium text-gray-900 dark:text-white">{b.name}</p>
                               <p className="text-[12px] text-gray-400 flex items-center gap-1"><MapPin size={10} />{b.address}</p>
                               {!branch && (
-                                <p className="text-[11px] text-gray-400 mt-0.5">{tableCount} {tableCount === 1 ? 'Tisch' : 'Tische'}</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">{t(`${tableCount} ${tableCount === 1 ? 'Tisch' : 'Tische'}`, `${tableCount} ${tableCount === 1 ? 'table' : 'tables'}`)}</p>
                               )}
                             </div>
                             <div className="flex gap-1 flex-shrink-0">
-                              <button onClick={() => setBranchDialog({ branch: b })} title="Filiale bearbeiten"
+                              <button onClick={() => setBranchDialog({ branch: b })} title={t('Filiale bearbeiten', 'Edit branch')}
                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                              <button title="Filiale löschen"
-                                onClick={() => { if (confirm(`Filiale „${b.name}" wirklich löschen?`)) runAction(() => store.removeBranch(b.id)); }}
+                              <button title={t('Filiale löschen', 'Delete branch')}
+                                onClick={() => { if (confirm(t(`Filiale „${b.name}" wirklich löschen?`, `Really delete branch “${b.name}”?`))) runAction(() => store.removeBranch(b.id)); }}
                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
                             </div>
                           </div>
@@ -4616,22 +4616,23 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               {page === 'tables' && (
                 <div className="space-y-5 max-w-4xl">
                   <div>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Tische &amp; QR-Codes</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Tische & QR-Codes', 'Tables & QR codes')}</p>
                     <p className="text-[13px] text-gray-400 mt-0.5">
-                      {branch ? branch.name : 'Erst eine Filiale wählen'}
+                      {branch ? branch.name : t('Erst eine Filiale wählen', 'Choose a branch first')}
                     </p>
                   </div>
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><QrCode size={15} strokeWidth={1.5} className="text-gray-400" /> QR-Codes per Tisch</p>
+                    <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><QrCode size={15} strokeWidth={1.5} className="text-gray-400" /> {t('QR-Codes per Tisch', 'QR code per table')}</p>
                     <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                      Jeder QR-Code zeigt auf <code className="text-[12px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">/{orgSlug}/&lt;filiale&gt;/table/&lt;nummer&gt;</code>. Das ist die Route, die Gäste beim Scannen öffnen. Die Filiale steht mit drin: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.
+                      {t('Jeder QR-Code zeigt auf die Route, die Gäste beim Scannen öffnen. Die Filiale steht mit drin: Tisch 5 in der einen ist ein anderer Tisch als Tisch 5 in der anderen.',
+                         'Each QR code points to the route guests open when scanning. The branch is part of it: table 5 in one branch is a different table from table 5 in another.')}
                     </p>
                     {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
                       <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
                         <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
                         <p className="text-[12px] text-amber-800 dark:text-amber-200 leading-relaxed">
-                          Diese QR-Codes zeigen auf <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">localhost</code>. Die funktionieren nur auf diesem Rechner, nicht wenn ein Handy sie scannt.
-                          Öffne diese Admin-Seite stattdessen über die Netzwerk-Adresse deines Rechners (z. B. <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">http://192.168.x.x:5173/…</code>), dann werden die QR-Codes automatisch mit dieser Adresse erzeugt. Für den echten Einsatz später: eine öffentliche Domain statt der lokalen IP verwenden.
+                          {t('Diese QR-Codes zeigen auf localhost — sie funktionieren nur auf diesem Rechner, nicht wenn ein Handy sie scannt. Öffne diese Admin-Seite stattdessen über die Netzwerk-Adresse deines Rechners (z. B. http://192.168.x.x:5173/…), dann werden die QR-Codes damit erzeugt. Für den echten Einsatz: eine öffentliche Domain statt der lokalen IP.',
+                             'These QR codes point to localhost — they only work on this machine, not when a phone scans them. Open this admin page via your machine’s network address instead (e.g. http://192.168.x.x:5173/…) and the QR codes will use it. For real use: a public domain rather than the local IP.')}
                         </p>
                       </div>
                     )}
@@ -4650,10 +4651,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-3">
                             <Building2 size={18} strokeWidth={1.5} className="text-gray-400" />
                           </div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Welche Filiale?</p>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Welche Filiale?', 'Which branch?')}</p>
                           <p className="text-[13px] text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                            Tische und QR-Codes gehören immer genau einer Filiale. Tisch 5
-                            hier ist ein anderer Tisch als Tisch 5 dort.
+                            {t('Tische und QR-Codes gehören immer genau einer Filiale. Tisch 5 hier ist ein anderer Tisch als Tisch 5 dort.',
+                               'Tables and QR codes always belong to exactly one branch. Table 5 here is a different table from table 5 there.')}
                           </p>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -4664,7 +4665,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               <span className="min-w-0 flex-1">
                                 <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">{b.name}</span>
                                 <span className="block text-[12px] text-gray-400 truncate">
-                                  {store.tables.filter(t => t.branchId === b.id).length} Tische
+                                  {t(`${store.tables.filter(x => x.branchId === b.id).length} Tische`, `${store.tables.filter(x => x.branchId === b.id).length} tables`)}
                                 </span>
                               </span>
                               <ArrowRight size={15} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
@@ -4676,7 +4677,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <>
                         <div className="flex items-end gap-3 flex-wrap pb-1 border-b border-gray-100 dark:border-gray-800">
                           <div>
-                            <p className="text-[12px] text-gray-400 mb-1.5">Neue Tische</p>
+                            <p className="text-[12px] text-gray-400 mb-1.5">{t('Neue Tische', 'New tables')}</p>
                             <input type="number" min={1} max={50} value={addTableCount}
                               onChange={e => setAddTableCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
                               className="w-24 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[13px] text-gray-700 dark:text-gray-300 outline-none" />
@@ -4684,21 +4685,21 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <button onClick={handleAddTables} disabled={addingTables}
                             className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium disabled:opacity-50 mb-0"
                             style={{ backgroundColor: 'var(--ba)' }}>
-                            <Plus size={14} strokeWidth={2} /> {addingTables ? 'Wird angelegt…' : 'Tisch(e) anlegen'}
+                            <Plus size={14} strokeWidth={2} /> {addingTables ? t('Wird angelegt…', 'Creating…') : t('Tisch(e) anlegen', 'Create table(s)')}
                           </button>
                           <p className="text-[11px] text-gray-400">
-                            {branchTables.length} {branchTables.length === 1 ? 'Tisch' : 'Tische'} in {branch.name}
+                            {t(`${branchTables.length} ${branchTables.length === 1 ? 'Tisch' : 'Tische'} in ${branch.name}`, `${branchTables.length} ${branchTables.length === 1 ? 'table' : 'tables'} at ${branch.name}`)}
                           </p>
                         </div>
                         {branchTables.length === 0 ? (
-                          <EmptyState icon={QrCode} title={`Noch keine Tische in ${branch.name}`}
-                            desc="Lege oben Tische an. Jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt." />
+                          <EmptyState icon={QrCode} title={t(`Noch keine Tische in ${branch.name}`, `No tables at ${branch.name} yet`)}
+                            desc={t('Lege oben Tische an. Jeder bekommt eine eigene Nummer und einen QR-Code, der nur zu dieser Filiale führt.', 'Add tables above. Each gets its own number and a QR code that only leads to this branch.')} />
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
-                            {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
-                              <div key={t.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
-                                <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={t.number}
-                                  onDelete={() => { if (confirm(`Tisch ${t.number} in ${branch.name} und seinen QR-Code wirklich löschen?`)) store.removeTable(branch.slug, t.id); }} />
+                            {[...branchTables].sort((a, b) => a.number - b.number).map(tbl => (
+                              <div key={tbl.id} className="relative bg-gray-50 dark:bg-gray-900 rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-100 dark:border-gray-800">
+                                <TableQRCode orgSlug={orgSlug} branchSlug={branch.slug} tableNumber={tbl.number}
+                                  onDelete={() => { if (confirm(t(`Tisch ${tbl.number} in ${branch.name} und seinen QR-Code wirklich löschen?`, `Really delete table ${tbl.number} at ${branch.name} and its QR code?`))) store.removeTable(branch.slug, tbl.id); }} />
                               </div>
                             ))}
                           </div>
@@ -4812,17 +4813,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="space-y-5">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Menü</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Menü', 'Menu')}</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        {store.dishes.length} Gerichte · {isChainAdmin
-                          ? 'Stammkarte der Kette'
-                          : `Verfügbarkeit in ${branch?.name ?? 'deiner Filiale'}`}
+                        {t(`${store.dishes.length} Gerichte`, `${store.dishes.length} dishes`)} · {isChainAdmin
+                          ? t('Stammkarte der Kette', 'Chain master menu')
+                          : t(`Verfügbarkeit in ${branch?.name ?? 'deiner Filiale'}`, `Availability at ${branch?.name ?? 'your branch'}`)}
                       </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       <button onClick={exportDishesCsv}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                        <Download size={13} strokeWidth={1.5} /> Export
+                        <Download size={13} strokeWidth={1.5} /> {t('Export', 'Export')}
                       </button>
                       {/* Der Gegenpart zum Export, und derselbe Dateityp: eine
                           Karte kommt selten getippt, sondern als Tabelle aus
@@ -4832,13 +4833,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       {isChainAdmin && (
                         <button onClick={() => setImportOpen(true)}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                          <Upload size={13} strokeWidth={1.5} /> Import
+                          <Upload size={13} strokeWidth={1.5} /> {t('Import', 'Import')}
                         </button>
                       )}
                       {isChainAdmin && (
                         <button onClick={() => setDishDialog({ dish: null })}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
-                          <Plus size={13} strokeWidth={2} /> Gericht
+                          <Plus size={13} strokeWidth={2} /> {t('Gericht', 'Dish')}
                         </button>
                       )}
                     </div>
@@ -4850,15 +4851,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       ausschalten. */}
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.dishes.length === 0 ? (
-                      <EmptyState icon={UtensilsCrossed} title="Noch keine Gerichte"
-                        desc="Lege die Karte an. Jedes Gericht kann danach am Tisch einzeln bewertet werden." />
+                      <EmptyState icon={UtensilsCrossed} title={t('Noch keine Gerichte', 'No dishes yet')}
+                        desc={t('Lege die Karte an. Jedes Gericht kann danach am Tisch einzeln bewertet werden.', 'Build the menu. Each dish can then be rated individually at the table.')} />
                     ) : (
                     <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                          {['#', 'Gericht', 'Kategorie', 'Ø Bewertung', 'Rezensionen', 'Preis',
-                            branch ? `In ${branch.name}` : 'Filialen', 'Trend', ''].map((h, i) => (
+                          {['#', t('Gericht', 'Dish'), t('Kategorie', 'Category'), t('Ø Bewertung', 'Avg rating'), t('Rezensionen', 'Reviews'), t('Preis', 'Price'),
+                            branch ? t(`In ${branch.name}`, `At ${branch.name}`) : t('Filialen', 'Branches'), t('Trend', 'Trend'), ''].map((h, i) => (
                             <th key={i} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                           ))}
                         </tr>
@@ -4886,7 +4887,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 </div>
                               </td>
                               <td className="px-5 py-3.5">
-                                <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">{dish.cat}</span>
+                                <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">{catLabel(dish.cat)}</span>
                               </td>
                               <td className="px-5 py-3.5">
                                 {dish.ratingsCount > 0 ? (
@@ -4904,10 +4905,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 {branch ? (
                                   <DishAvailabilityToggle dish={dish} branch={branch} />
                                 ) : dish.branchIds == null ? (
-                                  <span className="text-[12px] text-gray-400">Alle</span>
+                                  <span className="text-[12px] text-gray-400">{t('Alle', 'All')}</span>
                                 ) : (
                                   <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                                    {dish.branchIds.length} von {store.branches.length}
+                                    {t(`${dish.branchIds.length} von ${store.branches.length}`, `${dish.branchIds.length} of ${store.branches.length}`)}
                                   </span>
                                 )}
                               </td>
@@ -4919,10 +4920,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                     Filialleitung hat den Schalter links. */}
                                 {isChainAdmin && (
                                   <div className="flex gap-1 justify-end">
-                                    <button onClick={() => setDishDialog({ dish })} title="Gericht bearbeiten"
+                                    <button onClick={() => setDishDialog({ dish })} title={t('Gericht bearbeiten', 'Edit dish')}
                                       className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                                    <button title="Gericht löschen"
-                                      onClick={() => { if (confirm(`„${dish.name}" wirklich aus dem Menü löschen? Bereits abgegebene Bewertungen bleiben erhalten.`)) runAction(() => store.removeDish(dish.id)); }}
+                                    <button title={t('Gericht löschen', 'Delete dish')}
+                                      onClick={() => { if (confirm(t(`„${dish.name}" wirklich aus dem Menü löschen? Bereits abgegebene Bewertungen bleiben erhalten.`, `Really delete “${dish.name}” from the menu? Ratings already given are kept.`))) runAction(() => store.removeDish(dish.id)); }}
                                       className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
                                   </div>
                                 )}
@@ -4943,13 +4944,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   {isChainAdmin && (
                     <button onClick={() => setPage('vouchers')}
                       className="flex items-center gap-1.5 text-[13px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-                      <ChevronLeft size={15} strokeWidth={1.5} /> Zurück zu den Gutscheinen
+                      <ChevronLeft size={15} strokeWidth={1.5} /> {t('Zurück zu den Gutscheinen', 'Back to vouchers')}
                     </button>
                   )}
                   <div>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Einlösungen</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Einlösungen', 'Redemptions')}</p>
                     <p className="text-[13px] text-gray-400 mt-0.5">
-                      Wer wann welchen Gutschein eingelöst hat · {branch ? branch.name : 'alle Filialen'}
+                      {t('Wer wann welchen Gutschein eingelöst hat', 'Who redeemed which voucher and when')} · {branch ? branch.name : t('alle Filialen', 'all branches')}
                     </p>
                   </div>
 
@@ -4965,11 +4966,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       .filter(r => r.status !== 'verfallen' && r.status !== 'abgebrochen')
                       .reduce((a, r) => a + r.points, 0);
                     const tiles: [string, number, string][] = [
-                      ['Eingelöst', done, 'text-emerald-700 dark:text-emerald-300'],
-                      ['Punkte verbraucht', spentPoints, 'text-gray-900 dark:text-white'],
+                      [t('Eingelöst', 'Redeemed'), done, 'text-emerald-700 dark:text-emerald-300'],
+                      [t('Punkte verbraucht', 'Points spent'), spentPoints, 'text-gray-900 dark:text-white'],
                     ];
-                    if (pending > 0) tiles.push(['Ausstehend (alt)', pending, 'text-amber-700 dark:text-amber-300']);
-                    if (refunded > 0) tiles.push(['Zurückgebucht', refunded, 'text-gray-500']);
+                    if (pending > 0) tiles.push([t('Ausstehend (alt)', 'Pending (old)'), pending, 'text-amber-700 dark:text-amber-300']);
+                    if (refunded > 0) tiles.push([t('Zurückgebucht', 'Refunded'), refunded, 'text-gray-500']);
                     return (
                       <div className={`grid grid-cols-2 gap-3 ${tiles.length >= 4 ? 'sm:grid-cols-4' : tiles.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                         {tiles.map(([label, value, cls]) => (
@@ -4984,15 +4985,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.redemptions.length === 0 ? (
-                      <EmptyState icon={Ticket} title="Noch keine Einlösungen"
-                        desc="Sobald ein Gast einen Gutschein am Tisch einlöst, erscheint er hier — mit Zeitpunkt, Tisch und Punktepreis." />
+                      <EmptyState icon={Ticket} title={t('Noch keine Einlösungen', 'No redemptions yet')}
+                        desc={t('Sobald ein Gast einen Gutschein am Tisch einlöst, erscheint er hier — mit Zeitpunkt, Tisch und Punktepreis.', 'As soon as a guest redeems a voucher at the table, it appears here — with time, table and points cost.')} />
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                              {['Gutschein', 'Status', 'Tisch', 'Punkte', 'Wann'].map(h => (
-                                <th key={h} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
+                              {[t('Gutschein', 'Voucher'), t('Status', 'Status'), t('Tisch', 'Table'), t('Punkte', 'Points'), t('Wann', 'When')].map((h, i) => (
+                                <th key={i} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                               ))}
                             </tr>
                           </thead>
@@ -5009,12 +5010,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 <tr key={r.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0">
                                   <td className="px-5 py-3.5 text-[14px] font-medium text-gray-900 dark:text-white">{r.voucherTitle}</td>
                                   <td className="px-5 py-3.5">
-                                    <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${badge}`}>{r.status}</span>
+                                    <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${badge}`}>{r.status === 'eingelöst' ? t('eingelöst', 'redeemed') : r.status === 'entwertet' ? t('entwertet', 'voided') : r.status}</span>
                                   </td>
                                   <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{r.tableNumber ?? '—'}</td>
                                   <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{r.points}</td>
                                   <td className="px-5 py-3.5 text-[13px] text-gray-500 dark:text-gray-400">
-                                    {new Date(r.redeemedAt ?? r.createdAt).toLocaleString('de-AT', {
+                                    {new Date(r.redeemedAt ?? r.createdAt).toLocaleString(uiLang === 'en' ? 'en-GB' : 'de-AT', {
                                       day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
                                     })}
                                   </td>
@@ -5033,32 +5034,26 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="space-y-5">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Gutscheine</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Gutscheine', 'Vouchers')}</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        {activeVouchers.length} gültig · was Gäste für ihre gesammelten Punkte einlösen können
+                        {t(`${activeVouchers.length} gültig · was Gäste für ihre gesammelten Punkte einlösen können`, `${activeVouchers.length} active · what guests can redeem their points for`)}
                       </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
-                      {/* Der Weg zu den abgelaufenen. Sie sind nicht gelöscht,
-                          nur weggeräumt — löschen kann man sie weiterhin von
-                          Hand, wenn man sie wirklich los sein will. */}
                       {expiredVouchers.length > 0 && (
                         <button onClick={() => setShowExpiredVouchers(p => !p)}
                           className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
                           <Clock size={13} strokeWidth={1.5} />
-                          {showExpiredVouchers ? 'Abgelaufene ausblenden' : `${expiredVouchers.length} abgelaufene`}
+                          {showExpiredVouchers ? t('Abgelaufene ausblenden', 'Hide expired') : t(`${expiredVouchers.length} abgelaufene`, `${expiredVouchers.length} expired`)}
                         </button>
                       )}
-                      {/* Die vergangenen Einlösungen hängen hier statt im Menü:
-                          sie sind ein Nachschlagewerk zu den Gutscheinen, keine
-                          eigene tägliche Anlaufstelle. */}
                       <button onClick={() => setPage('redemptions')}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                        <CheckCircle2 size={13} strokeWidth={1.5} /> Eingelöste ansehen
+                        <CheckCircle2 size={13} strokeWidth={1.5} /> {t('Eingelöste ansehen', 'View redemptions')}
                       </button>
                       <button onClick={() => setVoucherDialog({ voucher: null })}
                         className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-xl text-white font-medium" style={{ backgroundColor: 'var(--ba)' }}>
-                        <Plus size={13} strokeWidth={2} /> Gutschein
+                        <Plus size={13} strokeWidth={2} /> {t('Gutschein', 'Voucher')}
                       </button>
                     </div>
                   </div>
@@ -5066,10 +5061,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   {visibleVouchers.length === 0 ? (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
                       <EmptyState icon={Ticket}
-                        title={store.vouchers.length === 0 ? 'Noch keine Gutscheine' : 'Kein gültiger Gutschein'}
+                        title={store.vouchers.length === 0 ? t('Noch keine Gutscheine', 'No vouchers yet') : t('Kein gültiger Gutschein', 'No active voucher')}
                         desc={store.vouchers.length === 0
-                          ? 'Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an.'
-                          : 'Alle angelegten Gutscheine sind abgelaufen. Für den Gast ist gerade nichts zu holen, blende sie oben ein, um sie zu verlängern.'} />
+                          ? t('Ohne Gutscheine haben gesammelte Punkte keinen Gegenwert. Lege eine erste Belohnung an.', 'Without vouchers, collected points are worth nothing. Create a first reward.')
+                          : t('Alle angelegten Gutscheine sind abgelaufen. Für den Gast ist gerade nichts zu holen, blende sie oben ein, um sie zu verlängern.', 'Every voucher has expired. There is nothing for guests to redeem right now — show them above to extend them.')} />
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -5088,20 +5083,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               <p className="text-[12px] flex items-center gap-1.5 text-gray-400">
                                 <Clock size={11} strokeWidth={1.5} />
                                 {expired
-                                  ? <span className="text-red-600 dark:text-red-400 font-medium">Abgelaufen am {v.expiry}</span>
-                                  : <>Gültig bis {v.expiry}</>}
+                                  ? <span className="text-red-600 dark:text-red-400 font-medium">{t(`Abgelaufen am ${v.expiry}`, `Expired on ${v.expiry}`)}</span>
+                                  : <>{t(`Gültig bis ${v.expiry}`, `Valid until ${v.expiry}`)}</>}
                               </p>
                               <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
                                 <Building2 size={11} strokeWidth={1.5} />
                                 {v.branchIds == null
-                                  ? 'In allen Filialen'
+                                  ? t('In allen Filialen', 'At all branches')
                                   : v.branchIds.map(id => store.branches.find(b => b.id === id)?.name ?? '?').join(', ')}
                               </p>
                               <div className="flex gap-1 pt-1">
-                                <button onClick={() => setVoucherDialog({ voucher: v })} title="Gutschein bearbeiten"
+                                <button onClick={() => setVoucherDialog({ voucher: v })} title={t('Gutschein bearbeiten', 'Edit voucher')}
                                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"><Pencil size={13} /></button>
-                                <button title="Gutschein löschen"
-                                  onClick={() => { if (confirm(`„${v.title}" wirklich löschen?`)) runAction(() => store.removeVoucher(v.id)); }}
+                                <button title={t('Gutschein löschen', 'Delete voucher')}
+                                  onClick={() => { if (confirm(t(`„${v.title}" wirklich löschen?`, `Really delete “${v.title}”?`))) runAction(() => store.removeVoucher(v.id)); }}
                                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"><Trash2 size={13} /></button>
                               </div>
                             </div>
@@ -5131,17 +5126,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }}>
               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Benutzer einladen</p>
+                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">{t('Benutzer einladen', 'Invite user')}</p>
                   <button onClick={() => setShowInvite(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[12px] text-gray-500 mb-1 block">Name</label>
+                    <label className="text-[12px] text-gray-500 mb-1 block">{t('Name', 'Name')}</label>
                     <input value={inviteForm.name} onChange={e => setInviteForm(p => ({ ...p, name: e.target.value }))} placeholder="Max Mustermann" type="text"
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                   </div>
                   <div>
-                    <label className="text-[12px] text-gray-500 mb-1 block">E-Mail</label>
+                    <label className="text-[12px] text-gray-500 mb-1 block">{t('E-Mail', 'Email')}</label>
                     <input value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))} placeholder="name@restaurant.at" type="email"
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                   </div>
@@ -5151,40 +5146,39 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       Fehlermeldung. */}
                   <div className="flex gap-3">
                     <div className="flex-1">
-                      <label className="text-[12px] text-gray-500 mb-1 block">Rolle</label>
+                      <label className="text-[12px] text-gray-500 mb-1 block">{t('Rolle', 'Role')}</label>
                       <select value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value as AdminUser['role'] }))}
                         disabled={!isChainAdmin}
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none disabled:opacity-60">
-                        {(isChainAdmin ? ['Kellner', 'Manager', 'Admin'] : ['Kellner']).map(o => <option key={o} value={o}>{o}</option>)}
+                        {(isChainAdmin ? ['Kellner', 'Manager', 'Admin'] : ['Kellner']).map(o => <option key={o} value={o}>{roleLabel(o)}</option>)}
                       </select>
                     </div>
                     <div className="flex-1">
-                      <label className="text-[12px] text-gray-500 mb-1 block">Filiale</label>
+                      <label className="text-[12px] text-gray-500 mb-1 block">{t('Filiale', 'Branch')}</label>
                       <select value={inviteForm.branchId} onChange={e => setInviteForm(p => ({ ...p, branchId: e.target.value }))}
                         disabled={!isChainAdmin}
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none disabled:opacity-60">
                         {isChainAdmin
                           ? store.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)
-                          : <option value="">{store.branches.find(b => b.id === store.authUser?.branchId)?.name ?? 'Eigene Filiale'}</option>}
+                          : <option value="">{store.branches.find(b => b.id === store.authUser?.branchId)?.name ?? t('Eigene Filiale', 'Own branch')}</option>}
                       </select>
                     </div>
                   </div>
                   <div>
-                    <label className="text-[12px] text-gray-500 mb-1 block">Erstes Passwort (mind. 8 Zeichen)</label>
+                    <label className="text-[12px] text-gray-500 mb-1 block">{t('Erstes Passwort (mind. 8 Zeichen)', 'First password (min. 8 characters)')}</label>
                     <input value={inviteForm.password} onChange={e => setInviteForm(p => ({ ...p, password: e.target.value }))}
-                      placeholder="wird beim Anlegen gesetzt" type="text" autoComplete="off"
+                      placeholder={t('wird beim Anlegen gesetzt', 'set when the account is created')} type="text" autoComplete="off"
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                     <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
-                      Es wird keine E-Mail verschickt, gib das Passwort persönlich weiter.
-                      Die Person meldet sich damit und der E-Mail-Adresse an; ändern lässt es
-                      sich hier jederzeit wieder.
+                      {t('Es wird keine E-Mail verschickt, gib das Passwort persönlich weiter. Die Person meldet sich damit und der E-Mail-Adresse an; ändern lässt es sich hier jederzeit wieder.',
+                         'No email is sent — pass the password on in person. The user signs in with it and their email address; you can change it here any time.')}
                     </p>
                   </div>
                 </div>
                 {inviteError && <p className="text-[13px] text-red-600 dark:text-red-400">{inviteError}</p>}
                 <div className="flex gap-3 pt-1">
-                  <SecondaryBtn onClick={() => { setShowInvite(false); setInviteError(null); }}>Abbrechen</SecondaryBtn>
-                  <PrimaryBtn onClick={handleInviteSubmit}>Benutzer anlegen</PrimaryBtn>
+                  <SecondaryBtn onClick={() => { setShowInvite(false); setInviteError(null); }}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+                  <PrimaryBtn onClick={handleInviteSubmit}>{t('Benutzer anlegen', 'Create user')}</PrimaryBtn>
                 </div>
               </div>
             </motion.div>
@@ -5198,41 +5192,37 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }}>
               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">Rolle &amp; Filiale</p>
+                  <p className="text-[18px] font-semibold text-gray-900 dark:text-white">{t('Rolle & Filiale', 'Role & branch')}</p>
                   <button onClick={() => setRoleDialog(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
                 </div>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400">{roleDialog.user.name} · {roleDialog.user.email}</p>
                 <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="text-[12px] text-gray-500 mb-1 block">Rolle</label>
+                    <label className="text-[12px] text-gray-500 mb-1 block">{t('Rolle', 'Role')}</label>
                     <select value={roleDialog.role}
                       onChange={e => setRoleDialog(p => p && { ...p, role: e.target.value as AdminUser['role'], error: null })}
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
-                      {(['Kellner', 'Manager', 'Admin'] as const).map(o => <option key={o} value={o}>{o}</option>)}
+                      {(['Kellner', 'Manager', 'Admin'] as const).map(o => <option key={o} value={o}>{roleLabel(o)}</option>)}
                     </select>
                   </div>
                   <div className="flex-1">
-                    <label className="text-[12px] text-gray-500 mb-1 block">Filiale</label>
+                    <label className="text-[12px] text-gray-500 mb-1 block">{t('Filiale', 'Branch')}</label>
                     <select value={roleDialog.branchId}
                       onChange={e => setRoleDialog(p => p && { ...p, branchId: e.target.value, error: null })}
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[13px] text-gray-700 dark:text-gray-300 outline-none">
-                      {/* Ohne Filiale heißt: die ganze Kette. Für einen Admin
-                          ist das der Normalfall, für Kellner und Filialleitung
-                          die Ausnahme — deshalb steht es oben, aber benannt. */}
-                      <option value="">Alle Filialen (Kette)</option>
+                      <option value="">{t('Alle Filialen (Kette)', 'All branches (chain)')}</option>
                       {store.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-400 leading-relaxed">
-                  Die neue Rolle gilt, sobald sich die Person das nächste Mal anmeldet.
-                  ein laufendes Token trägt noch die alte. Die eigene Rolle und die des
-                  letzten Admins lassen sich nicht ändern.
+                  {t('Die neue Rolle gilt, sobald sich die Person das nächste Mal anmeldet. Ein laufendes Token trägt noch die alte. Die eigene Rolle und die des letzten Admins lassen sich nicht ändern.',
+                     'The new role takes effect the next time the person signs in — a running session still carries the old one. You cannot change your own role or the last admin’s.')}
                 </p>
                 {roleDialog.error && <p className="text-[13px] text-red-600 dark:text-red-400">{roleDialog.error}</p>}
                 <div className="flex gap-3 pt-1">
-                  <SecondaryBtn onClick={() => setRoleDialog(null)}>Abbrechen</SecondaryBtn>
-                  <PrimaryBtn onClick={handleSaveRole}>Speichern</PrimaryBtn>
+                  <SecondaryBtn onClick={() => setRoleDialog(null)}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+                  <PrimaryBtn onClick={handleSaveRole}>{t('Speichern', 'Save')}</PrimaryBtn>
                 </div>
               </div>
             </motion.div>
@@ -5247,22 +5237,22 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-[18px] font-semibold text-gray-900 dark:text-white">
-                    {pwDialog.user.status === 'eingeladen' ? 'Konto freischalten' : 'Passwort ändern'}
+                    {pwDialog.user.status === 'eingeladen' ? t('Konto freischalten', 'Activate account') : t('Passwort ändern', 'Change password')}
                   </p>
                   <button onClick={() => setPwDialog(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} className="text-gray-500" /></button>
                 </div>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400">{pwDialog.user.name} · {pwDialog.user.email}</p>
                 <div>
-                  <label className="text-[12px] text-gray-500 mb-1 block">Neues Passwort (mind. 8 Zeichen)</label>
+                  <label className="text-[12px] text-gray-500 mb-1 block">{t('Neues Passwort (mind. 8 Zeichen)', 'New password (min. 8 characters)')}</label>
                   <input value={pwDialog.value} autoFocus type="text" autoComplete="off"
                     onChange={e => setPwDialog(p => p && { ...p, value: e.target.value, error: null })}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
-                  <p className="text-[11px] text-gray-400 mt-1.5">Gib es der Person persönlich weiter, verschickt wird nichts.</p>
+                  <p className="text-[11px] text-gray-400 mt-1.5">{t('Gib es der Person persönlich weiter, verschickt wird nichts.', 'Pass it on in person — nothing is sent.')}</p>
                 </div>
                 {pwDialog.error && <p className="text-[13px] text-red-600 dark:text-red-400">{pwDialog.error}</p>}
                 <div className="flex gap-3 pt-1">
-                  <SecondaryBtn onClick={() => setPwDialog(null)}>Abbrechen</SecondaryBtn>
-                  <PrimaryBtn onClick={handleSetPassword}>Speichern</PrimaryBtn>
+                  <SecondaryBtn onClick={() => setPwDialog(null)}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
+                  <PrimaryBtn onClick={handleSetPassword}>{t('Speichern', 'Save')}</PrimaryBtn>
                 </div>
               </div>
             </motion.div>
