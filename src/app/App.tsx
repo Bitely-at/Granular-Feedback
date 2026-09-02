@@ -695,7 +695,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   const unlockedVouchers = notRedeemed.filter(v => store.guest.points >= v.points);
   const lockedVouchers = notRedeemed.filter(v => store.guest.points < v.points);
   const redeemedVouchers = store.vouchers.filter(v => redeemedIds.includes(v.id));
-  const nextRewardPoints = notRedeemed.length > 0 ? Math.min(...notRedeemed.map(v => v.points)) : 300;
+  // `null` heißt „keine weitere Belohnung offen" — alle eingelöst oder abgelaufen.
+  // Vorher stand hier eine hartcodierte 300; hatte der Gast mehr Punkte als das,
+  // zeigte der Dank-Bildschirm „es fehlen -90 Punkte".
+  const nextRewardPoints = notRedeemed.length > 0 ? Math.min(...notRedeemed.map(v => v.points)) : null;
 
   if (!table) {
     return (
@@ -972,11 +975,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Verdiente Punkte</p>
               <p className="text-[44px] font-bold tracking-tight leading-none mt-2 mb-5" style={{ color: 'var(--ba, #16A34A)' }}>+{pts}</p>
               <div className="bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden mb-2">
-                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (store.guest.points / nextRewardPoints) * 100)}%` }} transition={{ delay: 0.6, duration: 1.2 }}
+                <motion.div initial={{ width: 0 }} animate={{ width: `${nextRewardPoints == null ? 100 : Math.min(100, (store.guest.points / nextRewardPoints) * 100)}%` }} transition={{ delay: 0.6, duration: 1.2 }}
                   className="h-full rounded-full" style={{ backgroundColor: 'var(--ba, #16A34A)' }} />
               </div>
               <div className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400">
-                <span>{store.guest.points} Pkt. insgesamt</span><span>{nextRewardPoints} Pkt. = nächste Belohnung</span>
+                <span>{store.guest.points} Pkt. insgesamt</span>
+                <span>{nextRewardPoints == null ? 'keine weitere Belohnung offen' : `${nextRewardPoints} Pkt. = nächste Belohnung`}</span>
               </div>
             </div>
           )}
@@ -1039,7 +1043,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Gutscheine</p>
               {unlockedVouchers.length === 0 ? (
                 <p className="text-[14px] text-gray-500 dark:text-gray-400">
-                  Noch kein Gutschein freigeschaltet. Es fehlen {nextRewardPoints - store.guest.points} Punkte.
+                  {nextRewardPoints == null
+                    ? 'Zurzeit sind keine weiteren Gutscheine verfügbar.'
+                    : `Noch kein Gutschein freigeschaltet. Es fehlen ${nextRewardPoints - store.guest.points} Punkte.`}
                 </p>
               ) : unlockedVouchers.map(v => (
                 <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
