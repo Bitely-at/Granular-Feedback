@@ -63,6 +63,39 @@ const BITELY_ACCENT = '#5265AF';
 // sich selbst.
 const STAR_COLOR = '#F59E0B';
 
+// ── Markenfarbe lesbar halten ──────────────────────────────
+// `--ba` steckt in der ganzen Gastansicht: als Fläche unter weißer Schrift
+// (Knöpfe, Punkte-Badges) UND als Textfarbe auf hellem Grund (Punktezahl,
+// Standort). Eine helle Marke — Beige, Pastell, kräftiges Gelb — ist in beiden
+// Rollen nicht zu entziffern. `readableAccent` schiebt sie so weit Richtung
+// Schwarz (heller Grund) bzw. Weiß (dunkler), bis der Kontrast für beides
+// reicht (WCAG AA, 4.5:1). Eine schon dunkle Marke bleibt unverändert.
+function parseHex(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function relLum([r, g, b]: [number, number, number]): number {
+  const f = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
+  const l1 = relLum(a), l2 = relLum(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+function readableAccent(hex: string, dark: boolean): string {
+  const rgb = parseHex(hex);
+  if (!rgb) return hex;
+  const bg: [number, number, number] = dark ? [24, 24, 27] : [255, 255, 255];
+  const push: [number, number, number] = dark ? [255, 255, 255] : [0, 0, 0];
+  let cur: [number, number, number] = [...rgb];
+  for (let i = 0; i < 40 && contrastRatio(cur, bg) < 4.5; i += 1) {
+    cur = [cur[0] + (push[0] - cur[0]) * 0.1, cur[1] + (push[1] - cur[1]) * 0.1, cur[2] + (push[2] - cur[2]) * 0.1];
+  }
+  return '#' + cur.map(c => Math.round(Math.max(0, Math.min(255, c))).toString(16).padStart(2, '0')).join('');
+}
+
 function Sk({ h = 16, w = '100%', r = 8 }: { h?: number; w?: string | number; r?: number }) {
   return <div className="animate-pulse bg-gray-200 dark:bg-gray-700" style={{ height: h, width: w, borderRadius: r }} />;
 }
@@ -4059,7 +4092,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <div className="bg-gray-200 dark:bg-gray-950 rounded-[32px] p-3 shadow-inner">
                        <div className={brandForm.guestTheme === 'dunkel' ? 'dark' : 'light'}>
                         <div className="relative rounded-[24px] overflow-hidden bg-white dark:bg-gray-900"
-                          style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': brandForm.accent } as React.CSSProperties}>
+                          style={{ fontFamily: `'${brandForm.font}', system-ui, sans-serif`, '--ba': readableAccent(brandForm.accent, brandForm.guestTheme === 'dunkel') } as React.CSSProperties}>
                           <div className="relative">
                             <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
                               {brandForm.coverImage ? (
@@ -5216,7 +5249,12 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
 
   // `--ba` trägt die Markenfarbe nur in die Gastansicht. Personal und
   // Verwaltung bekommen die feste Bitely-Farbe (siehe BITELY_ACCENT).
-  const accent = view === 'guest' ? store.brand.accent : BITELY_ACCENT;
+  // Die Marke wird auf einen lesbaren Kontrast gebracht (readableAccent):
+  // sonst verschwindet weiße Schrift auf einem beigen Knopf und die
+  // Punktezahl in Markenfarbe auf Weiß.
+  const accent = view === 'guest'
+    ? readableAccent(store.brand.accent, viewDark)
+    : BITELY_ACCENT;
 
   return (
     <div className={viewDark ? 'dark' : ''} style={{ fontFamily: `'${store.brand.font ?? 'Inter'}', system-ui, sans-serif`, '--ba': accent } as React.CSSProperties}>
