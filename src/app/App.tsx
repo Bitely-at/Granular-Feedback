@@ -4746,10 +4746,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <tbody>
                         {[...store.dishes].sort((a, b) => (dishAvg(b) ?? 0) - (dishAvg(a) ?? 0)).map((dish, i) => {
                           const avg = dishAvg(dish) ?? 0;
-                          const scoreColor = avg >= 4 ? 'text-emerald-700 dark:text-emerald-300' : avg >= 3 ? 'text-amber-700 dark:text-amber-300' : 'text-red-600 dark:text-red-400';
-                          const scoreBg = avg >= 4 ? 'bg-emerald-50 dark:bg-emerald-950' : avg >= 3 ? 'bg-amber-50 dark:bg-amber-950' : 'bg-red-50 dark:bg-red-950';
+                          // Schwache Schnitte in einem warmen, cremigen Orange
+                          // statt Alarm-Rot — es ist eine Aufgabe, kein Fehler.
+                          const scoreColor = avg >= 4 ? 'text-emerald-700 dark:text-emerald-300' : avg >= 3 ? 'text-amber-700 dark:text-amber-300' : 'text-orange-700 dark:text-orange-300';
+                          const scoreBg = avg >= 4 ? 'bg-emerald-50 dark:bg-emerald-950' : avg >= 3 ? 'bg-amber-50 dark:bg-amber-950' : 'bg-orange-50 dark:bg-orange-950';
                           const TrendIcon = avg >= 4.4 ? TrendingUp : (avg > 0 && avg < 3) ? TrendingDown : null;
-                          const trendColor = avg >= 4.4 ? 'text-gray-500' : 'text-red-500';
+                          const trendColor = avg >= 4.4 ? 'text-gray-500' : 'text-orange-500';
                           return (
                             <tr key={dish.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
                               <td className="px-5 py-3.5 text-[13px] text-gray-400">{i + 1}</td>
