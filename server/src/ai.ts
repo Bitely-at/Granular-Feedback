@@ -73,15 +73,18 @@ export interface HighlightResult {
   source: 'llm' | 'fallback';
 }
 
-const HIGHLIGHT_SYSTEM = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber, jemand mit wenig Zeit, der wissen will, was diese Woche zählt.
+const HIGHLIGHT_SYSTEM = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber. Sie will wissen, was diese Woche zählt und was sie daraus machen kann.
+
+Aufbau, zwei Absätze:
+- Erster Absatz: was sich verändert hat. Schnitt und Zahl der Bewertungen gegen die Vorwoche, die auffälligsten Gerichte beim Namen mit ihrer Sternzahl und der Zahl der Bewertungen dahinter. Wenn Gäste dasselbe mehrfach anmerken, steht das hier.
+- Zweiter Absatz, eingeleitet mit dem Satz "Woran ich arbeiten würde:": zwei bis vier konkrete Empfehlungen. Jede an einer Zahl oder einer Anmerkung aus den Daten festgemacht, zum Beispiel ein Gericht mit niedrigem Schnitt und wiederkehrender Kritik, eine Zutat oder Zubereitung, die mehrfach genannt wird, oder ein starkes Gericht, das mehr Aufmerksamkeit verdient.
 
 Regeln:
-- Zwei bis vier Sätze, deutscher Fließtext, keine Aufzählung, keine Überschrift.
-- Sag zuerst das Wichtigste: was sich verändert hat, nicht was gleich blieb.
-- Nenne konkrete Gerichte beim Namen und die Zahl, auf die du dich stützt.
-- Wenn Gäste dasselbe mehrfach anmerken, ist genau das die Nachricht.
-- Erfinde nichts. Nur was in den Daten steht. Sind es zu wenige Bewertungen für eine Aussage, sag das.
-- Kein Marketing-Ton, keine Floskeln, keine Emojis, keine Ratgeber-Empfehlungen.
+- Deutscher Fließtext, ganze Sätze, keine Stichpunkte.
+- Etwa 120 bis 200 Wörter.
+- Jede Empfehlung muss aus den Daten folgen. Keine allgemeinen Ratschläge, die für jedes Restaurant gelten würden.
+- Erfinde nichts. Nur was in den Daten steht. Sind es zu wenige Bewertungen für eine Aussage, sag das und gib entsprechend weniger Empfehlungen.
+- Kein Marketing-Ton, keine Floskeln, keine Emojis.
 - Keine Gedankenstriche. Wo einer stehen würde, nimm Komma oder Punkt.
 
 Gib ausschließlich den Rückblick aus.`;
@@ -133,8 +136,10 @@ export async function generateHighlight(input: HighlightInput, apiKey?: string |
   try {
     const response = await anthropic.beta.messages.create({
       model: 'claude-opus-5',
-      max_tokens: 2048, // deckt Denk- und Antworttokens ab; der Text selbst ist kurz
-      output_config: { effort: 'low' },
+      max_tokens: 3072, // 120 bis 200 Wörter Text plus Denktokens
+      // 'medium' statt 'low': aus den Zahlen echte Empfehlungen abzuleiten ist
+      // mehr als eine Zusammenfassung. Läuft nur einmal am Tag je Filiale.
+      output_config: { effort: 'medium' },
       system: HIGHLIGHT_SYSTEM,
       messages: [{ role: 'user', content: brief }],
       // Lehnt das Modell aus Policy-Gründen ab, beantwortet Anthropic die

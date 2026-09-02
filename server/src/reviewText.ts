@@ -28,19 +28,20 @@ export interface ReviewTextResult {
 }
 
 const STAR_WORDS: Record<number, string> = {
-  5: 'begeistert', 4: 'gut', 3: 'okay', 2: 'enttäuschend', 1: 'schlecht',
+  5: 'zufrieden', 4: 'gut', 3: 'geht so', 2: 'eher enttäuscht', 1: 'schlecht',
 };
 
-const SYSTEM_PROMPT = `Du schreibst kurze Restaurant-Rezensionen auf Deutsch, so wie ein echter Gast sie auf Google Maps oder TripAdvisor hinterlassen würde.
+const SYSTEM_PROMPT = `Du schreibst kurze Restaurant-Rezensionen auf Deutsch, so wie ein normaler Gast sie beiläufig auf Google Maps hinterlässt. Nicht wie ein Kritiker, nicht wie Werbung.
 
 Regeln:
-- Schreibe in der Ich-Form, natürlich und umgangssprachlich, kein Marketing-Ton.
+- Ich-Form, Alltagssprache, nüchtern. So, wie jemand schnell zwei, drei Sätze hinschreibt.
+- Kurz. Meist zwei bis vier Sätze, 25 bis 50 Wörter. Lieber zu knapp als zu lang.
+- Nicht übertreiben. Auch bei fünf Sternen kein Schwärmen, keine Häufung von Superlativen, keine Ausrufezeichen. „War gut, komme wieder" reicht völlig.
 - Keine Gedankenstriche. Wo einer stehen würde, nimm Komma oder Punkt.
-- 40 bis 70 Wörter, ein bis zwei Absätze, reiner Fließtext.
-- Nenne die bewerteten Gerichte beim Namen. Die Tonlage muss zu den Sternen passen: 5 = begeistert, 4 = gut, 3 = durchwachsen, 2 = enttäuscht, 1 = schlecht.
-- Greife die Freitext-Anmerkungen des Gasts inhaltlich auf, statt sie wörtlich zu kopieren.
+- Nenne die bewerteten Gerichte beim Namen. Die Tonlage passt zu den Sternen: 5 = zufrieden, 4 = gut, 3 = geht so, 2 = eher enttäuscht, 1 = schlecht.
+- Greife die Anmerkungen des Gasts sinngemäß auf, kopiere sie nicht wörtlich.
 - Erfinde nichts dazu: keine Preise, Namen von Mitarbeitenden, Wartezeiten, Öffnungszeiten oder Anlässe, die nicht in den Daten stehen.
-- Bei niedrigen Bewertungen bleibt die Kritik sachlich und fair, nicht beleidigend.
+- Bei niedrigen Bewertungen sachlich und fair, nicht beleidigend.
 - Keine Emojis, keine Hashtags, keine Überschrift, keine Anführungszeichen um den Text.
 
 Gib ausschließlich den Rezensionstext aus. Keine Einleitung, keine Alternativen, keine Erklärung.`;

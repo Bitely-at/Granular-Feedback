@@ -3547,7 +3547,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       {highlightLoading && !highlight ? (
                         <div className="space-y-2"><Sk h={13} /><Sk h={13} /><Sk h={13} w="70%" /></div>
                       ) : highlight ? (
-                        <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed">{highlight.text}</p>
+                        // pre-line: der Rückblick kommt in zwei Absätzen (Lage,
+                        // dann „Woran ich arbeiten würde:"); ohne das liefe beides
+                        // zu einem Block zusammen.
+                        <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-line">{highlight.text}</p>
                       ) : (
                         <p className="text-[13px] text-gray-400">Noch kein Rückblick. Er entsteht, sobald Bewertungen vorliegen.</p>
                       )}

@@ -386,6 +386,14 @@ Drei Stellen fragen ein Modell (SDK `@anthropic-ai/sdk`): der
   Tag ist. Ein Rückblick, der sich bei jedem Neuladen ändert, liest sich wie
   ein Zufallstext — und kostet jedes Mal. Erzeugt wird er in einer eigenen
   Route (`POST /insights/highlight`), damit das Dashboard sofort steht.
+- **Der Rückblick gibt Empfehlungen, der Rezensionstext bleibt nüchtern.**
+  `HIGHLIGHT_SYSTEM` verlangt zwei Absätze — was sich verändert hat, dann
+  „Woran ich arbeiten würde:" mit zwei bis vier Empfehlungen, jede an einer
+  Zahl oder Anmerkung aus den Daten festgemacht (keine allgemeinen Ratschläge).
+  Läuft auf `effort: 'medium'`, weil das mehr ist als eine Zusammenfassung.
+  `SYSTEM_PROMPT` in `reviewText.ts` zieht in die andere Richtung: 25 bis 50
+  Wörter, kein Schwärmen auch bei fünf Sternen, klingt wie ein beiläufiger
+  Google-Maps-Eintrag. Beide ohne Gedankenstriche.
 
 ## Dashboard-Auswertung
 
