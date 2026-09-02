@@ -76,6 +76,9 @@ export interface Branch {
   // Der Google-Maps-Eintrag dieser Filiale. Ohne Wert baut der Server einen
   // Suchlink aus Name und Adresse — siehe mapsUrlFor in index.ts.
   googleMapsUrl?: string | null;
+  // Standortfoto: der Gast am Tisch sieht das Bild seiner Filiale. Fehlt es,
+  // greift das kettenweite brand.coverImage.
+  coverImage?: string | null;
 }
 
 export interface Dish {
@@ -160,7 +163,7 @@ export interface DishRatingInput { dishId: string; stars: number; note?: string;
 // ausschließlich der Server pflegt (id, ratingsSum, ratingsCount).
 export type DishInput = Pick<Dish, 'name' | 'price' | 'cat'> & { img?: string; branchIds?: string[] | null };
 export type VoucherInput = Pick<Voucher, 'title' | 'points' | 'expiry'> & { img?: string; branchIds?: string[] | null };
-export type BranchInput = Pick<Branch, 'name' | 'address'> & { googleMapsUrl?: string | null };
+export type BranchInput = Pick<Branch, 'name' | 'address'> & { googleMapsUrl?: string | null; coverImage?: string | null };
 
 export interface Alert {
   id: string; branchId: string; tableId: string; tableNumber: number; dishName: string;

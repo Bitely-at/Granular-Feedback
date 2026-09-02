@@ -814,10 +814,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               aus den Marken-Einstellungen), bleibt eine ruhige Fläche in der
               Markenfarbe stehen, statt dass der Text im Nichts hängt. */}
           <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
-            {store.brand?.coverImage ? (
-              <img src={store.brand.coverImage} alt="" aria-hidden
+            {/* Das Foto DIESER Filiale, sonst das kettenweite Titelbild. */}
+            {(branch.coverImage ?? store.brand?.coverImage) ? (
+              <img src={branch.coverImage ?? store.brand?.coverImage ?? ''} alt="" aria-hidden
                 className="w-full h-full object-cover"
-                style={{ opacity: store.brand.coverOpacity ?? 1 }} />
+                style={{ opacity: store.brand?.coverOpacity ?? 1 }} />
             ) : (
               <div className="w-full h-full opacity-35 dark:opacity-25"
                 style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
@@ -2688,6 +2689,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
   const [form, setForm] = useState({
     name: branch?.name ?? '', address: branch?.address ?? '',
     googleMapsUrl: branch?.googleMapsUrl ?? '',
+    coverImage: (branch?.coverImage ?? null) as string | null,
   });
   const valid = form.name.trim() !== '' && form.address.trim() !== '';
 
@@ -2695,6 +2697,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
     const payload = {
       name: form.name.trim(), address: form.address.trim(),
       googleMapsUrl: form.googleMapsUrl.trim() || null,
+      coverImage: form.coverImage,
     };
     if (branch) await store.updateBranch(branch.id, payload);
     else await store.addBranch(payload);
@@ -2716,6 +2719,17 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
           onChange={v => setForm(p => ({ ...p, googleMapsUrl: v }))}
           placeholder="https://maps.app.goo.gl/…"
           hint="Optional. Dorthin schicken wir Gäste, die ihre Bewertung öffentlich teilen wollen." />
+        {/* Standortfoto: der Gast am Tisch dieser Filiale sieht es auf dem
+            Empfangsbildschirm. Ohne eines greift das kettenweite Titelbild
+            aus „Design". */}
+        <div>
+          <ImageField label="Standortfoto (optional)" value={form.coverImage} aspect="wide"
+            onChange={v => setForm(p => ({ ...p, coverImage: v }))} />
+          {form.coverImage && (
+            <button type="button" onClick={() => setForm(p => ({ ...p, coverImage: null }))}
+              className="text-[11px] text-gray-400 hover:text-red-500 mt-1">Entfernen</button>
+          )}
+        </div>
         <DialogError message={error} />
       </div>
     </AdminModal>

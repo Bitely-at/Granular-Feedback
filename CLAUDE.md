@@ -47,9 +47,9 @@ npm run new-org --prefix server -- <slug> "<Name>" <admin-email> --demo --kind=p
 # verunglückte new-org-Anläufe. Ohne --yes wird nur gezeigt, was ginge.
 npm run drop-org --prefix server -- <slug> --yes
 
-# Vorgefertigte Demo-Mandanten:
-npm run seed:miners --prefix server      # 'the-miners' (Wien Naschmarkt + Dresden), EUR
-npm run seed:miners-cz --prefix server   # 'the-miners-cz' (Prag JZP + Maj), CZK, Gastansicht EN
+# Vorgefertigter Demo-Mandant: 'the-miners' — vier Filialen (Wien Naschmarkt,
+# Dresden Altstadt, Prag JZP, Prag Maj), je mit eigenem Standortfoto.
+npm run seed:miners --prefix server
 
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
@@ -276,9 +276,11 @@ mit dem Häkchen — die Servicekraft sieht die Geste, mehr braucht es nicht.
 Der Maßstab ist die gedruckte Speisekarte, nicht die Umfrage: eine einzige
 Akzentfarbe, sonst Weiß, Grau und Schwarz; durchgehende Blöcke von Rand zu Rand
 statt schwebender Karten; keine Tab-Leiste, keine Attrappen. Der
-Startbildschirm trägt ein vollflächiges Titelbild (`coverImage` aus den
-Marken-Einstellungen), das nach unten in den Hintergrund ausläuft, darüber eine
-44-Pixel-Schlagzeile mit dem Namen des Lokals. Fehlt das Bild, bleibt eine
+Startbildschirm trägt ein vollflächiges Titelbild — das **Standortfoto der
+Filiale** (`branch.coverImage`), sonst das kettenweite `brand.coverImage` aus
+den Marken-Einstellungen —, das nach unten in den Hintergrund ausläuft, darüber
+eine 44-Pixel-Schlagzeile mit dem Namen des Lokals. So sieht der Gast am Tisch
+das Bild SEINES Lokals, nicht ein allgemeines. Fehlt das Bild, bleibt eine
 Fläche in der Akzentfarbe stehen.
 
 Die Fußzeile „POWERED BY bitely" steht auf dem ersten und dem letzten

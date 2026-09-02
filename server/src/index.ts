@@ -2426,6 +2426,7 @@ router.post('/branches', chainAdmin(async (req: OrgRequest, res) => {
     name,
     address: requireText(req.body?.address, 'Adresse', 160),
     googleMapsUrl: optionalText(req.body?.googleMapsUrl, 'Google-Maps-Link', 400) ?? null,
+    coverImage: optionalImage(req.body?.coverImage) ?? null,
   });
   res.json(await stateFor(req));
 }));
@@ -2437,6 +2438,9 @@ router.patch('/branches/:id', chainAdmin(async (req: OrgRequest, res) => {
   if (req.body?.address !== undefined) update.address = requireText(req.body.address, 'Adresse', 160);
   if (req.body?.googleMapsUrl !== undefined) {
     update.googleMapsUrl = optionalText(req.body.googleMapsUrl, 'Google-Maps-Link', 400) ?? null;
+  }
+  if (req.body?.coverImage !== undefined) {
+    update.coverImage = optionalImage(req.body.coverImage) ?? null;
   }
   if (Object.keys(update).length === 0) {
     res.status(400).json({ error: 'Es wurde nichts zum Ändern übergeben.' });

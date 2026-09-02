@@ -12,10 +12,14 @@ import type {
 //
 //   npm run seed:miners --prefix server
 //
-// Baut die Organisation 'the-miners' mit zwei Filialen (Wien Naschmarkt,
-// Dresden Altstadt), der echten Kaffeekarte, Gutscheinen, Personal- und
+// Baut die Organisation 'the-miners' mit vier Filialen (Wien Naschmarkt,
+// Dresden Altstadt, Prag JZP und Prag Maj), je mit eigenem Standortfoto von
+// der Miners-Website, der echten Kaffeekarte, Gutscheinen, Personal- und
 // Gastkonten und einer Handvoll kuratierter, gerichtsgenauer Bewertungen —
 // das Muster "Kaffee besser bewertet als Speisen", das den Pitch trägt.
+//
+// Die Prager Preise stehen in EUR (Bitely kennt keine Währung je Filiale) —
+// für die Demo unkritisch, im echten Rollout der erste Blocker.
 //
 // Datenquelle: theminers.eu (Karte, Standorte) und öffentliche Google-/
 // Falstaff-Rezensionen, aggregiert und paraphrasiert (siehe die beiden
@@ -79,18 +83,18 @@ const MENU: MenuItem[] = [
   { sku: 'cort', name: 'Cortado', price: 4.80, cat: 'Getränke', photo: 'photo-1610889556528-9a770e32642f' },
 
   { sku: 'ilatte', name: 'Iced Latte', price: 5.00, cat: 'Getränke', photo: 'photo-1461023058943-07fcbe16d735' },
-  { sku: 'icm', name: 'Iced Coconut Matcha', price: 6.00, cat: 'Getränke', photo: 'photo-1717603545758-88cc454db69b', only: ['naschmarkt'] },
-  { sku: 'etonic', name: 'Espresso Tonic', price: 5.80, cat: 'Getränke', photo: 'photo-1753700281029-b3d15df20ec4', only: ['naschmarkt'] },
+  { sku: 'icm', name: 'Iced Coconut Matcha', price: 6.00, cat: 'Getränke', photo: 'photo-1717603545758-88cc454db69b', only: ['naschmarkt', 'jzp', 'maj'] },
+  { sku: 'etonic', name: 'Espresso Tonic', price: 5.80, cat: 'Getränke', photo: 'photo-1753700281029-b3d15df20ec4', only: ['naschmarkt', 'jzp', 'maj'] },
 
   { sku: 'chai', name: 'Chai Latte', price: 4.80, cat: 'Getränke', photo: 'photo-1561336526-2914f13ceb36' },
   { sku: 'match', name: 'Matcha Latte', price: 5.50, cat: 'Getränke', photo: 'photo-1515823064-d6e0c04616a7' },
   { sku: 'tea', name: 'Tea', price: 4.50, cat: 'Getränke', photo: 'photo-1491720731493-223f97d92c21' },
   { sku: 'choc', name: 'Hot Chocolate', price: 5.00, cat: 'Getränke', photo: 'photo-1637572815755-c4b80092dce1' },
 
-  { sku: 'syrm', name: 'Syrniki with Mascarpone', price: 10.50, cat: 'Speisen', photo: 'photo-1612182062633-9ff3b3598e96', only: ['naschmarkt'] },
-  { sku: 'syrs', name: 'Syrniki with Salmon', price: 12.50, cat: 'Speisen', photo: 'photo-1577906096429-f73c2c312435', only: ['naschmarkt'] },
-  { sku: 'omel', name: 'Omelette', price: 10.50, cat: 'Speisen', photo: 'photo-1510693206972-df098062cb71', only: ['naschmarkt'] },
-  { sku: 'fegg', name: 'Fried Eggs', price: 8.50, cat: 'Speisen', photo: 'photo-1525351484163-7529414344d8', only: ['naschmarkt'] },
+  { sku: 'syrm', name: 'Syrniki with Mascarpone', price: 10.50, cat: 'Speisen', photo: 'photo-1612182062633-9ff3b3598e96', only: ['naschmarkt', 'jzp'] },
+  { sku: 'syrs', name: 'Syrniki with Salmon', price: 12.50, cat: 'Speisen', photo: 'photo-1577906096429-f73c2c312435', only: ['naschmarkt', 'jzp'] },
+  { sku: 'omel', name: 'Omelette', price: 10.50, cat: 'Speisen', photo: 'photo-1510693206972-df098062cb71', only: ['naschmarkt', 'jzp'] },
+  { sku: 'fegg', name: 'Fried Eggs', price: 8.50, cat: 'Speisen', photo: 'photo-1525351484163-7529414344d8', only: ['naschmarkt', 'jzp'] },
 
   { sku: 'chees', name: 'Cheesecake', price: 5.50, cat: 'Speisen', photo: 'photo-1676300185983-d5f242babe34' },
   { sku: 'cook', name: 'Chocolate Chip Cookie', price: 3.90, cat: 'Speisen', photo: 'photo-1499636136210-6f4ee915583e' },
@@ -164,34 +168,40 @@ async function main() {
   const db = await orgDbBySlug(ORG_SLUG);
 
   // ── 3) Branding ─────────────────────────────────────────
-  // Titelbild des Gast-Willkommensbildschirms: das designierte Cover-Foto der
-  // Filiale Naschmarkt von der Miners-Website (44 KB webp). Beim Wiederholungs-
-  // lauf nachgezogen, den Rest der Marken-Einstellungen aber nicht anfassen.
-  const COVER = MINERS('documents/upload/covers/naschmarkt_00.webp');
+  // Das kettenweite Titelbild ist nur noch der Notnagel: jede Filiale bringt
+  // ihr eigenes Standortfoto mit (unten). Für eine Filiale ohne Bild bleibt es.
   const settingsCol = db.collection<BrandDoc>('settings');
   if ((await settingsCol.countDocuments({ _id: 'brand' })) === 0) {
-    await settingsCol.insertOne({ _id: 'brand', name: ORG_NAME, accent: '#C8A882', logo: '☕', coverImage: COVER });
+    await settingsCol.insertOne({
+      _id: 'brand', name: ORG_NAME, accent: '#C8A882', logo: '☕',
+      coverImage: MINERS('documents/upload/covers/naschmarkt_00.webp'),
+    });
     console.log('Branding angelegt.');
   } else {
-    await settingsCol.updateOne({ _id: 'brand' }, { $set: { coverImage: COVER } });
-    console.log('Branding existiert bereits — Titelbild nachgezogen.');
+    console.log('Branding existiert bereits.');
   }
 
-  // ── 4) Filialen ─────────────────────────────────────────
+  // ── 4) Filialen mit Standortfoto ────────────────────────
+  // Wien und Dresden aus der Kette; JZP und Maj sind die beiden Prager
+  // Standorte. Jedes Foto stammt von der Miners-Website (covers/<name>_00.webp).
   const branchesCol = db.collection<Branch>('branches');
   const branchSeeds = [
-    { slug: 'naschmarkt', name: 'Naschmarkt', address: 'Getreidemarkt 1, 1060 Wien' },
-    { slug: 'altstadt', name: 'Altstadt', address: 'Annenstraße 4, 01067 Dresden' },
+    { slug: 'naschmarkt', name: 'Naschmarkt', address: 'Getreidemarkt 1, 1060 Wien', cover: 'naschmarkt_00.webp' },
+    { slug: 'altstadt', name: 'Altstadt', address: 'Annenstraße 4, 01067 Dresden', cover: 'alt_00.webp' },
+    { slug: 'jzp', name: 'JZP', address: 'Slavíkova 1611/5, 120 00 Praha 2', cover: 'jzp_00.webp' },
+    { slug: 'maj', name: 'Maj', address: 'Národní 63/26, 110 00 Praha 1', cover: 'maj_00.webp' },
   ];
   const branches: Branch[] = [];
-  for (const b of branchSeeds) {
+  for (const { cover, ...b } of branchSeeds) {
+    const coverImage = MINERS(`documents/upload/covers/${cover}`);
     const existing = await branchesCol.findOne({ slug: b.slug });
     if (existing) {
-      branches.push(existing);
-      console.log(`Filiale "${b.name}" existiert bereits.`);
+      await branchesCol.updateOne({ _id: existing._id }, { $set: { coverImage } });
+      branches.push({ ...existing, coverImage });
+      console.log(`Filiale "${b.name}" existiert bereits — Standortfoto nachgezogen.`);
     } else {
-      const res = await branchesCol.insertOne({ ...b });
-      branches.push({ _id: res.insertedId, ...b });
+      const res = await branchesCol.insertOne({ ...b, coverImage });
+      branches.push({ _id: res.insertedId, ...b, coverImage });
       console.log(`Filiale "${b.name}" angelegt.`);
     }
   }
@@ -211,11 +221,14 @@ async function main() {
     })));
     console.log(`Speisekarte angelegt (${MENU.length} Positionen).`);
   } else {
-    // Bestehende Karte: nur das Foto nachziehen (Name/Preis gehören dem Kunden,
-    // sobald er sie in der Verwaltung angefasst hat).
+    // Bestehende Karte: Foto UND Verfügbarkeit nachziehen. Name und Preis
+    // bleiben unangetastet (die gehören dem Kunden). Die Verfügbarkeit muss
+    // mit, weil die Prager Filialen nach dem ersten Seed dazukamen — ohne das
+    // fehlt JZP der Brunch.
     let fixed = 0;
     for (const m of MENU) {
-      const r = await dishesCol.updateOne({ name: m.name }, { $set: { img: IMG(m.photo) } });
+      const branchIds = m.only ? m.only.map(s => bySlug.get(s)!).filter(Boolean) : null;
+      const r = await dishesCol.updateOne({ name: m.name }, { $set: { img: IMG(m.photo), branchIds } });
       fixed += r.modifiedCount;
     }
     console.log(`Speisekarte existiert bereits — ${fixed} Fotos aktualisiert.`);
@@ -230,7 +243,7 @@ async function main() {
   const mk = (branchId: string) => (number: number): Omit<TableDoc, '_id'> => ({
     branchId, number, status: 'frei', items: [], openedAt: null, orderId: null,
   });
-  const tableCounts: Record<string, number> = { naschmarkt: 8, altstadt: 12 };
+  const tableCounts: Record<string, number> = { naschmarkt: 8, altstadt: 12, jzp: 14, maj: 8 };
   for (const b of branches) {
     const branchId = b._id!.toString();
     if ((await tablesCol.countDocuments({ branchId })) === 0) {
@@ -271,6 +284,9 @@ async function main() {
     { name: 'Barista 1', email: 'barista1@theminers.eu', role: 'Kellner', branchId: naschmarktId, status: 'aktiv' },
     { name: 'Barista 2', email: 'barista2@theminers.eu', role: 'Kellner', branchId: naschmarktId, status: 'aktiv' },
     { name: 'Filialleitung Dresden', email: 'lead.dd@theminers.eu', role: 'Manager', branchId: bySlug.get('altstadt')!, status: 'aktiv' },
+    { name: 'Vedoucí JZP', email: 'lead.jzp@theminers.eu', role: 'Manager', branchId: bySlug.get('jzp')!, status: 'aktiv' },
+    { name: 'Vedoucí Maj', email: 'lead.maj@theminers.eu', role: 'Manager', branchId: bySlug.get('maj')!, status: 'aktiv' },
+    { name: 'Barista Praha', email: 'barista.praha@theminers.eu', role: 'Kellner', branchId: bySlug.get('jzp')!, status: 'aktiv' },
   ];
   for (const u of demoUsers) {
     await usersCol.updateOne(
@@ -364,13 +380,15 @@ async function main() {
   console.log('─────────────────────────────────────────');
   console.log(`  Verwaltung   /${ORG_SLUG}/admin`);
   console.log(`  Personal     /${ORG_SLUG}/staff`);
-  console.log(`  QR am Tisch  /${ORG_SLUG}/naschmarkt/table/3`);
-  console.log(`               /${ORG_SLUG}/altstadt/table/1`);
+  console.log(`  QR je Filiale  /${ORG_SLUG}/naschmarkt/table/3   (Wien)`);
+  console.log(`                 /${ORG_SLUG}/altstadt/table/1     (Dresden)`);
+  console.log(`                 /${ORG_SLUG}/jzp/table/4          (Prag JZP)`);
+  console.log(`                 /${ORG_SLUG}/maj/table/1          (Prag Maj)`);
   console.log('\n  Zugänge (Passwort jeweils gleich):');
   console.log(`    ${OWNER_EMAIL}   Admin (ganze Kette)   / ${DEMO_PASSWORD}`);
-  console.log(`    lead.wien@theminers.eu    Filialleitung Wien    / ${DEMO_PASSWORD}`);
-  console.log(`    barista1@theminers.eu     Service Wien          / ${DEMO_PASSWORD}`);
-  console.log(`    lead.dd@theminers.eu      Filialleitung Dresden / ${DEMO_PASSWORD}`);
+  console.log(`    lead.wien@theminers.eu    Filialleitung Wien     / ${DEMO_PASSWORD}`);
+  console.log(`    lead.dd@theminers.eu      Filialleitung Dresden  / ${DEMO_PASSWORD}`);
+  console.log(`    lead.jzp@theminers.eu     Vedoucí JZP            / ${DEMO_PASSWORD}`);
   console.log(`    gast.stammkunde@example.com  Gast, 340 Punkte   / ${DEMO_PASSWORD}`);
   console.log('\n  Mehr Verlauf fürs Dashboard (optional):');
   console.log(`    npm run demo-reviews --prefix server -- 8 ${ORG_SLUG}`);

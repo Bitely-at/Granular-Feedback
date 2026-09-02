@@ -22,6 +22,12 @@ export interface Branch {
    * Server einen Suchlink aus Name und Adresse.
    */
   googleMapsUrl?: string | null;
+  /**
+   * Standortfoto DIESER Filiale — der Gast am Tisch sieht auf dem
+   * Empfangsbildschirm das Bild seines Lokals. Fehlt es, greift das
+   * kettenweite `brand.coverImage`. URL oder Data-URI.
+   */
+  coverImage?: string | null;
 }
 
 export interface TableItem {
