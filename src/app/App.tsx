@@ -3301,12 +3301,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           der er nicht weiß, dass sie scrollt. */}
       <aside onClick={e => e.stopPropagation()}
         className={`fixed top-0 bottom-0 left-0 w-64 lg:w-56 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 ${mobileNav ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}>
-        <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2.5">
-          <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight truncate">{store.brand?.name}</p>
-            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">Admin · <BitelyWordmark className="h-4 opacity-70" /></p>
-          </div>
+        {/* Oben nur die Bitely-Wortmarke — die Software besitzt die
+            Verwaltung. Das Logo und der Name des Lokals stehen nicht mehr hier,
+            sondern unten am Konto: wer verwaltet gerade welchen Laden. */}
+        <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2.5">
+          <BitelyWordmark className="h-6" />
           <button onClick={() => setMobileNav(false)} title="Menü schließen"
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={16} className="text-gray-500" />
@@ -3378,7 +3377,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           ))}
         </nav>
 
-        {/* Konto und Abmelden gehören ans Ende der Navigation. */}
+        {/* Konto und Abmelden gehören ans Ende der Navigation. Unter dem Namen
+            der angemeldeten Person steht ihre Rolle und, dahinter, das Lokal:
+            wer verwaltet gerade welchen Laden. */}
         <div className="p-3 border-t border-gray-100 dark:border-gray-800">
           {store.authUser && (
             <div className="flex items-center gap-2.5 px-3 py-2">
@@ -3388,7 +3389,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               </div>
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
-                <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
+                <p className="text-[11px] text-gray-400 truncate">
+                  {store.authUser.role}{store.brand?.name ? ` · ${store.brand.name}` : ''}
+                </p>
               </div>
             </div>
           )}
