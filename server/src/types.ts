@@ -202,6 +202,9 @@ export interface BrandDoc {
   coverOpacity?: number | null;
   // Sprache der Gastansicht, vom Betrieb vorgegeben. 'de' | 'en'.
   guestLang?: 'de' | 'en';
+  // Textfarbe für schwache Gerichtsschnitte (unter 4,0 ★) in Dashboard und
+  // Menü. null = Vorgabe. Hex.
+  weakRatingColor?: string | null;
 }
 
 /**

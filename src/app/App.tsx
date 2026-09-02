@@ -64,6 +64,16 @@ const BITELY_ACCENT = '#5265AF';
 // sich selbst.
 const STAR_COLOR = '#F59E0B';
 
+// Farbe für schwache Gerichtsschnitte (unter 4,0 ★) in Dashboard und Menü,
+// wenn der Betrieb keine eigene gewählt hat. Warmes Orange — eine Aufgabe,
+// kein Alarm. Der getönte Hintergrund wird per color-mix daraus gerechnet,
+// damit die Kombination immer stimmt.
+const WEAK_RATING_DEFAULT = '#C2410C';
+const weakRatingStyle = (hex: string) => ({
+  color: hex,
+  backgroundColor: `color-mix(in srgb, ${hex} 14%, transparent)`,
+});
+
 // ── Markenfarbe lesbar halten ──────────────────────────────
 // `--ba` steckt in der ganzen Gastansicht: als Fläche unter weißer Schrift
 // (Knöpfe, Punkte-Badges) UND als Textfarbe auf hellem Grund (Punktezahl,
@@ -2200,6 +2210,7 @@ function Field({ label, value, onChange, placeholder, type = 'text', hint }: {
 function ImageField({ label, value, onChange, aspect = 'square' }: {
   label: string; value: string | null; onChange: (v: string) => void; aspect?: 'square' | 'wide';
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -2226,10 +2237,10 @@ function ImageField({ label, value, onChange, aspect = 'square' }: {
         <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
           className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 disabled:opacity-50 transition-colors">
           {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={1.5} />}
-          {value ? 'Foto ändern' : 'Foto wählen'}
+          {value ? t('Foto ändern', 'Change photo') : t('Foto wählen', 'Choose photo')}
         </button>
       </div>
-      {failed && <p className="text-[11px] text-red-500 mt-1">Das Bild konnte nicht gelesen werden.</p>}
+      {failed && <p className="text-[11px] text-red-500 mt-1">{t('Das Bild konnte nicht gelesen werden.', 'The image could not be read.')}</p>}
       <input ref={inputRef} type="file" accept="image/*" className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }} />
     </div>
@@ -2256,6 +2267,7 @@ function BranchScopeField({ label, hint, value, onChange }: {
   label: string; hint: string; value: string[] | null; onChange: (v: string[] | null) => void;
 }) {
   const store = useStore();
+  const t = useT();
   if (store.branches.length < 2) return null;
 
   const everywhere = value == null;
@@ -2854,6 +2866,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     guestTextColor: (store.brand?.guestTextColor ?? null) as string | null,
     coverOpacity: (store.brand?.coverOpacity ?? 1) as number,
     guestLang: (store.brand?.guestLang ?? 'de') as Lang,
+    weakRatingColor: (store.brand?.weakRatingColor ?? null) as string | null,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2936,6 +2949,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       guestTextColor: store.brand.guestTextColor ?? null,
       coverOpacity: store.brand.coverOpacity ?? 1,
       guestLang: store.brand.guestLang ?? 'de',
+      weakRatingColor: store.brand.weakRatingColor ?? null,
     });
   }, [store.brand]);
 
@@ -3210,6 +3224,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         guestTextColor: brandForm.guestTextColor ?? '',
         coverOpacity: brandForm.coverOpacity,
         guestLang: brandForm.guestLang,
+        weakRatingColor: brandForm.weakRatingColor ?? '',
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -3977,7 +3992,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                   <td className="px-5 py-3">
                                     <div className="flex items-center gap-2">
                                       <StarRating value={Math.round(d.avg)} size={12} />
-                                      <span className={`text-[14px] font-semibold ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>{d.avg.toFixed(1)}</span>
+                                      <span className={`text-[14px] font-semibold ${d.avg >= 4 ? 'text-emerald-700' : ''}`}
+                                        style={d.avg >= 4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT }}>{d.avg.toFixed(1)}</span>
                                     </div>
                                   </td>
                                   <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.count}</td>
@@ -3997,7 +4013,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
                                 <p className="text-[11px] text-gray-400">{d.cat} · {d.price.toFixed(2)} € · {d.count}×</p>
                               </div>
-                              <span className={`text-[15px] font-bold flex-shrink-0 ${d.avg < 3 ? 'text-red-600' : d.avg < 4 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                              <span className={`text-[15px] font-bold flex-shrink-0 ${d.avg >= 4 ? 'text-emerald-700' : ''}`}
+                                style={d.avg >= 4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT }}>
                                 {d.avg.toFixed(1)}
                               </span>
                             </div>
@@ -4163,12 +4180,42 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                   className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
                                 {value && (
                                   <button onClick={() => setBrandForm(p => ({ ...p, [key]: null }))}
-                                    className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Zurücksetzen</button>
+                                    className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">{t('Zurücksetzen', 'Reset')}</button>
                                 )}
                               </div>
                             </div>
                           );
                         })}
+                      </div>
+
+                      {/* FARBE FÜR SCHWACHE BEWERTUNGEN — im Dashboard und auf
+                          der Menüseite, für Gerichtsschnitte unter 4,0 ★. Der
+                          getönte Hintergrund wird aus dieser Farbe gerechnet,
+                          die Kombination stimmt also immer. */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-3">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Farbe für schwache Bewertungen', 'Colour for weak ratings')}</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            {t('Für Gerichtsschnitte unter 4,0 ★ in Dashboard und Menü. Ab 4,0 ist es grün.',
+                               'For dish averages below 4.0 ★ in the dashboard and menu. From 4.0 it is green.')}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <input type="color" value={brandForm.weakRatingColor ?? WEAK_RATING_DEFAULT}
+                            onChange={e => setBrandForm(p => ({ ...p, weakRatingColor: e.target.value }))}
+                            className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
+                          <input value={brandForm.weakRatingColor ?? ''} placeholder={WEAK_RATING_DEFAULT}
+                            onChange={e => setBrandForm(p => ({ ...p, weakRatingColor: e.target.value.trim() === '' ? null : e.target.value }))}
+                            className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
+                          <span className="text-[13px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5"
+                            style={weakRatingStyle(brandForm.weakRatingColor || WEAK_RATING_DEFAULT)}>
+                            <Star size={11} fill="currentColor" strokeWidth={0} />3.4
+                          </span>
+                          {brandForm.weakRatingColor && (
+                            <button onClick={() => setBrandForm(p => ({ ...p, weakRatingColor: null }))}
+                              className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">{t('Zurücksetzen', 'Reset')}</button>
+                          )}
+                        </div>
                       </div>
 
                       {/* TITELBILD — das Bild, das beim Gast über dem halben
@@ -4819,12 +4866,16 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <tbody>
                         {[...store.dishes].sort((a, b) => (dishAvg(b) ?? 0) - (dishAvg(a) ?? 0)).map((dish, i) => {
                           const avg = dishAvg(dish) ?? 0;
-                          // Schwache Schnitte in einem warmen, cremigen Orange
-                          // statt Alarm-Rot — es ist eine Aufgabe, kein Fehler.
-                          const scoreColor = avg >= 4 ? 'text-emerald-700 dark:text-emerald-300' : avg >= 3 ? 'text-amber-700 dark:text-amber-300' : 'text-orange-700 dark:text-orange-300';
-                          const scoreBg = avg >= 4 ? 'bg-emerald-50 dark:bg-emerald-950' : avg >= 3 ? 'bg-amber-50 dark:bg-amber-950' : 'bg-orange-50 dark:bg-orange-950';
+                          // Zwei Stufen: ab 4,0 grün, darunter die vom Betrieb
+                          // gewählte Farbe (Design → Farbe für schwache
+                          // Bewertungen), Vorgabe warmes Orange. Der getönte
+                          // Hintergrund wird aus der Textfarbe gerechnet.
+                          const good = avg >= 4;
+                          const scoreCls = good ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' : '';
+                          const scoreStyle = good ? undefined : weakRatingStyle(store.brand?.weakRatingColor || WEAK_RATING_DEFAULT);
                           const TrendIcon = avg >= 4.4 ? TrendingUp : (avg > 0 && avg < 3) ? TrendingDown : null;
-                          const trendColor = avg >= 4.4 ? 'text-gray-500' : 'text-orange-500';
+                          const trendColor = avg >= 4.4 ? 'text-gray-500' : '';
+                          const trendStyle = avg >= 4.4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT };
                           return (
                             <tr key={dish.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
                               <td className="px-5 py-3.5 text-[13px] text-gray-400">{i + 1}</td>
@@ -4839,10 +4890,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               </td>
                               <td className="px-5 py-3.5">
                                 {dish.ratingsCount > 0 ? (
-                                  <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1 rounded-lg ${scoreColor} ${scoreBg}`}>
+                                  <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1 rounded-lg ${scoreCls}`} style={scoreStyle}>
                                     <Star size={11} fill="currentColor" strokeWidth={0} />{avg.toFixed(1)}
                                   </span>
-                                ) : <span className="text-[12px] text-gray-400">Noch keine</span>}
+                                ) : <span className="text-[12px] text-gray-400">{t('Noch keine', 'None yet')}</span>}
                               </td>
                               <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{dish.ratingsCount}</td>
                               <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{dish.price.toFixed(2)} €</td>
@@ -4861,7 +4912,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 )}
                               </td>
                               <td className="px-5 py-3.5">
-                                {TrendIcon ? <TrendIcon size={16} className={trendColor} strokeWidth={2} /> : <span className="w-4 h-0.5 bg-gray-200 dark:bg-gray-700 inline-block rounded-full" />}
+                                {TrendIcon ? <TrendIcon size={16} className={trendColor} style={trendStyle} strokeWidth={2} /> : <span className="w-4 h-0.5 bg-gray-200 dark:bg-gray-700 inline-block rounded-full" />}
                               </td>
                               <td className="px-5 py-3.5">
                                 {/* Stammdaten ändern darf nur die Kette — die
