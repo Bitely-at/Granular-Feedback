@@ -45,6 +45,10 @@ Grautöne bzw. Schwarz/Weiß je nach Hell/Dunkel. Die Vorgabe bleibt der ruhige
 Dreiklang Weiß/Grau/Schwarz — die Farbwahl ist die Ausnahme für Betriebe, deren
 Titelbild einen anderen Ton verlangt.
 
+Die **Deckkraft des Titelbilds** (`coverOpacity`, Regler 20–100 %) senkt das
+Bild bei Bedarf ab, damit die Schlagzeile darüber trägt, auch ohne dass der
+Verlauf tiefer sitzt. Voll (100 %) ist die Vorgabe.
+
 Das **Logo** steht oben links auf dem Bild, wie der Kopf einer Karte — 44 px,
 ohne Namen daneben, der steht drei Zeilen tiefer in voller Größe. Der Gast kennt
 das Zeichen von der Tür; ein Name in einer Schlagzeile ersetzt es nicht. Auf dem

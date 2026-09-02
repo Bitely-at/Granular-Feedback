@@ -808,7 +808,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
             {store.brand?.coverImage ? (
               <img src={store.brand.coverImage} alt="" aria-hidden
-                className="w-full h-full object-cover" />
+                className="w-full h-full object-cover"
+                style={{ opacity: store.brand.coverOpacity ?? 1 }} />
             ) : (
               <div className="w-full h-full opacity-35 dark:opacity-25"
                 style={{ background: 'linear-gradient(160deg, var(--ba, #16A34A), transparent 70%)' }} />
@@ -2827,6 +2828,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     guestTheme: (store.brand?.guestTheme ?? 'hell') as NonNullable<Brand['guestTheme']>,
     guestNameColor: (store.brand?.guestNameColor ?? null) as string | null,
     guestTextColor: (store.brand?.guestTextColor ?? null) as string | null,
+    coverOpacity: (store.brand?.coverOpacity ?? 1) as number,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2907,6 +2909,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       guestTheme: store.brand.guestTheme ?? 'hell',
       guestNameColor: store.brand.guestNameColor ?? null,
       guestTextColor: store.brand.guestTextColor ?? null,
+      coverOpacity: store.brand.coverOpacity ?? 1,
     });
   }, [store.brand]);
 
@@ -3179,6 +3182,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         font: brandForm.font, cardStyle: brandForm.cardStyle, guestTheme: brandForm.guestTheme,
         guestNameColor: brandForm.guestNameColor ?? '',
         guestTextColor: brandForm.guestTextColor ?? '',
+        coverOpacity: brandForm.coverOpacity,
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -4142,8 +4146,23 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
                           onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
                         {brandForm.coverImage && (
-                          <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))}
-                            className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                          <>
+                            <div className="pt-1">
+                              <div className="flex items-center justify-between text-[12px] mb-1.5">
+                                <span className="text-gray-400">Deckkraft</span>
+                                <span className="font-medium text-gray-700 dark:text-gray-200 tabular-nums">{Math.round(brandForm.coverOpacity * 100)} %</span>
+                              </div>
+                              <input type="range" min={20} max={100} step={5}
+                                value={Math.round(brandForm.coverOpacity * 100)}
+                                onChange={e => setBrandForm(p => ({ ...p, coverOpacity: Number(e.target.value) / 100 }))}
+                                className="w-full accent-gray-800 dark:accent-gray-300" />
+                              <p className="text-[11px] text-gray-400 mt-1">
+                                Niedriger = das Bild tritt hinter der Begrüßung zurück. 100 % = voll.
+                              </p>
+                            </div>
+                            <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))}
+                              className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                          </>
                         )}
                       </div>
 
@@ -4174,7 +4193,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <div className="relative">
                             <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none">
                               {brandForm.coverImage ? (
-                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover" />
+                                <img src={brandForm.coverImage} alt="" aria-hidden className="w-full h-full object-cover"
+                                  style={{ opacity: brandForm.coverOpacity }} />
                               ) : (
                                 <div className="w-full h-full opacity-25"
                                   style={{ background: `linear-gradient(160deg, ${brandForm.accent}, transparent 70%)` }} />

@@ -20,6 +20,10 @@ export interface Brand {
   // töne je Hell/Dunkel. Hex-String.
   guestNameColor?: string | null;
   guestTextColor?: string | null;
+  // Deckkraft des Titelbilds auf dem Empfangsbildschirm, 0–1. `null` = 1
+  // (voll). Ein hell laufendes Bild kann so hinter der Schlagzeile
+  // zurücktreten.
+  coverOpacity?: number | null;
 }
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.

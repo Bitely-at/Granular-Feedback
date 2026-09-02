@@ -284,6 +284,11 @@ Grau-/Schwarztöne je Hell/Dunkel; die Akzentfarbe bleibt davon unberührt. Die
 Marke selbst wird weiterhin über `readableAccent` auf einen lesbaren Kontrast
 gebracht, bevor sie als `--ba` in die Gastansicht geht.
 
+**Die Deckkraft des Titelbilds** ist einstellbar (`coverOpacity`, 0,2–1;
+`null` = 1). Ein hell laufendes Foto kann so hinter der Schlagzeile
+zurücktreten. Der Server nimmt nur Werte in `[0.1, 1)` an, alles andere (auch
+die 1) wird zu `null`.
+
 Die ausführliche Fassung mit allen Maßen steht in `design-gastansicht.md` —
 vor Änderungen an der Gastansicht dort nachsehen.
 

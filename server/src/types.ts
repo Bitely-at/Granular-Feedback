@@ -192,6 +192,8 @@ export interface BrandDoc {
   // Leer/null = die üblichen Grau-/Schwarztöne je Hell/Dunkel. Hex-String.
   guestNameColor?: string | null;
   guestTextColor?: string | null;
+  // Deckkraft des Titelbilds auf dem Empfangsbildschirm, 0–1. null = 1 (voll).
+  coverOpacity?: number | null;
 }
 
 /**

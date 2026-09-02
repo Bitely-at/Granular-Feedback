@@ -634,6 +634,7 @@ async function getFullState(
       guestTheme: brandDoc.guestTheme ?? 'hell',
       guestNameColor: brandDoc.guestNameColor ?? null,
       guestTextColor: brandDoc.guestTextColor ?? null,
+      coverOpacity: brandDoc.coverOpacity ?? null,
     } : null,
     dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
@@ -1892,7 +1893,7 @@ const asHexOrNull = (v: unknown): string | null =>
 
 router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme,
-    guestNameColor, guestTextColor } = req.body ?? {};
+    guestNameColor, guestTextColor, coverOpacity } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
@@ -1904,6 +1905,11 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (guestTheme === 'hell' || guestTheme === 'dunkel') update.guestTheme = guestTheme;
   if (guestNameColor !== undefined) update.guestNameColor = asHexOrNull(guestNameColor);
   if (guestTextColor !== undefined) update.guestTextColor = asHexOrNull(guestTextColor);
+  if (coverOpacity !== undefined) {
+    // 0–1, sonst zurück auf null (= voll). Unter 0,1 wäre das Bild praktisch weg.
+    const n = Number(coverOpacity);
+    update.coverOpacity = Number.isFinite(n) && n >= 0.1 && n < 1 ? Math.round(n * 100) / 100 : null;
+  }
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
   res.json(await stateFor(req));
 }));
