@@ -2760,19 +2760,19 @@ type AdminPage = 'dashboard' | 'reviews' | 'menu' | 'tables' | 'vouchers' | 'red
  * `custom` heißt: zwei Datumsfelder darunter bestimmen ihn.
  */
 type RangeKey = '7' | '30' | '90' | 'all' | 'custom';
-const RANGES: { key: RangeKey; label: string }[] = [
-  { key: '7', label: '7 Tage' },
-  { key: '30', label: '30 Tage' },
-  { key: '90', label: '90 Tage' },
-  { key: 'all', label: 'Alles' },
-  { key: 'custom', label: 'Zeitraum…' },
+const RANGES: { key: RangeKey; de: string; en: string }[] = [
+  { key: '7', de: '7 Tage', en: '7 days' },
+  { key: '30', de: '30 Tage', en: '30 days' },
+  { key: '90', de: '90 Tage', en: '90 days' },
+  { key: 'all', de: 'Alles', en: 'All' },
+  { key: 'custom', de: 'Zeitraum…', en: 'Range…' },
 ];
 
 type DishSortKey = 'name' | 'avg' | 'count' | 'price';
 
 /** Spalten der Gerichtstabelle — am Handy zugleich die Sortier-Auswahl. */
-const DISH_COLUMNS: [DishSortKey, string][] = [
-  ['name', 'Gericht'], ['avg', 'Ø Bewertung'], ['count', 'Bewertungen'], ['price', 'Preis'],
+const DISH_COLUMNS: [DishSortKey, string, string][] = [
+  ['name', 'Gericht', 'Dish'], ['avg', 'Ø Bewertung', 'Avg rating'], ['count', 'Bewertungen', 'Reviews'], ['price', 'Preis', 'Price'],
 ];
 
 /**
@@ -2795,11 +2795,11 @@ type QuadrantId = 'stars' | 'hidden' | 'fix' | 'watch';
  * wörtlich dieselbe Quelle: ein Punkt oben und seine Erklärung unten dürfen
  * nie auseinanderlaufen, sonst ist die Legende keine.
  */
-const QUADRANTS: { id: QuadrantId; title: string; desc: string; hex: string }[] = [
-  { id: 'stars', title: 'Zugpferde', desc: 'Hohe Bewertung, viele Rezensionen', hex: '#10b981' },
-  { id: 'hidden', title: 'Geheimtipps', desc: 'Hohe Bewertung, wenige Rezensionen', hex: '#9ca3af' },
-  { id: 'fix', title: 'Verbesserungsbedarf', desc: 'Niedrige Bewertung, viele Rezensionen', hex: '#f59e0b' },
-  { id: 'watch', title: 'Im Auge behalten', desc: 'Niedrige Bewertung, wenige Rezensionen', hex: '#ef4444' },
+const QUADRANTS: { id: QuadrantId; title: string; titleEn: string; desc: string; descEn: string; hex: string }[] = [
+  { id: 'stars', title: 'Zugpferde', titleEn: 'Stars', desc: 'Hohe Bewertung, viele Rezensionen', descEn: 'High rating, many reviews', hex: '#10b981' },
+  { id: 'hidden', title: 'Geheimtipps', titleEn: 'Hidden gems', desc: 'Hohe Bewertung, wenige Rezensionen', descEn: 'High rating, few reviews', hex: '#9ca3af' },
+  { id: 'fix', title: 'Verbesserungsbedarf', titleEn: 'Needs work', desc: 'Niedrige Bewertung, viele Rezensionen', descEn: 'Low rating, many reviews', hex: '#f59e0b' },
+  { id: 'watch', title: 'Im Auge behalten', titleEn: 'Keep an eye on', desc: 'Niedrige Bewertung, wenige Rezensionen', descEn: 'Low rating, few reviews', hex: '#ef4444' },
 ];
 
 /** In welches der vier Felder ein Gericht fällt — die Regel steht einmal. */
@@ -2814,8 +2814,8 @@ function quadrantOf(avg: number, count: number, medianCount: number): QuadrantId
  * die Oberfläche schreibt sie nur aus — Untertitel und Tooltip sollen dasselbe
  * sagen wie die Balken zeigen.
  */
-const TREND_UNIT_LABEL: Record<'day' | 'week' | 'month', { each: string }> = {
-  day: { each: 'Tag' }, week: { each: 'Woche' }, month: { each: 'Monat' },
+const TREND_UNIT_LABEL: Record<'day' | 'week' | 'month', { de: string; en: string }> = {
+  day: { de: 'Tag', en: 'day' }, week: { de: 'Woche', en: 'week' }, month: { de: 'Monat', en: 'month' },
 };
 
 /** Ab wann der Zeitraum zählt — ISO-Datum oder null für „alles". */
@@ -3352,7 +3352,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             sondern unten am Konto: wer verwaltet gerade welchen Laden. */}
         <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2.5">
           <BitelyWordmark className="h-6" />
-          <button onClick={() => setMobileNav(false)} title="Menü schließen"
+          <button onClick={() => setMobileNav(false)} title={t("Menü schließen", "Close menu")}
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={16} className="text-gray-500" />
           </button>
@@ -3436,7 +3436,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
                 <p className="text-[11px] text-gray-400 truncate">
-                  {store.authUser.role}{store.brand?.name ? ` · ${store.brand.name}` : ''}
+                  {roleLabel(store.authUser.role)}{store.brand?.name ? ` · ${store.brand.name}` : ''}
                 </p>
               </div>
             </div>
@@ -3459,18 +3459,18 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             Schublade. Am Rechner gibt es sie nicht — dort steht alles links. */}
         <header className="lg:hidden bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
           <div className="flex items-center gap-2 px-3 h-14">
-            <button onClick={() => setMobileNav(true)} title="Menü"
+            <button onClick={() => setMobileNav(true)} title={t("Menü", "Menu")}
               className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
               <Menu size={18} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
             </button>
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight truncate">
-                {nav.find(n => n.id === page)?.label ?? 'Verwaltung'}
+                {nav.find(n => n.id === page)?.label ?? t('Verwaltung', 'Admin')}
               </p>
               <p className="text-[11px] text-gray-400 truncate">{branch ? branch.name : 'Alle Filialen'}</p>
             </div>
             <div className="relative" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setAccountOpen(p => !p)} title="Konto"
+              <button onClick={() => setAccountOpen(p => !p)} title={t("Konto", "Account")}
                 className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-[13px] font-bold"
                 style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
                 {store.authUser?.name.charAt(0).toUpperCase() ?? '·'}
@@ -3482,12 +3482,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     {store.authUser && (
                       <div className="px-3 py-2">
                         <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{store.authUser.name}</p>
-                        <p className="text-[11px] text-gray-400">{store.authUser.role}</p>
+                        <p className="text-[11px] text-gray-400">{roleLabel(store.authUser.role)}{store.brand?.name ? ` · ${store.brand.name}` : ''}</p>
                       </div>
                     )}
                     <button onClick={store.logout}
                       className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                      <LogOut size={14} strokeWidth={1.5} /> Abmelden
+                      <LogOut size={14} strokeWidth={1.5} /> {t('Abmelden', 'Sign out')}
                     </button>
                   </motion.div>
                 )}
@@ -3519,7 +3519,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       {RANGES.map(r => (
                         <button key={r.key} onClick={() => setRange(r.key)}
                           className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors ${range === r.key ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
-                          {r.label}
+                          {t(r.de, r.en)}
                         </button>
                       ))}
                     </div>
@@ -3537,10 +3537,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             ? <BranchIcon size={13} className="text-gray-400" />
                             : <Building2 size={13} strokeWidth={1.5} className="text-gray-400" />}
                           {branchFilter.length === 0
-                            ? 'Alle Filialen'
+                            ? t('Alle Filialen', 'All branches')
                             : branchFilter.length === 1
-                              ? store.branches.find(b => b.id === branchFilter[0])?.name ?? '1 Filiale'
-                              : `${branchFilter.length} von ${store.branches.length} Filialen`}
+                              ? store.branches.find(b => b.id === branchFilter[0])?.name ?? t('1 Filiale', '1 branch')
+                              : t(`${branchFilter.length} von ${store.branches.length} Filialen`, `${branchFilter.length} of ${store.branches.length} branches`)}
                           <ChevronDown size={13} className={`text-gray-400 transition-transform ${branchFilterOpen ? 'rotate-180' : ''}`} />
                         </button>
                         <AnimatePresence>
@@ -3553,7 +3553,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                   style={branchFilter.length === 0 ? { backgroundColor: 'var(--ba)' } : {}}>
                                   {branchFilter.length === 0 && <Check size={11} strokeWidth={3} className="text-white" />}
                                 </span>
-                                <span className="text-[13px] font-medium text-gray-900 dark:text-white">Alle Filialen</span>
+                                <span className="text-[13px] font-medium text-gray-900 dark:text-white">{t('Alle Filialen', 'All branches')}</span>
                               </button>
                               <div className="h-px bg-gray-100 dark:bg-gray-700 my-1.5" />
                               {store.branches.map(b => {
@@ -3580,9 +3580,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                     <button onClick={() => setPage('reviews')}
                       className="flex items-center gap-1.5 text-[13px] px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 transition-colors">
-                      <MessageSquare size={13} strokeWidth={1.5} /> <span className="hidden sm:inline">Detaillierte </span>Bewertungen
+                      <MessageSquare size={13} strokeWidth={1.5} /> <span className="hidden sm:inline">{t('Detaillierte ', 'Detailed ')}</span>{t('Bewertungen', 'reviews')}
                     </button>
-                    <button onClick={exportReviewsCsv} title="Bewertungen als CSV"
+                    <button onClick={exportReviewsCsv} title={t('Bewertungen als CSV', 'Reviews as CSV')}
                       className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 transition-colors">
                       <Download size={14} strokeWidth={1.5} />
                     </button>
@@ -3593,7 +3593,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       nicht dauerhaft in die Kopfzeile. */}
                   {range === 'custom' && (
                     <div className="flex flex-wrap items-end gap-3 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4">
-                      {([['from', 'Von'], ['to', 'Bis']] as const).map(([key, label]) => (
+                      {([['from', t('Von', 'From')], ['to', t('Bis', 'To')]] as const).map(([key, label]) => (
                         <div key={key}>
                           <p className="text-[12px] text-gray-400 mb-1.5">{label}</p>
                           <input type="date" value={custom[key]} max={today()}
@@ -3602,7 +3602,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                       ))}
                       <p className="text-[12px] text-gray-400 pb-2.5">
-                        Leer heißt „offen": ohne Von zählt alles bis zum Bis, ohne Bis alles ab dem Von.
+                        {t('Leer heißt „offen": ohne Von zählt alles bis zum Bis, ohne Bis alles ab dem Von.', 'Empty means “open”: without From it counts everything up to To, without To everything from From on.')}
                       </p>
                     </div>
                   )}
@@ -3640,7 +3640,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   {highlightLoading && !highlight ? (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 flex items-center gap-2">
                       <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
-                      <p className="text-[14px] font-semibold text-gray-900 dark:text-white">Diese Woche</p>
+                      <p className="text-[14px] font-semibold text-gray-900 dark:text-white">{t('Diese Woche', 'This week')}</p>
                       <div className="flex-1"><Sk h={12} w="60%" /></div>
                     </div>
                   ) : highlight ? (
@@ -3649,14 +3649,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         aria-expanded={highlightOpen} aria-controls="dash-highlight-text"
                         className={`w-full flex items-center gap-2.5 text-left min-h-[36px] ${FOCUS_RING} rounded-lg`}>
                         <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
-                        <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">Diese Woche</span>
+                        <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">{t('Diese Woche', 'This week')}</span>
                         {!highlightOpen && (
                           <span className="text-[13px] text-gray-500 dark:text-gray-400 truncate min-w-0 flex-1">
                             {highlight.text.split('\n')[0]}
                           </span>
                         )}
                         <span className="text-[11px] text-gray-400 ml-auto flex-shrink-0 hidden sm:inline">
-                          Stand {new Date(highlight.generatedAt).toLocaleDateString('de-AT')}
+                          {t('Stand', 'As of')} {new Date(highlight.generatedAt).toLocaleDateString(uiLang === 'en' ? 'en-GB' : 'de-AT')}
                         </span>
                         <ChevronDown size={15} strokeWidth={2}
                           className={`text-gray-400 flex-shrink-0 transition-transform ${highlightOpen ? 'rotate-180' : ''}`} />
@@ -3671,8 +3671,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   ) : (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 flex items-center gap-2.5">
                       <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
-                      <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">Diese Woche</span>
-                      <span className="text-[13px] text-gray-400 truncate">Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.</span>
+                      <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">{t('Diese Woche', 'This week')}</span>
+                      <span className="text-[13px] text-gray-400 truncate">{t('Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.', 'No review yet — it appears once there are ratings.')}</span>
                     </div>
                   )}
 
@@ -3695,12 +3695,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <>
                         <div className="grid grid-cols-3 gap-2 sm:gap-4">
                           {([
-                            { label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', Icon: Star,
-                              sub: rangeRatings > 0 ? `${rangeRatings} Gerichtsurteile` : 'noch keine' },
-                            { label: 'Bewertungen', value: String(rangeReviews), Icon: MessageSquare,
-                              sub: range === 'custom' ? 'eigener Zeitraum' : RANGES.find(r => r.key === range)?.label ?? '' },
-                            { label: 'Bestellungen', value: String(rangeOrders), Icon: UtensilsCrossed,
-                              sub: rangeOrders > 0 ? 'gebucht' : 'noch keine' },
+                            { label: t('Ø Bewertung', 'Avg rating'), value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', Icon: Star,
+                              sub: rangeRatings > 0 ? t(`${rangeRatings} Gerichtsurteile`, `${rangeRatings} dish ratings`) : t('noch keine', 'none yet') },
+                            { label: t('Bewertungen', 'Reviews'), value: String(rangeReviews), Icon: MessageSquare,
+                              sub: range === 'custom' ? t('eigener Zeitraum', 'custom range') : (() => { const r = RANGES.find(x => x.key === range); return r ? t(r.de, r.en) : ''; })() },
+                            { label: t('Bestellungen', 'Orders'), value: String(rangeOrders), Icon: UtensilsCrossed,
+                              sub: rangeOrders > 0 ? t('gebucht', 'placed') : t('noch keine', 'none yet') },
                           ] as const).map(k => (
                             <div key={k.label} className="min-w-0">
                               <div className="flex items-center gap-1.5 mb-1.5">
@@ -3718,7 +3718,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         {rangeOrders > 0 && (
                           <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                             <div className="flex items-center justify-between text-[12px] mb-1.5">
-                              <span className="text-gray-500 dark:text-gray-400">Bestellungen mit Feedback</span>
+                              <span className="text-gray-500 dark:text-gray-400">{t('Bestellungen mit Feedback', 'Orders with feedback')}</span>
                               <span className="font-semibold text-gray-800 dark:text-gray-200">{Math.round(feedbackRate * 100)} %</span>
                             </div>
                             <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
@@ -3748,21 +3748,21 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 sm:p-5">
                     <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
                       <div>
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Verlauf</p>
-                        <p className="text-[12px] text-gray-400">Bewertungen je {TREND_UNIT_LABEL[insights?.trendUnit ?? 'week'].each}, dazu der Schnitt</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Verlauf', 'Trend')}</p>
+                        <p className="text-[12px] text-gray-400">{(() => { const u = TREND_UNIT_LABEL[insights?.trendUnit ?? 'week']; return t(`Bewertungen je ${u.de}, dazu der Schnitt`, `Reviews per ${u.en}, plus the average`); })()}</p>
                       </div>
                       <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
                         <span className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'var(--ba, #16A34A)' }} /> Anzahl
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'var(--ba, #16A34A)' }} /> {t('Anzahl', 'Count')}
                         </span>
                         <span className="flex items-center gap-1.5">
-                          <span className="w-4 h-0.5 rounded-full bg-gray-800 dark:bg-gray-200" /> Ø Bewertung
+                          <span className="w-4 h-0.5 rounded-full bg-gray-800 dark:bg-gray-200" /> {t('Ø Bewertung', 'Avg rating')}
                         </span>
                       </div>
                     </div>
                     {insightsLoading ? <Sk h={160} /> : trendData.length === 0 ? (
-                      <EmptyState icon={BarChart3} title="Noch kein Verlauf"
-                        desc="Sobald in diesem Zeitraum Bewertungen eingehen, entstehen hier die Balken." />
+                      <EmptyState icon={BarChart3} title={t('Noch kein Verlauf', 'No trend yet')}
+                        desc={t('Sobald in diesem Zeitraum Bewertungen eingehen, entstehen hier die Balken.', 'As ratings come in for this period, the bars appear here.')} />
                     ) : (
                       <div style={{ height: 160 }}>
                         <ResponsiveContainer width="100%" height="100%">
@@ -3779,8 +3779,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={22} />
                             <Tooltip key="tip" contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 12 }}
                               formatter={(v, name) => name === 'avg'
-                                ? [v == null ? '—' : `${v} ★`, 'Ø Bewertung'] as [string, string]
-                                : [String(v ?? 0), 'Bewertungen'] as [string, string]}
+                                ? [v == null ? '—' : `${v} ★`, t('Ø Bewertung', 'Avg rating')] as [string, string]
+                                : [String(v ?? 0), t('Bewertungen', 'Reviews')] as [string, string]}
                               labelFormatter={(_l: unknown, payload: any) => payload?.[0]?.payload?.full ?? ''} />
                             <Bar key="bars" yAxisId="left" dataKey="reviews" fill="var(--ba, #16A34A)" radius={[4, 4, 0, 0]} maxBarSize={26} />
                             <Line key="line" yAxisId="right" type="monotone" dataKey="avg" stroke={dark ? '#FFFFFF' : '#111827'} strokeWidth={2}
@@ -3797,15 +3797,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       einzelner Zufallsstern ganz oben. */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {([
-                      { key: 'best', title: 'Beste Gerichte', rows: solidDishes.slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300' },
-                      { key: 'worst', title: 'Schwächste Gerichte', rows: [...solidDishes].reverse().slice(0, 5), tone: 'text-red-600 dark:text-red-400' },
-                    ] as const).map(({ key, title, rows, tone }) => (
+                      { key: 'best', title: t('Beste Gerichte', 'Best dishes'), rows: solidDishes.slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300', tstyle: undefined as React.CSSProperties | undefined },
+                      { key: 'worst', title: t('Schwächste Gerichte', 'Weakest dishes'), rows: [...solidDishes].reverse().slice(0, 5), tone: '', tstyle: { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT } as React.CSSProperties | undefined },
+                    ] as const).map(({ key, title, rows, tone, tstyle }) => (
                       <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
                         <p className="text-[15px] font-semibold text-gray-900 dark:text-white mb-3">{title}</p>
                         {insightsLoading ? (
                           <div className="space-y-2.5">{[...Array(4)].map((_, i) => <Sk key={i} h={14} />)}</div>
                         ) : rows.length === 0 ? (
-                          <p className="text-[13px] text-gray-400">Noch zu wenige Bewertungen in diesem Zeitraum.</p>
+                          <p className="text-[13px] text-gray-400">{t('Noch zu wenige Bewertungen in diesem Zeitraum.', 'Too few ratings in this period yet.')}</p>
                         ) : (
                           <ol className="space-y-2.5">
                             {rows.map((d, i) => (
@@ -3813,7 +3813,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 <span className="w-5 text-[12px] text-gray-300 dark:text-gray-600 flex-shrink-0">{i + 1}</span>
                                 <span className="flex-1 text-gray-800 dark:text-gray-200 truncate">{d.name}</span>
                                 <span className="text-[12px] text-gray-400 flex-shrink-0">{d.count}×</span>
-                                <span className={`font-semibold w-8 text-right flex-shrink-0 ${tone}`}>{d.avg.toFixed(1)}</span>
+                                <span className={`font-semibold w-8 text-right flex-shrink-0 ${tone}`} style={tstyle}>{d.avg.toFixed(1)}</span>
                               </li>
                             ))}
                           </ol>
@@ -3840,21 +3840,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       sich schlechter als eines aus einem. */}
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 sm:p-5">
                     <div className="mb-4">
-                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Menü-Matrix</p>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Menü-Matrix', 'Menu matrix')}</p>
                       {/* Die zwei Begriffe in der Akzentfarbe, der Rest normale
                           Schrift. Vorher waren beide nur ein helleres Grau im
                           Grau ringsum — ein Unterschied, den man sucht statt
                           ihn zu sehen. Die Schwellen sind zugleich die zwei
                           gestrichelten Linien im Bild. */}
                       <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Hoch</span> = 4,0 ★ und mehr ·{' '}
-                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>Viele</span> = mehr als der Median
-                        aller Gerichte ({medianCount} {medianCount === 1 ? 'Bewertung' : 'Bewertungen'})
+                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>{t('Hoch', 'High')}</span> {t('= 4,0 ★ und mehr', '= 4.0 ★ and up')} ·{' '}
+                        <span className="font-semibold" style={{ color: 'var(--ba, #16A34A)' }}>{t('Viele', 'Many')}</span> {t(`= mehr als der Median aller Gerichte (${medianCount} ${medianCount === 1 ? 'Bewertung' : 'Bewertungen'})`, `= more than the median across all dishes (${medianCount} ${medianCount === 1 ? 'review' : 'reviews'})`)}
                       </p>
                     </div>
                     {insightsLoading ? <Sk h={320} /> : rangedDishes.length === 0 ? (
-                      <EmptyState icon={BarChart3} title="Noch keine Auswertung möglich"
-                        desc="Sobald in diesem Zeitraum Bewertungen eingehen, ordnen sich die Gerichte hier ein." />
+                      <EmptyState icon={BarChart3} title={t('Noch keine Auswertung möglich', 'No analysis possible yet')}
+                        desc={t('Sobald in diesem Zeitraum Bewertungen eingehen, ordnen sich die Gerichte hier ein.', 'As ratings come in for this period, the dishes sort themselves in here.')} />
                     ) : (
                       <>
                         <div style={{ height: 320 }}>
@@ -3864,13 +3863,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               {/* Der Ausschnitt kommt aus avgDomain — nicht
                                   fest 0 bis 5, sonst klebt alles rechts. Die
                                   Beschriftung sagt, wo die Achse anfängt. */}
-                              <XAxis key="x" type="number" dataKey="avg" domain={avgDomain} ticks={avgTicks} name="Bewertung"
+                              <XAxis key="x" type="number" dataKey="avg" domain={avgDomain} ticks={avgTicks} name={t('Bewertung', 'Rating')}
                                 tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                                tickFormatter={(v: number) => v.toFixed(1).replace('.', ',')}
-                                label={{ value: 'Ø Bewertung', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
-                              <YAxis key="y" type="number" dataKey="count" name="Bewertungen"
+                                tickFormatter={(v: number) => uiLang === 'en' ? v.toFixed(1) : v.toFixed(1).replace('.', ',')}
+                                label={{ value: t('Ø Bewertung', 'Avg rating'), position: 'insideBottom', offset: -10, fontSize: 11, fill: '#94a3b8' }} />
+                              <YAxis key="y" type="number" dataKey="count" name={t('Bewertungen', 'Reviews')}
                                 tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}
-                                label={{ value: 'Anzahl', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
+                                label={{ value: t('Anzahl', 'Count'), angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#94a3b8' }} />
                               <ZAxis key="z" range={[60, 60]} />
                               <Tooltip key="tip" cursor={{ strokeDasharray: '3 3' }}
                                 content={({ payload }) => {
@@ -3879,7 +3878,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                   return (
                                     <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-[12px]">
                                       <p className="font-semibold text-gray-900">{d.name}</p>
-                                      <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {d.count} Bewertungen</p>
+                                      <p className="text-gray-500">{d.avg.toFixed(1)} ★ · {t(`${d.count} Bewertungen`, `${d.count} reviews`)}</p>
                                     </div>
                                   );
                                 }} />
@@ -3916,8 +3915,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             <div key={q.id} className="flex items-start gap-2.5">
                               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: q.hex }} />
                               <div className="min-w-0">
-                                <p className="text-[12px] font-semibold text-gray-900 dark:text-white">{q.title}</p>
-                                <p className="text-[11px] text-gray-400 mt-0.5">{q.desc}</p>
+                                <p className="text-[12px] font-semibold text-gray-900 dark:text-white">{t(q.title, q.titleEn)}</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">{t(q.desc, q.descEn)}</p>
                               </div>
                             </div>
                           ))}
@@ -3935,20 +3934,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-800">
                       <div className="min-w-0">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Alle Gerichte</p>
-                        <p className="text-[12px] text-gray-400 mt-0.5 hidden md:block">Spaltenkopf antippen zum Sortieren</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Alle Gerichte', 'All dishes')}</p>
+                        <p className="text-[12px] text-gray-400 mt-0.5 hidden md:block">{t('Spaltenkopf antippen zum Sortieren', 'Tap a column header to sort')}</p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {/* Am Handy ersetzt diese Auswahl die Spaltenköpfe. */}
                         <select value={sort.key} onChange={e => toggleSort(e.target.value as DishSortKey)}
                           className="md:hidden px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[12px] text-gray-700 dark:text-gray-200 outline-none">
-                          {(DISH_COLUMNS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                          {(DISH_COLUMNS).map(([key, de, en]) => <option key={key} value={key}>{t(de, en)}</option>)}
                         </select>
-                        <button onClick={() => setSort(p => ({ ...p, desc: !p.desc }))} title={sort.desc ? 'Absteigend' : 'Aufsteigend'}
+                        <button onClick={() => setSort(p => ({ ...p, desc: !p.desc }))} title={sort.desc ? t('Absteigend', 'Descending') : t('Aufsteigend', 'Ascending')}
                           className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
                           {sort.desc ? <TrendingDown size={14} strokeWidth={2} /> : <TrendingUp size={14} strokeWidth={2} />}
                         </button>
-                        <button onClick={exportDishesCsv} title="Als CSV exportieren"
+                        <button onClick={exportDishesCsv} title={t('Als CSV exportieren', 'Export as CSV')}
                           className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 transition-colors">
                           <Download size={14} strokeWidth={1.5} />
                         </button>
@@ -3959,7 +3958,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         {[...Array(4)].map((_, i) => <div key={i} className="flex items-center gap-4"><Sk h={36} w={36} r={8} /><div className="flex-1 space-y-2"><Sk h={13} w="40%" /><Sk h={11} w="25%" /></div><Sk h={20} w={80} r={999} /></div>)}
                       </div>
                     ) : sortedDishes.length === 0 ? (
-                      <div className="p-6"><EmptyState icon={Star} title="Noch keine Bewertungen" desc="Sobald Gäste in diesem Zeitraum Gerichte bewerten, erscheinen sie hier." /></div>
+                      <div className="p-6"><EmptyState icon={Star} title={t('Noch keine Bewertungen', 'No ratings yet')} desc={t('Sobald Gäste in diesem Zeitraum Gerichte bewerten, erscheinen sie hier.', 'As guests rate dishes in this period, they appear here.')} /></div>
                     ) : (
                       <>
                         <div className="hidden md:block overflow-x-auto">
@@ -3967,11 +3966,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             <thead>
                               <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
                                 <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">#</th>
-                                {DISH_COLUMNS.map(([key, label]) => (
+                                {DISH_COLUMNS.map(([key, de, en]) => (
                                   <th key={key} className="text-left px-5 py-3">
                                     <button onClick={() => toggleSort(key)}
                                       className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${sort.key === key ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600'}`}>
-                                      {label}
+                                      {t(de, en)}
                                       {sort.key === key && (sort.desc
                                         ? <TrendingDown size={11} strokeWidth={2} />
                                         : <TrendingUp size={11} strokeWidth={2} />)}
@@ -3989,7 +3988,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                       {d.img && <img src={d.img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
                                       <div className="min-w-0">
                                         <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
-                                        <p className="text-[11px] text-gray-400">{d.cat}</p>
+                                        <p className="text-[11px] text-gray-400">{catLabel(d.cat)}</p>
                                       </div>
                                     </div>
                                   </td>
@@ -4015,7 +4014,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               {d.img && <img src={d.img} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />}
                               <div className="min-w-0 flex-1">
                                 <p className="text-[14px] font-medium text-gray-900 dark:text-white truncate">{d.name}</p>
-                                <p className="text-[11px] text-gray-400">{d.cat} · {d.price.toFixed(2)} € · {d.count}×</p>
+                                <p className="text-[11px] text-gray-400">{catLabel(d.cat)} · {d.price.toFixed(2)} € · {d.count}×</p>
                               </div>
                               <span className={`text-[15px] font-bold flex-shrink-0 ${d.avg >= 4 ? 'text-emerald-700' : ''}`}
                                 style={d.avg >= 4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT }}>
@@ -4030,7 +4029,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                   {insights?.totals.capped && (
                     <p className="text-[12px] text-gray-400">
-                      Hinweis: Die Auswertung berücksichtigt die neuesten 5000 Bewertungen dieses Zeitraums. Grenze den Zeitraum ein, um alles zu erfassen.
+                      {t('Hinweis: Die Auswertung berücksichtigt die neuesten 5000 Bewertungen dieses Zeitraums. Grenze den Zeitraum ein, um alles zu erfassen.', 'Note: the analysis covers the most recent 5000 ratings in this period. Narrow the period to capture everything.')}
                     </p>
                   )}
                 </div>
@@ -4039,15 +4038,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                 <div className="space-y-5">
                   <div>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">Design</p>
-                    <p className="text-[13px] text-gray-400 mt-0.5">Wie deine Gäste die App sehen. Logo, Name und Schrift gelten überall; Farbe, Titelbild und Karten-Stil sieht nur der Gast.</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5">{t('Wie deine Gäste die App sehen. Logo, Name und Schrift gelten überall; Farbe, Titelbild und Karten-Stil sieht nur der Gast.', 'How your guests see the app. Logo, name and font apply everywhere; colour, cover image and card style are guest-only.')}</p>
                   </div>
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5 items-start">
                     <div className="space-y-5">
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-5">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Palette size={15} strokeWidth={1.5} className="text-gray-400" /> Logo &amp; Name</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Palette size={15} strokeWidth={1.5} className="text-gray-400" /> {t('Logo & Name', 'Logo & name')}</p>
                         <div className="flex flex-col sm:flex-row gap-6">
                           <div className="flex-shrink-0">
-                            <p className="text-[12px] text-gray-400 mb-2">Logo</p>
+                            <p className="text-[12px] text-gray-400 mb-2">{t('Logo', 'Logo')}</p>
                             <button type="button" onClick={() => logoInputRef.current?.click()} disabled={logoBusy}
                               className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors overflow-hidden disabled:opacity-60">
                               {logoBusy
@@ -4057,20 +4056,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
                               onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = ''; }} />
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
-                              <button onClick={() => logoInputRef.current?.click()} className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> Hochladen</button>
+                              <button onClick={() => logoInputRef.current?.click()} className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><Upload size={10} /> {t('Hochladen', 'Upload')}</button>
                               {brandForm.logoImage && (
-                                <button onClick={() => setBrandForm(p => ({ ...p, logoImage: null }))} className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                                <button onClick={() => setBrandForm(p => ({ ...p, logoImage: null }))} className="text-[11px] text-gray-400 hover:text-red-500">{t('Entfernen', 'Remove')}</button>
                               )}
                             </div>
                           </div>
                           <div className="flex-1 space-y-4">
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Restaurantname, steht beim Gast in der Schlagzeile</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">{t('Restaurantname, steht beim Gast in der Schlagzeile', 'Restaurant name — appears in the guest headline')}</p>
                               <input value={brandForm.name} onChange={e => setBrandForm(p => ({ ...p, name: e.target.value }))}
                                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none focus:border-gray-400 transition-colors" />
                             </div>
                             <div>
-                              <p className="text-[12px] text-gray-400 mb-1.5">Akzentfarbe, sieht nur der Gast. Verwaltung und Service bleiben im Bitely-Blau.</p>
+                              <p className="text-[12px] text-gray-400 mb-1.5">{t('Akzentfarbe, sieht nur der Gast. Verwaltung und Service bleiben im Bitely-Blau.', 'Accent colour — guest-only. Admin and service stay in Bitely blue.')}</p>
                               <div className="flex items-center gap-3 flex-wrap">
                                 <input type="color" value={brandForm.accent} onChange={e => setBrandForm(p => ({ ...p, accent: e.target.value }))}
                                   className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
@@ -4089,28 +4088,28 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       </div>
 
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Schriftart</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Schriftart', 'Font')}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                           {BRAND_FONTS.map(f => (
                             <button key={f.name} onClick={() => setBrandForm(p => ({ ...p, font: f.name }))}
                               className="text-left px-4 py-3 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
                               style={brandForm.font === f.name ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
                               <p className="text-[16px] text-gray-900 dark:text-white" style={{ fontFamily: `'${f.name}', system-ui, sans-serif` }}>{f.name}</p>
-                              <p className="text-[11px] text-gray-400 mt-0.5">{f.category}</p>
+                              <p className="text-[11px] text-gray-400 mt-0.5">{t(f.category, f.categoryEn)}</p>
                             </button>
                           ))}
                         </div>
                       </div>
 
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Kartenlayout für das Bewerten der Gerichte</p>
+                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Kartenlayout für das Bewerten der Gerichte', 'Card layout for rating dishes')}</p>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           {BRAND_CARD_STYLES.map(cs => (
                             <button key={cs.id} onClick={() => setBrandForm(p => ({ ...p, cardStyle: cs.id }))}
                               className="text-left p-4 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
                               style={brandForm.cardStyle === cs.id ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
-                              <p className="text-[13px] font-semibold text-gray-900 dark:text-white mb-1">{cs.label}</p>
-                              <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">{cs.desc}</p>
+                              <p className="text-[13px] font-semibold text-gray-900 dark:text-white mb-1">{t(cs.label, cs.labelEn)}</p>
+                              <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">{t(cs.desc, cs.descEn)}</p>
                             </button>
                           ))}
                         </div>
@@ -4118,9 +4117,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                         <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Erscheinungsbild der Gastansicht</p>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Erscheinungsbild der Gastansicht', 'Guest view appearance')}</p>
                           <p className="text-[12px] text-gray-400 mt-0.5">
-                            Gilt nur für den Gast. Hell oder Dunkel der Verwaltung stellst du unter „Einstellungen" ein.
+                            {t('Gilt nur für den Gast. Hell oder Dunkel der Verwaltung stellst du unter „Einstellungen" ein.', 'Guest-only. Light or dark for the admin is set under “Settings”.')}
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -4162,14 +4161,14 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           je nach Hell/Dunkel. */}
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                         <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Schriftfarben der Gastansicht</p>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Schriftfarben der Gastansicht', 'Guest view text colours')}</p>
                           <p className="text-[12px] text-gray-400 mt-0.5">
-                            Getrennt für den Standortnamen und den übrigen Text. Leer = die Standardfarben (Grau bzw. Schwarz/Weiß je nach Hell/Dunkel).
+                            {t('Getrennt für den Standortnamen und den übrigen Text. Leer = die Standardfarben (Grau bzw. Schwarz/Weiß je nach Hell/Dunkel).', 'Separate for the location name and the rest of the text. Empty = the default colours (grey, or black/white by light/dark).')}
                           </p>
                         </div>
                         {([
-                          { key: 'guestNameColor' as const, label: 'Standortname („Filiale · Tisch")', fallback: '#6B7280' },
-                          { key: 'guestTextColor' as const, label: 'Text (Schlagzeile und Fließtext)', fallback: brandForm.guestTheme === 'dunkel' ? '#FFFFFF' : '#111827' },
+                          { key: 'guestNameColor' as const, label: t('Standortname („Filiale · Tisch")', 'Location name (“Branch · Table”)'), fallback: '#6B7280' },
+                          { key: 'guestTextColor' as const, label: t('Text (Schlagzeile und Fließtext)', 'Text (headline and body)'), fallback: brandForm.guestTheme === 'dunkel' ? '#FFFFFF' : '#111827' },
                         ]).map(({ key, label, fallback }) => {
                           const value = brandForm[key];
                           return (
@@ -4229,21 +4228,20 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                         <div>
                           <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                            <ImagePlus size={15} strokeWidth={1.5} className="text-gray-400" /> Titelbild
+                            <ImagePlus size={15} strokeWidth={1.5} className="text-gray-400" /> {t('Titelbild', 'Cover image')}
                           </p>
                           <p className="text-[12px] text-gray-400 mt-1">
-                            Liegt beim Gast hinter der Begrüßung und läuft nach unten weich aus.
-                            Am besten ein ruhiges Bild vom Lokal. Gesichter und Schrift darauf
-                            verschwinden im Verlauf.
+                            {t('Liegt beim Gast hinter der Begrüßung und läuft nach unten weich aus. Am besten ein ruhiges Bild vom Lokal. Gesichter und Schrift darauf verschwinden im Verlauf.',
+                               'Sits behind the greeting for the guest and fades out downward. A calm photo of the place works best — faces and text on it disappear in the gradient.')}
                           </p>
                         </div>
                         <button type="button" onClick={() => coverInputRef.current?.click()} disabled={coverBusy}
                           className="w-full aspect-[16/9] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-700 border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 transition-colors flex items-center justify-center disabled:opacity-60">
                           {coverBusy
-                            ? <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> Wird verarbeitet…</span>
+                            ? <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> {t('Wird verarbeitet…', 'Processing…')}</span>
                             : brandForm.coverImage
-                              ? <img src={brandForm.coverImage} alt="Titelbild" className="w-full h-full object-cover" />
-                              : <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Upload size={12} /> Bild auswählen</span>}
+                              ? <img src={brandForm.coverImage} alt="" className="w-full h-full object-cover" />
+                              : <span className="text-[12px] text-gray-400 flex items-center gap-1.5"><Upload size={12} /> {t('Bild auswählen', 'Choose image')}</span>}
                         </button>
                         <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
                           onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverFile(f); e.target.value = ''; }} />
@@ -4251,7 +4249,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <>
                             <div className="pt-1">
                               <div className="flex items-center justify-between text-[12px] mb-1.5">
-                                <span className="text-gray-400">Deckkraft</span>
+                                <span className="text-gray-400">{t('Deckkraft', 'Opacity')}</span>
                                 <span className="font-medium text-gray-700 dark:text-gray-200 tabular-nums">{Math.round(brandForm.coverOpacity * 100)} %</span>
                               </div>
                               <input type="range" min={20} max={100} step={5}
@@ -4259,26 +4257,26 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 onChange={e => setBrandForm(p => ({ ...p, coverOpacity: Number(e.target.value) / 100 }))}
                                 className="w-full accent-gray-800 dark:accent-gray-300" />
                               <p className="text-[11px] text-gray-400 mt-1">
-                                Niedriger = das Bild tritt hinter der Begrüßung zurück. 100 % = voll.
+                                {t('Niedriger = das Bild tritt hinter der Begrüßung zurück. 100 % = voll.', 'Lower = the image sits back behind the greeting. 100% = full.')}
                               </p>
                             </div>
                             <button onClick={() => setBrandForm(p => ({ ...p, coverImage: null }))}
-                              className="text-[11px] text-gray-400 hover:text-red-500">Entfernen</button>
+                              className="text-[11px] text-gray-400 hover:text-red-500">{t('Entfernen', 'Remove')}</button>
                           </>
                         )}
                       </div>
 
                       <div className="flex items-center gap-3 flex-wrap">
                         <PrimaryBtn full={false} sm onClick={handleSaveBrand} disabled={brandSaving || logoBusy || coverBusy}>
-                          {brandSaving ? 'Speichert…' : 'Änderungen speichern'}
+                          {brandSaving ? t('Speichert…', 'Saving…') : t('Änderungen speichern', 'Save changes')}
                         </PrimaryBtn>
-                        {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> Gespeichert</span>}
+                        {brandSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={13} /> {t('Gespeichert', 'Saved')}</span>}
                         {brandError && <span className="text-[12px] text-red-600 dark:text-red-400 flex items-center gap-1"><AlertTriangle size={13} /> {brandError}</span>}
                       </div>
                     </div>
 
                     <div className="xl:sticky xl:top-24">
-                      <p className="text-[12px] text-gray-400 mb-2 uppercase tracking-wide">Live-Vorschau</p>
+                      <p className="text-[12px] text-gray-400 mb-2 uppercase tracking-wide">{t('Live-Vorschau', 'Live preview')}</p>
                       {/* Zeigt denselben Aufbau wie der Willkommensbildschirm
                           der Gäste — Titelbild bis an den Rand, Schlagzeile mit
                           dem Namen, Fußzeile —, damit die Vorschau nicht etwas
@@ -4306,15 +4304,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             <div className="relative z-10 px-5 pt-16 pb-5">
                               <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2"
                                 style={brandForm.guestNameColor ? { color: brandForm.guestNameColor } : undefined}>
-                                {branch?.name ?? store.branches[0]?.name} · Tisch 1
+                                {branch?.name ?? store.branches[0]?.name} · {pick(brandForm.guestLang, 'Tisch', 'Table')} 1
                               </p>
                               <p className="text-[24px] font-bold leading-[1.1] tracking-tight text-gray-900 dark:text-white max-w-[200px]"
                                 style={brandForm.guestTextColor ? { color: brandForm.guestTextColor } : undefined}>
-                                Wie war dein Besuch bei {brandForm.name || 'Dein Restaurant'}?
+                                {pick(brandForm.guestLang, 'Wie war dein Besuch bei', 'How was your visit to')} {brandForm.name || t('Dein Restaurant', 'Your restaurant')}?
                               </p>
                               <button className="w-full h-[44px] mt-5 rounded-[14px] shadow-lg flex items-center justify-between px-4 text-white text-[14px] font-medium"
                                 style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                                Feedback starten <ArrowRight size={16} strokeWidth={1.75} />
+                                {pick(brandForm.guestLang, 'Feedback starten', 'Start feedback')} <ArrowRight size={16} strokeWidth={1.75} />
                               </button>
                               <div className="flex items-center justify-center gap-2 pt-5">
                                 <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Powered by</span>
@@ -4336,7 +4334,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                        </div>
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen. Noch ungespeicherte Änderungen.</p>
+                      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">{t('Tippe auf die Sterne in der Vorschau, um die Akzentfarbe zu testen. Änderungen sind noch nicht gespeichert.', 'Tap the stars in the preview to test the accent colour. Changes are not saved yet.')}</p>
                     </div>
                   </div>
                 </div>
@@ -4717,13 +4715,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       Sackgasse. */}
                   <button onClick={() => setPage('dashboard')}
                     className="flex items-center gap-1.5 text-[13px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-                    <ChevronLeft size={15} strokeWidth={1.5} /> Zurück zum Dashboard
+                    <ChevronLeft size={15} strokeWidth={1.5} /> {t('Zurück zum Dashboard', 'Back to dashboard')}
                   </button>
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">Bewertungen</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Bewertungen', 'Reviews')}</p>
                       <p className="text-[13px] text-gray-400 mt-0.5">
-                        Was Gäste zu einzelnen Gerichten geschrieben haben, neueste zuerst · {branch ? branch.name : 'alle Filialen'}
+                        {t('Was Gäste zu einzelnen Gerichten geschrieben haben, neueste zuerst', 'What guests wrote about individual dishes, newest first')} · {branch ? branch.name : t('alle Filialen', 'all branches')}
                       </p>
                     </div>
                     {store.reviews.length > 0 && (
@@ -4736,8 +4734,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                   {store.reviews.length === 0 ? (
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                      <EmptyState icon={MessageSquare} title="Noch keine Bewertungen"
-                        desc="Sobald Gäste über den QR-Code Feedback abgeben, erscheinen die Rückmeldungen hier, inklusive der Freitexte zu einzelnen Gerichten." />
+                      <EmptyState icon={MessageSquare} title={t('Noch keine Bewertungen', 'No reviews yet')}
+                        desc={t('Sobald Gäste über den QR-Code Feedback abgeben, erscheinen die Rückmeldungen hier, inklusive der Freitexte zu einzelnen Gerichten.', 'As guests give feedback via the QR code, their responses appear here, including free-text comments on individual dishes.')} />
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -4748,9 +4746,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           <div key={rv.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                             <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-50 dark:border-gray-700/60 flex-wrap">
                               <div className="flex items-center gap-2.5">
-                                <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Tisch {rv.tableNumber}</span>
+                                <span className="text-[13px] font-semibold text-gray-900 dark:text-white">{t('Tisch', 'Table')} {rv.tableNumber}</span>
                                 <span className="text-[12px] text-gray-400">
-                                  {new Date(rv.createdAt).toLocaleString('de-AT', {
+                                  {new Date(rv.createdAt).toLocaleString(uiLang === 'en' ? 'en-GB' : 'de-AT', {
                                     day: '2-digit', month: '2-digit', year: 'numeric',
                                     hour: '2-digit', minute: '2-digit',
                                   })}
@@ -4774,7 +4772,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <p className="text-[13px] font-medium text-gray-900 dark:text-white">
-                                          {dish?.name ?? 'Gelöschtes Gericht'}
+                                          {dish?.name ?? t('Gelöschtes Gericht', 'Deleted dish')}
                                         </p>
                                         <StarRating value={d.stars} size={13} />
                                       </div>
@@ -4791,9 +4789,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
                             <div className="px-4 sm:px-5 py-2.5 bg-gray-50 dark:bg-gray-900/40 flex gap-4 sm:gap-6 flex-wrap">
                               {([
-                                ['Service', rv.overall.service],
-                                ['Ambiente', rv.overall.ambience],
-                                ['Tempo', rv.overall.speed],
+                                [t('Service', 'Service'), rv.overall.service],
+                                [t('Ambiente', 'Ambience'), rv.overall.ambience],
+                                [t('Tempo', 'Speed'), rv.overall.speed],
                               ] as const).map(([label, value]) => (
                                 <span key={label} className="flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400">
                                   {label}
@@ -5338,6 +5336,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   picked: string | 'all' | null; onPick: (p: string | 'all') => void;
 }) {
   const store = useStore();
+  const t = useT();
   // Hell oder Dunkel ist eine Einstellung, kein Bildschirmzustand — sie
   // überlebt das Neuladen. Im Privatmodus schlägt der Zugriff fehl; dann bleibt
   // es bei Hell, statt dass die Seite gar nicht erst startet.
@@ -5349,9 +5348,9 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   }, [dark]);
   useGoogleFont(store.brand?.font);
   useDocumentTitle(store.brand?.name,
-    view === 'admin' ? 'Verwaltung'
-      : view === 'waiter' ? 'Service'
-      : tableNumber != null ? `Tisch ${tableNumber}` : null);
+    view === 'admin' ? t('Verwaltung', 'Admin')
+      : view === 'waiter' ? t('Service', 'Service')
+      : tableNumber != null ? `${t('Tisch', 'Table')} ${tableNumber}` : null);
 
   const needsLogin = view === 'admin' || view === 'waiter';
 
@@ -5363,7 +5362,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   // sie verhindert nur, dass jemand eine Ansicht sieht, deren Schaltflächen
   // ohnehin mit 401/403 abgewiesen würden.
   if (needsLogin) {
-    if (store.authLoading) return <FullScreenMessage>Anmeldung wird geprüft…</FullScreenMessage>;
+    if (store.authLoading) return <FullScreenMessage>{t("Anmeldung wird geprüft…", "Checking sign-in…")}</FullScreenMessage>;
     if (!store.authUser) {
       return (
         // Ohne Kopfleiste: wer noch nicht angemeldet ist, hat dort nichts zu
@@ -5382,17 +5381,17 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
           <TopBar dark={dark} setDark={setDark} />
           <FullScreenMessage error action={
             <Link to={`/${orgSlug}/staff`} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: BITELY_ACCENT }}>
-              Zur Tischübersicht
+              {t("Zur Tischübersicht", "To the table overview")}
             </Link>
           }>
-            Als {store.authUser.role} hast du auf die Verwaltung keinen Zugriff.
+            {t(`Als ${store.authUser.role} hast du auf die Verwaltung keinen Zugriff.`, `As ${store.authUser.role === 'Kellner' ? 'a waiter' : store.authUser.role === 'Manager' ? 'a manager' : 'an admin'} you have no access to the admin.`)}
           </FullScreenMessage>
         </div>
       );
     }
   }
 
-  if (store.loading) return <FullScreenMessage>Lädt Restaurantdaten…</FullScreenMessage>;
+  if (store.loading) return <FullScreenMessage>{t("Lädt Restaurantdaten…", "Loading restaurant data…")}</FullScreenMessage>;
   if (store.connectionLost) return <NetworkErrorPage onRetry={store.refresh} />;
   if (store.error) {
     return (

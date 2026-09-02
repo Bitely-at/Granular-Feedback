@@ -35,18 +35,18 @@ export interface Brand {
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.
 export const BRAND_FONTS = [
-  { name: 'Inter', category: 'Modern & neutral', googleFamily: 'Inter:wght@400;500;600;700' },
-  { name: 'Poppins', category: 'Freundlich & rund', googleFamily: 'Poppins:wght@400;500;600;700' },
-  { name: 'DM Sans', category: 'Klar & sachlich', googleFamily: 'DM+Sans:wght@400;500;600;700' },
-  { name: 'Fraunces', category: 'Editorial & warm', googleFamily: 'Fraunces:wght@400;500;600;700' },
-  { name: 'Playfair Display', category: 'Elegant & gehoben', googleFamily: 'Playfair+Display:wght@400;600;700' },
-  { name: 'Space Grotesk', category: 'Technisch & markant', googleFamily: 'Space+Grotesk:wght@400;500;600;700' },
+  { name: 'Inter', category: 'Modern & neutral', categoryEn: 'Modern & neutral', googleFamily: 'Inter:wght@400;500;600;700' },
+  { name: 'Poppins', category: 'Freundlich & rund', categoryEn: 'Friendly & round', googleFamily: 'Poppins:wght@400;500;600;700' },
+  { name: 'DM Sans', category: 'Klar & sachlich', categoryEn: 'Clear & plain', googleFamily: 'DM+Sans:wght@400;500;600;700' },
+  { name: 'Fraunces', category: 'Editorial & warm', categoryEn: 'Editorial & warm', googleFamily: 'Fraunces:wght@400;500;600;700' },
+  { name: 'Playfair Display', category: 'Elegant & gehoben', categoryEn: 'Elegant & refined', googleFamily: 'Playfair+Display:wght@400;600;700' },
+  { name: 'Space Grotesk', category: 'Technisch & markant', categoryEn: 'Technical & bold', googleFamily: 'Space+Grotesk:wght@400;500;600;700' },
 ] as const;
 
-export const BRAND_CARD_STYLES: { id: NonNullable<Brand['cardStyle']>; label: string; desc: string }[] = [
-  { id: 'standard', label: 'Standard', desc: 'Bild links, Infos rechts, kompakt und bewährt.' },
-  { id: 'kompakt', label: 'Kompakt', desc: 'Kleineres Bild, engere Abstände, mehr Gerichte auf einen Blick.' },
-  { id: 'editorial', label: 'Editorial', desc: 'Großes Bild oben, Text darunter, wirkt hochwertiger.' },
+export const BRAND_CARD_STYLES: { id: NonNullable<Brand['cardStyle']>; label: string; labelEn: string; desc: string; descEn: string }[] = [
+  { id: 'standard', label: 'Standard', labelEn: 'Standard', desc: 'Bild links, Infos rechts, kompakt und bewährt.', descEn: 'Image left, info right — compact and proven.' },
+  { id: 'kompakt', label: 'Kompakt', labelEn: 'Compact', desc: 'Kleineres Bild, engere Abstände, mehr Gerichte auf einen Blick.', descEn: 'Smaller image, tighter spacing, more dishes at a glance.' },
+  { id: 'editorial', label: 'Editorial', labelEn: 'Editorial', desc: 'Großes Bild oben, Text darunter, wirkt hochwertiger.', descEn: 'Large image on top, text below — feels more premium.' },
 ];
 
 // Verkleinert/komprimiert ein Bild im Browser vor dem Upload, damit die
