@@ -565,6 +565,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // Kontolöschung: zweistufig, weil sie Punkte vernichtet und nicht rückgängig ist.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Eigener API-Schlüssel: Eingabefeld nur bei Bedarf offen, Entfernen ist
+  // anders als Kontolöschung jederzeit rückgängig zu machen — reicht ein
+  // leichter Inline-Confirm statt des zweistufigen Lösch-Musters.
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [confirmRemoveApiKey, setConfirmRemoveApiKey] = useState(false);
 
   // Nur Tische DIESER Filiale: die Nummer allein trifft seit T-2 in jeder
   // Filiale einen anderen Tisch.
@@ -1184,6 +1192,64 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Eigener API-Schlüssel</p>
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                Mit einem eigenen Anthropic-Schlüssel schreibt die KI deinen
+                Rezensionstext — sonst springt {store.brand?.name ?? 'das Restaurant'} auf eine
+                Vorlage. Der Schlüssel wird verschlüsselt gespeichert und dir nie wieder angezeigt.
+              </p>
+              {apiKeyError && <p className="text-[12px] text-red-500">{apiKeyError}</p>}
+              {apiKeyOpen ? (
+                <div className="space-y-2">
+                  <input type="password" value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)}
+                    placeholder="sk-ant-…" autoComplete="off"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-[14px] text-gray-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white" />
+                  <div className="flex gap-2">
+                    <SecondaryBtn onClick={() => { setApiKeyOpen(false); setApiKeyInput(''); setApiKeyError(null); }}>Abbrechen</SecondaryBtn>
+                    <button disabled={apiKeySaving || !apiKeyInput.trim()} onClick={async () => {
+                        setApiKeySaving(true); setApiKeyError(null);
+                        try {
+                          await store.setGuestApiKey(apiKeyInput.trim());
+                          setApiKeyOpen(false); setApiKeyInput('');
+                        } catch (err) {
+                          setApiKeyError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+                        } finally {
+                          setApiKeySaving(false);
+                        }
+                      }}
+                      className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
+                      {apiKeySaving ? 'Speichert…' : 'Speichern'}
+                    </button>
+                  </div>
+                </div>
+              ) : store.guestUser?.hasApiKey ? (
+                <div className="space-y-2">
+                  <p className="text-[13px] text-gray-700 dark:text-gray-300">Schlüssel hinterlegt.</p>
+                  {confirmRemoveApiKey ? (
+                    <div className="flex gap-2">
+                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(false)}>Abbrechen</SecondaryBtn>
+                      <button onClick={async () => { await store.removeGuestApiKey(); setConfirmRemoveApiKey(false); }}
+                        className="flex-1 py-3 rounded-xl text-[14px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                        Ja, entfernen
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <SecondaryBtn onClick={() => setApiKeyOpen(true)}>Ersetzen</SecondaryBtn>
+                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(true)}>Entfernen</SecondaryBtn>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button onClick={() => setApiKeyOpen(true)}
+                  className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                  Schlüssel hinzufügen
+                </button>
+              )}
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
@@ -2709,6 +2775,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const [voucherDialog, setVoucherDialog] = useState<{ voucher: Voucher | null } | null>(null);
   const [branchDialog, setBranchDialog] = useState<{ branch: Branch | null } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Eigener API-Schlüssel (Einstellungen, jede Rolle): eigenes Fehler-/Ladefeld
+  // statt actionError, damit die Rückmeldung direkt an der Karte steht.
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [confirmRemoveApiKey, setConfirmRemoveApiKey] = useState(false);
   // Abgelaufene Gutscheine bleiben in der Datenbank — sie hängen an den
   // Einlösungen, die es gab. In der Liste stehen sie standardmäßig NICHT: der
   // Gast sieht sie ohnehin nicht mehr, und eine Seite, auf der die Hälfte der
@@ -4112,6 +4185,85 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       ))}
                     </div>
                   </div>
+
+                  {/* EIGENER API-SCHLÜSSEL — jede Rolle, nicht nur Admin: ein
+                      Kellner braucht ihn für den Bon-Scan genauso wie ein Admin
+                      für den Wochenrückblick. Ohne eigenen Schlüssel ändert sich
+                      nichts: gemeinsamer Server-Schlüssel bzw. Notausgang wie bisher. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                    <div>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Lock size={15} strokeWidth={1.5} className="text-gray-400" /> Eigener API-Schlüssel
+                      </p>
+                      <p className="text-[12px] text-gray-400 mt-1">
+                        Treibt den Wochenrückblick im Dashboard und den Bon-Scan mit deinem eigenen
+                        Anthropic-Zugang an, statt mit dem gemeinsamen dieses Servers. Verschlüsselt
+                        gespeichert und dir nie wieder angezeigt.
+                      </p>
+                    </div>
+                    {apiKeyError && <p className="text-[12px] text-red-500">{apiKeyError}</p>}
+                    {apiKeyOpen ? (
+                      <div className="space-y-2">
+                        <input type="password" value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)}
+                          placeholder="sk-ant-…" autoComplete="off"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-[14px] text-gray-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white" />
+                        <div className="flex gap-2">
+                          <button onClick={() => { setApiKeyOpen(false); setApiKeyInput(''); setApiKeyError(null); }}
+                            className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                            Abbrechen
+                          </button>
+                          <button disabled={apiKeySaving || !apiKeyInput.trim()} onClick={async () => {
+                              setApiKeySaving(true); setApiKeyError(null);
+                              try {
+                                await store.setMyApiKey(apiKeyInput.trim());
+                                setApiKeyOpen(false); setApiKeyInput('');
+                              } catch (err) {
+                                setApiKeyError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+                              } finally {
+                                setApiKeySaving(false);
+                              }
+                            }}
+                            className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-white transition-colors disabled:opacity-50"
+                            style={{ backgroundColor: 'var(--ba)' }}>
+                            {apiKeySaving ? 'Speichert…' : 'Speichern'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : store.authUser?.hasApiKey ? (
+                      <div className="space-y-2">
+                        <p className="text-[13px] text-gray-700 dark:text-gray-300">Schlüssel hinterlegt.</p>
+                        {confirmRemoveApiKey ? (
+                          <div className="flex gap-2">
+                            <button onClick={() => setConfirmRemoveApiKey(false)}
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                              Abbrechen
+                            </button>
+                            <button onClick={async () => { await store.removeMyApiKey(); setConfirmRemoveApiKey(false); }}
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+                              Ja, entfernen
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button onClick={() => setApiKeyOpen(true)}
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                              Ersetzen
+                            </button>
+                            <button onClick={() => setConfirmRemoveApiKey(true)}
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                              Entfernen
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <button onClick={() => setApiKeyOpen(true)}
+                        className="w-full py-2.5 rounded-xl text-[13px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                        Schlüssel hinzufügen
+                      </button>
+                    )}
+                  </div>
+
                   {/* Filialen anzulegen oder zu löschen ist Sache der Kette. Die
                       Filialleitung sieht ihre eigene, kann sie aber nicht ändern. */}
                   {isChainAdmin && (

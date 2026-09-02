@@ -166,6 +166,12 @@ export interface UserDoc {
   role: 'Admin' | 'Manager' | 'Kellner';
   branchId: string | null; // null = alle Filialen
   status: 'aktiv' | 'eingeladen' | 'inaktiv';
+  // Privater Anthropic-Key dieses Kontos, AES-256-GCM-verschlüsselt
+  // (server/src/secrets.ts). Treibt Wochenrückblick und Bon-Scan an, wenn
+  // gesetzt — sonst greift der gemeinsame ANTHROPIC_API_KEY bzw. der
+  // jeweilige Notausgang. Nie im Klartext an den Client (serializeUser gibt
+  // nur hasApiKey).
+  apiKeyEnc?: string | null;
 }
 
 export interface BrandDoc {
@@ -271,6 +277,11 @@ export interface GuestDoc {
   points: number;
   redeemed: string[];
   createdAt: number;
+  // Privater Anthropic-Key dieses Kontos, AES-256-GCM-verschlüsselt
+  // (server/src/secrets.ts). Treibt den automatischen Rezensionstext an, wenn
+  // gesetzt — sonst greift der gemeinsame ANTHROPIC_API_KEY bzw. die Vorlage.
+  // Nie im Klartext an den Client (serializeGuest gibt nur hasApiKey).
+  apiKeyEnc?: string | null;
 }
 
 /** Das alte, von ALLEN Gästen geteilte Profil. Bleibt für Bestandsdaten stehen. */

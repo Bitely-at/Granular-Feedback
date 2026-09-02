@@ -16,15 +16,25 @@ import Anthropic from '@anthropic-ai/sdk';
 
 let client: Anthropic | null = null;
 
-/** Der gemeinsame Zugang. `null` heißt: kein Schlüssel gesetzt, Notausgang nehmen. */
-export function claudeClient(): Anthropic | null {
+/**
+ * Der Zugang für einen Aufruf. Mit `apiKey` (privater Schlüssel eines Gasts
+ * oder Personal-Kontos, siehe secrets.ts) entsteht ein eigener Client dafür —
+ * kein Cache über Konten hinweg, sonst könnte der Schlüssel eines Aufrufers
+ * versehentlich für einen anderen verwendet werden. Ohne `apiKey` bleibt es
+ * beim gemeinsamen, aus der Umgebung gebauten Singleton wie bisher.
+ *
+ * `null` heißt: weder privater noch gemeinsamer Schlüssel vorhanden,
+ * Notausgang nehmen.
+ */
+export function claudeClient(apiKey?: string | null): Anthropic | null {
+  if (apiKey) return new Anthropic({ apiKey });
   if (!process.env.ANTHROPIC_API_KEY) return null;
   if (!client) client = new Anthropic();
   return client;
 }
 
-export function hasClaude(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+export function hasClaude(apiKey?: string | null): boolean {
+  return Boolean(apiKey || process.env.ANTHROPIC_API_KEY);
 }
 
 // ── Wochenrückblick ──────────────────────────────────────
@@ -78,8 +88,8 @@ export function fallbackHighlight(input: HighlightInput): string {
   return parts.join(' ');
 }
 
-export async function generateHighlight(input: HighlightInput): Promise<HighlightResult> {
-  const anthropic = claudeClient();
+export async function generateHighlight(input: HighlightInput, apiKey?: string | null): Promise<HighlightResult> {
+  const anthropic = claudeClient(apiKey);
   if (!anthropic || input.current.reviews === 0) {
     return { text: fallbackHighlight(input), source: 'fallback' };
   }
@@ -155,9 +165,9 @@ Regeln:
  * einem leeren Ergebnis und weiß nicht, ob sie neu fotografieren soll.
  */
 export async function scanReceipt(
-  imageDataUri: string, menu: ScanMenuItem[],
+  imageDataUri: string, menu: ScanMenuItem[], apiKey?: string | null,
 ): Promise<ScanHit[] | null> {
-  const anthropic = claudeClient();
+  const anthropic = claudeClient(apiKey);
   if (!anthropic || menu.length === 0) return null;
 
   const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(imageDataUri);

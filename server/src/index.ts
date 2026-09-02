@@ -12,6 +12,7 @@ import {
 import { verifyGoogleIdToken, googleClientId } from './googleAuth.js';
 import { generateReviewText } from './reviewText.js';
 import { generateHighlight, scanReceipt, hasClaude, type HighlightInput } from './ai.js';
+import { canEncryptApiKeys, encryptApiKey, decryptApiKey } from './secrets.js';
 import type {
   Organization, BrandDoc, DashboardDoc, GuestDoc, DishRatingInput, UserDoc, Branch,
   DishDoc, RedemptionDoc, ReviewDoc, InsightsDoc, TableDoc, OrderDoc,
@@ -102,14 +103,15 @@ function serialize<T extends WithId<Document>>(doc: T) {
 // Antwort landen. users taucht über getFullState() im GEMEINSAMEN
 // Zustandsobjekt auf, das auch der Gast lädt (siehe GET /state).
 function serializeUser(doc: WithId<UserDoc>) {
-  const { _id, passwordHash, googleSub, ...rest } = doc;
-  // Weder Hash noch Googles Konto-ID gehören in eine Antwort: `users` steckt im
-  // Gesamtzustand, den auch ein Gast lädt. Was die Verwaltung braucht, ist
-  // ohnehin nur, OB es die beiden Wege gibt.
+  const { _id, passwordHash, googleSub, apiKeyEnc, ...rest } = doc;
+  // Weder Hash noch Googles Konto-ID noch der eigene API-Schlüssel gehören in
+  // eine Antwort: `users` steckt im Gesamtzustand, den auch ein Gast lädt. Was
+  // die Verwaltung braucht, ist ohnehin nur, OB es sie gibt.
   return {
     id: String(_id), ...rest,
     hasPassword: !!passwordHash,
     hasGoogle: !!googleSub,
+    hasApiKey: !!apiKeyEnc,
   };
 }
 
@@ -180,6 +182,31 @@ async function currentGuest(req: OrgRequest): Promise<WithId<GuestDoc> | null> {
   } catch {
     return null;
   }
+}
+
+/** Das Personal-Konto des angemeldeten Nutzers — oder null. */
+async function currentUserDoc(req: OrgRequest): Promise<WithId<UserDoc> | null> {
+  if (!req.user) return null;
+  try {
+    return await req.db!.collection<UserDoc>('users').findOne({ _id: new ObjectId(req.user.sub) });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Der private API-Schlüssel des Aufrufers — Personal ODER Gast, je nachdem,
+ * wer gerade angemeldet ist. Beide Konto-Arten kommen für dieselbe Anfrage
+ * nie gleichzeitig infrage (Personal-Routen laufen über requireAuth, das
+ * req.user setzt; Gast-Routen prüfen ohnehin nur den Gast-Token), die
+ * Reihenfolge hier ist nur der einfachste Weg, beide an einer Stelle
+ * abzufragen.
+ */
+async function callerApiKey(req: OrgRequest): Promise<string | null> {
+  const user = await currentUserDoc(req);
+  if (user?.apiKeyEnc) return decryptApiKey(user.apiKeyEnc);
+  const guest = await currentGuest(req);
+  return guest?.apiKeyEnc ? decryptApiKey(guest.apiKeyEnc) : null;
 }
 
 /**
@@ -804,6 +831,36 @@ const branchAdmin = requireAuth('Admin', 'Manager');
 /** Tischarbeit. */
 const staffOrAdmin = requireAuth('Admin', 'Manager', 'Kellner');
 
+/**
+ * Personal: eigenen Anthropic-Key hinterlegen — jede Rolle, nicht nur Admin,
+ * denn ein Kellner löst den Bon-Scan genauso aus. Bewusst KEIN `/users/:id`:
+ * das ist eine andere Route (chainAdmin), die ein Konto FÜR jemand anderen
+ * ändert. Hier ändert das Konto sich selbst, über die eigene Sitzung.
+ */
+router.put('/account/api-key', staffOrAdmin(async (req: OrgRequest, res) => {
+  if (!canEncryptApiKeys()) {
+    res.status(503).json({ error: 'Eigene API-Schlüssel sind auf diesem Server nicht eingerichtet.' });
+    return;
+  }
+  const apiKey = requireText(req.body?.apiKey, 'API-Schlüssel', 200);
+  if (apiKey.length < 20) {
+    res.status(400).json({ error: 'Das sieht nicht nach einem gültigen API-Schlüssel aus.' });
+    return;
+  }
+  const id = requireObjectId(req.user!.sub, 'Benutzer-ID');
+  const apiKeyEnc = encryptApiKey(apiKey);
+  await req.db!.collection<UserDoc>('users').updateOne({ _id: id }, { $set: { apiKeyEnc } });
+  const user = await req.db!.collection<UserDoc>('users').findOne({ _id: id });
+  res.json({ user: serializeUser(user!) });
+}));
+
+router.delete('/account/api-key', staffOrAdmin(async (req: OrgRequest, res) => {
+  const id = requireObjectId(req.user!.sub, 'Benutzer-ID');
+  await req.db!.collection<UserDoc>('users').updateOne({ _id: id }, { $set: { apiKeyEnc: null } });
+  const user = await req.db!.collection<UserDoc>('users').findOne({ _id: id });
+  res.json({ user: serializeUser(user!) });
+}));
+
 // ── Tische anlegen (und damit QR-Codes) — Filialleitung genügt ──
 // Liegt unter der Filiale, damit withBranch die Bindung des Managers
 // durchsetzt: er kann keine Tische in einer fremden Filiale anlegen.
@@ -1305,6 +1362,7 @@ function serializeGuest(doc: WithId<GuestDoc>) {
     id: String(doc._id), email: doc.email, name: doc.name,
     points: doc.points, redeemed: doc.redeemed,
     hasPassword: !!doc.passwordHash, hasGoogle: !!doc.googleSub,
+    hasApiKey: !!doc.apiKeyEnc,
   };
 }
 
@@ -1536,12 +1594,17 @@ router.post('/guest/review-text', async (req: OrgRequest, res) => {
   }).toArray();
   const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
 
+  // Das Ticket bleibt die eigentliche Berechtigung zum Erzeugen; ob der Gast
+  // nebenbei angemeldet ist, entscheidet nur, wessen Schlüssel dafür bezahlt.
+  const guestAccount = await currentGuest(req);
+  const apiKey = guestAccount?.apiKeyEnc ? decryptApiKey(guestAccount.apiKeyEnc) : null;
+
   const result = await generateReviewText({
     restaurantName: brandName,
     branchName: branch?.name ?? null,
     dishes: review.dishRatings.map(d => ({ name: nameOf(d.dishId), stars: d.stars, note: d.note })),
     overall: review.overall,
-  });
+  }, apiKey);
 
   await db.collection<ReviewDoc>('reviews').updateOne(
     { _id: review._id }, { $set: { reviewText: result.text } }
@@ -1573,6 +1636,42 @@ router.delete('/guest/me', async (req: OrgRequest, res) => {
   );
   await req.db!.collection<GuestDoc>('guests').deleteOne({ _id: guest._id });
   res.json({ ok: true });
+});
+
+/**
+ * Gast: eigenen Anthropic-Key hinterlegen. Er treibt danach den automatischen
+ * Rezensionstext an, statt der gemeinsamen bzw. der Vorlagen-Antwort — siehe
+ * CLAUDE.md, "KI-Funktionen". Verschlüsselt gespeichert (secrets.ts), der
+ * Klartext geht nie in eine Antwort zurück.
+ */
+router.put('/guest/me/api-key', async (req: OrgRequest, res) => {
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Nicht angemeldet.' });
+    return;
+  }
+  if (!canEncryptApiKeys()) {
+    res.status(503).json({ error: 'Eigene API-Schlüssel sind auf diesem Server nicht eingerichtet.' });
+    return;
+  }
+  const apiKey = requireText(req.body?.apiKey, 'API-Schlüssel', 200);
+  if (apiKey.length < 20) {
+    res.status(400).json({ error: 'Das sieht nicht nach einem gültigen API-Schlüssel aus.' });
+    return;
+  }
+  const apiKeyEnc = encryptApiKey(apiKey);
+  await req.db!.collection<GuestDoc>('guests').updateOne({ _id: guest._id }, { $set: { apiKeyEnc } });
+  res.json({ guest: serializeGuest({ ...guest, apiKeyEnc }) });
+});
+
+router.delete('/guest/me/api-key', async (req: OrgRequest, res) => {
+  const guest = await currentGuest(req);
+  if (!guest) {
+    res.status(401).json({ error: 'Nicht angemeldet.' });
+    return;
+  }
+  await req.db!.collection<GuestDoc>('guests').updateOne({ _id: guest._id }, { $set: { apiKeyEnc: null } });
+  res.json({ guest: serializeGuest({ ...guest, apiKeyEnc: null }) });
 });
 
 /**
@@ -2073,7 +2172,8 @@ router.get('/insights', branchAdmin(async (req: OrgRequest, res) => {
   const from = optionalDate(req.query.from, 'Von-Datum');
   const to = optionalDate(req.query.to, 'Bis-Datum');
   const insights = await collectInsights(req, from, to, branchFilterOf(req));
-  res.json({ ...insights, highlight: await storedHighlight(req), aiAvailable: hasClaude() });
+  const apiKey = await callerApiKey(req);
+  res.json({ ...insights, highlight: await storedHighlight(req), aiAvailable: hasClaude(apiKey) });
 }));
 
 /**
@@ -2125,7 +2225,8 @@ router.post('/insights/highlight', branchAdmin(async (req: OrgRequest, res) => {
     ).slice(0, 40),
   };
 
-  const result = await generateHighlight(input);
+  const apiKey = await callerApiKey(req);
+  const result = await generateHighlight(input, apiKey);
   const entry = {
     text: result.text, generatedAt: now, source: result.source,
     reviewCount: thisWeek.totals.reviews,
@@ -2150,8 +2251,9 @@ router.post('/branches/:branchSlug/scan-receipt', staffOrAdmin(withBranch(async 
   if (typeof image !== 'string' || !image.startsWith('data:image/')) {
     throw new HttpError(400, 'Es wurde kein Bild übergeben.');
   }
-  if (!hasClaude()) {
-    res.status(503).json({ error: 'Der Bon-Scan ist auf diesem Server nicht eingerichtet (ANTHROPIC_API_KEY fehlt).' });
+  const apiKey = await callerApiKey(req);
+  if (!hasClaude(apiKey)) {
+    res.status(503).json({ error: 'Der Bon-Scan ist auf diesem Server nicht eingerichtet (kein API-Schlüssel hinterlegt).' });
     return;
   }
 
@@ -2163,7 +2265,7 @@ router.post('/branches/:branchSlug/scan-receipt', staffOrAdmin(withBranch(async 
 
   const hits = await scanReceipt(image, dishes.map(d => ({
     id: String(d._id), name: d.name, price: d.price,
-  })));
+  })), apiKey);
   if (hits === null) {
     res.status(502).json({ error: 'Der Bon konnte nicht gelesen werden. Bitte noch einmal fotografieren.' });
     return;

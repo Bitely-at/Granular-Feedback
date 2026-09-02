@@ -393,6 +393,33 @@ async function main() {
         check('Leere Filial-Liste wird mit 400 abgelehnt', emptyList.status === 400, `HTTP ${emptyList.status}`);
       }
     }
+
+    // ── 6) Eigener API-Schlüssel (Selbstbedienung) ────────────────
+    // Nur Speicherung und Serialisierung — kein echter Anthropic-Aufruf.
+    console.log('\n6) Eigener API-Schlüssel');
+    {
+      const FAKE_KEY = 'sk-ant-pruef-0000000000000000';
+      const anon = await req('PUT', '/account/api-key', { apiKey: FAKE_KEY }, { auth: false });
+      check('Ohne Anmeldung wird das Hinterlegen mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
+
+      const put = await req('PUT', '/account/api-key', { apiKey: FAKE_KEY });
+      if (put.status === 503) {
+        console.log('  \x1b[33mHINWEIS\x1b[0m  API_KEY_ENC_SECRET ist auf dem Server nicht gesetzt — eigene Schlüssel sind aus.');
+      } else {
+        check('Hinterlegen liefert 200', put.status === 200, `HTTP ${put.status} — ${put.json?.error ?? ''}`);
+        check('… hasApiKey ist danach true', put.json?.user?.hasApiKey === true, `ist: ${put.json?.user?.hasApiKey}`);
+        check('… und weder Schlüssel noch apiKeyEnc in der Antwort',
+          !JSON.stringify(put.json).includes(FAKE_KEY) && put.json?.user?.apiKeyEnc === undefined);
+
+        const state = await req('GET', '/state');
+        check('Gesamtzustand trägt kein apiKeyEnc und keinen Klartext-Schlüssel',
+          (state.json?.users ?? []).every(u => u.apiKeyEnc === undefined) && !JSON.stringify(state.json).includes(FAKE_KEY));
+
+        const del = await req('DELETE', '/account/api-key');
+        check('Entfernen liefert 200 und hasApiKey ist wieder false',
+          del.status === 200 && del.json?.user?.hasApiKey === false, `HTTP ${del.status}, hasApiKey ${del.json?.user?.hasApiKey}`);
+      }
+    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
     // Läuft auch nach einem Abbruch mitten im Test, damit nichts liegenbleibt.

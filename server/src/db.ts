@@ -80,6 +80,17 @@ async function ensureOrgSchema(db: Db): Promise<void> {
     { $set: { passwordHash: null } }
   );
 
+  // Konten aus der Zeit vor dem eigenen API-Schlüssel haben kein
+  // apiKeyEnc-Feld. null heißt: kein eigener Schlüssel hinterlegt.
+  await db.collection('users').updateMany(
+    { apiKeyEnc: { $exists: false } },
+    { $set: { apiKeyEnc: null } }
+  );
+  await db.collection('guests').updateMany(
+    { apiKeyEnc: { $exists: false } },
+    { $set: { apiKeyEnc: null } }
+  );
+
   // Der Tisch kennt nur noch zwei Zustände. 'abgeschlossen' hieß "bewertet und
   // abgeräumt" — ein Tisch ohne Positionen, also dasselbe wie 'frei', nur mit
   // einer Beschriftung, die im Personalbildschirm stehen blieb, bis jemand ihn

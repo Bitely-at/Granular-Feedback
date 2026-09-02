@@ -86,18 +86,18 @@ export function fallbackReviewText(input: ReviewTextInput): string {
   return parts.join(' ');
 }
 
-export async function generateReviewText(input: ReviewTextInput): Promise<ReviewTextResult> {
+export async function generateReviewText(input: ReviewTextInput, apiKey?: string | null): Promise<ReviewTextResult> {
   const rated = input.dishes.filter(d => d.stars > 0);
   if (rated.length === 0) {
     return { text: fallbackReviewText(input), source: 'fallback', fallbackReason: 'Keine bewerteten Gerichte.' };
   }
 
-  const anthropic = claudeClient();
+  const anthropic = claudeClient(apiKey);
   if (!anthropic) {
     return {
       text: fallbackReviewText(input),
       source: 'fallback',
-      fallbackReason: 'ANTHROPIC_API_KEY ist nicht gesetzt — Vorlage statt KI-Text.',
+      fallbackReason: 'Kein API-Schlüssel hinterlegt — Vorlage statt KI-Text.',
     };
   }
 

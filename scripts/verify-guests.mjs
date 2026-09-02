@@ -267,6 +267,37 @@ async function main() {
       check('Erfundenes Google-Token wird abgewiesen',
         junk.status === 401 || junk.status === 503, `HTTP ${junk.status}`);
     }
+
+    // ── 7) Eigener API-Schlüssel ──────────────────────────────────
+    // Nur Speicherung und Serialisierung — kein echter Anthropic-Aufruf. Der
+    // Klartext-Schlüssel darf nie in einer Antwort auftauchen.
+    console.log('\n7) Eigener API-Schlüssel');
+    {
+      const FAKE_KEY = 'sk-ant-pruef-0000000000000000';
+      const anon = await req('PUT', '/guest/me/api-key', { apiKey: FAKE_KEY });
+      check('Ohne Anmeldung wird das Hinterlegen mit 401 abgelehnt', anon.status === 401, `HTTP ${anon.status}`);
+
+      const put = await req('PUT', '/guest/me/api-key', { apiKey: FAKE_KEY }, { as: tokenA });
+      if (put.status === 503) {
+        console.log('  \x1b[33mHINWEIS\x1b[0m  API_KEY_ENC_SECRET ist auf dem Server nicht gesetzt — eigene Schlüssel sind aus.');
+      } else {
+        check('Hinterlegen liefert 200', put.status === 200, `HTTP ${put.status} — ${put.json?.error ?? ''}`);
+        check('… hasApiKey ist danach true', put.json?.guest?.hasApiKey === true, `ist: ${put.json?.guest?.hasApiKey}`);
+        check('… und der Schlüssel steht nicht in der Antwort',
+          !JSON.stringify(put.json).includes(FAKE_KEY) && put.json?.guest?.apiKeyEnc === undefined);
+
+        const short = await req('PUT', '/guest/me/api-key', { apiKey: 'zu-kurz' }, { as: tokenA });
+        check('Ein offensichtlich zu kurzer Schlüssel wird mit 400 abgelehnt', short.status === 400, `HTTP ${short.status}`);
+
+        const me = await req('GET', '/guest/me', undefined, { as: tokenA });
+        check('/guest/me meldet hasApiKey, nie den Schlüssel selbst',
+          me.json?.guest?.hasApiKey === true && !JSON.stringify(me.json).includes(FAKE_KEY));
+
+        const del = await req('DELETE', '/guest/me/api-key', undefined, { as: tokenA });
+        check('Entfernen liefert 200 und hasApiKey ist wieder false',
+          del.status === 200 && del.json?.guest?.hasApiKey === false, `HTTP ${del.status}, hasApiKey ${del.json?.guest?.hasApiKey}`);
+      }
+    }
   } finally {
     // ── Aufräumen ────────────────────────────────────────────────
     for (const t of created.tokens) await req('DELETE', '/guest/me', undefined, { as: t });

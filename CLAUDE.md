@@ -340,6 +340,21 @@ der **Rezensionstext** auf dem Dank-Bildschirm (`reviewText.ts`), der
   dass er nicht eingerichtet ist. Eine Vorführung ohne Schlüssel bleibt damit
   vollständig benutzbar, und kein Ausfall der Schnittstelle kann eine Bewertung
   verhindern.
+- **Ein eigener Schlüssel pro Konto.** Angemeldete Gäste und Personal können in
+  ihrem Konto einen privaten Anthropic-Key hinterlegen — der Gast treibt damit
+  seinen Rezensionstext an, das Personal Wochenrückblick und Bon-Scan (jede
+  Rolle, ein Kellner braucht ihn für Letzteres). Reihenfolge überall gleich:
+  **eigener Schlüssel → gemeinsamer `ANTHROPIC_API_KEY` → Vorlage bzw. 503**,
+  umgesetzt allein in `claudeClient`/`hasClaude` (`ai.ts`) und dem Helfer
+  `callerApiKey` in `index.ts`. Gespeichert verschlüsselt in `apiKeyEnc`
+  (`secrets.ts`, AES-256-GCM), nie im Klartext an den Client —
+  `serializeUser`/`serializeGuest` geben nur `hasApiKey`, genau wie bei
+  `hasPassword`/`hasGoogle`. Die Verschlüsselung hängt an `API_KEY_ENC_SECRET`;
+  fehlt es, antworten die beiden Speicher-Routen (`PUT /account/api-key`,
+  `PUT /guest/me/api-key`) mit 503, alles andere läuft unverändert. Ein
+  späterer Wechsel des Secrets macht bestehende `apiKeyEnc` unlesbar — das ist
+  kein Fehler, `decryptApiKey` gibt dann `null` und der Aufruf fällt auf den
+  gemeinsamen Schlüssel bzw. die Vorlage zurück.
 - **Was das Modell liefert, ist Vorschlag, nicht Wahrheit.** Der Bon-Scan
   akzeptiert nur Gericht-IDs aus der übergebenen Karte und begrenzt die Menge —
   dieselbe Regel wie bei jeder anderen Eingabe von außen. Gebucht wird nichts

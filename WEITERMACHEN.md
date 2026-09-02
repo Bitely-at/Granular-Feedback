@@ -11,7 +11,7 @@ Der Code allein reicht nicht. Diese Dinge musst du mitbringen:
 
 | Was | Woher |
 |---|---|
-| `server/.env` | Nicht eingecheckt (steht in `.gitignore`). Die Werte stehen im Render-Dashboard unter *Environment*: `MONGODB_URI`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`. Lokal von dort kopieren; `JWT_SECRET` darf lokal auch ein beliebiger langer Zufallswert sein — dann gelten lokal ausgestellte Anmeldungen nur lokal. |
+| `server/.env` | Nicht eingecheckt (steht in `.gitignore`). Die Werte stehen im Render-Dashboard unter *Environment*: `MONGODB_URI`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `API_KEY_ENC_SECRET`. Lokal von dort kopieren; `JWT_SECRET` und `API_KEY_ENC_SECRET` dürfen lokal auch ein beliebiger langer Zufallswert sein — dann gelten lokal ausgestellte Anmeldungen bzw. dort gespeicherte private API-Schlüssel nur lokal. |
 | Passwörter der Konten | Nirgends im Code. Alle Mitarbeiterkonten teilen derzeit dasselbe Passwort. |
 | Zugang zu Render, Netlify, MongoDB Atlas, Google Cloud Console | Konten von Alexander. |
 

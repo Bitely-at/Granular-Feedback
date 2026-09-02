@@ -126,6 +126,9 @@ export interface AdminUser {
   // Welche Anmeldewege dieses Konto hat. Weder Hash noch Googles Konto-ID
   // verlassen den Server — nur die Auskunft, ob es sie gibt.
   hasPassword?: boolean; hasGoogle?: boolean;
+  // Eigener Anthropic-Key hinterlegt? Der Schlüssel selbst verlässt den
+  // Server nie, siehe CLAUDE.md "KI-Funktionen".
+  hasApiKey?: boolean;
 }
 
 // Wer gerade angemeldet ist. null = niemand (Gastansicht oder ausgeloggt).
@@ -200,6 +203,7 @@ export interface GuestAccount {
   id: string; email: string; name: string;
   points: number; redeemed: string[];
   hasPassword: boolean; hasGoogle: boolean;
+  hasApiKey: boolean;
 }
 
 /** Welche Anmeldewege der Server anbietet. Google hängt an einer Client-ID. */
@@ -406,6 +410,10 @@ interface StoreApi extends OrgState {
   guestGoogleLogin: (credential: string) => Promise<void>;
   guestLogout: () => Promise<void>;
   deleteGuestAccount: () => Promise<void>;
+  // Eigener Anthropic-Key des Gastkontos — treibt danach den automatischen
+  // Rezensionstext an. Der Klartext geht nie durch diesen Store zurück.
+  setGuestApiKey: (apiKey: string) => Promise<void>;
+  removeGuestApiKey: () => Promise<void>;
   refresh: () => Promise<void>;
   // Alle Tisch-Aufrufe tragen die Filiale: die Nummer allein ist mehrdeutig,
   // Tisch 5 gibt es in jeder Filiale einmal.
@@ -437,6 +445,11 @@ interface StoreApi extends OrgState {
   // der Server lehnt alles andere ab (PATCH /users/:id).
   updateUser: (id: string, patch: { role?: AdminUser['role']; branchId?: string | null; name?: string }) => Promise<void>;
   setUserPassword: (id: string, password: string) => Promise<void>;
+  // Eigener Anthropic-Key des angemeldeten Personal-Kontos — treibt danach
+  // Wochenrückblick und Bon-Scan an, für jede Rolle (ein Kellner braucht ihn
+  // für Letzteres genauso wie ein Admin).
+  setMyApiKey: (apiKey: string) => Promise<void>;
+  removeMyApiKey: () => Promise<void>;
   updateBrand: (partial: Partial<Brand>) => Promise<void>;
   setHiddenWidgets: (ids: string[]) => Promise<void>;
   updateDishImage: (dishId: string, img: string) => Promise<void>;
@@ -653,6 +666,18 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     await guestLogout();
   }, [orgSlug, guestLogout]);
 
+  const setGuestApiKey = useCallback(async (apiKey: string) => {
+    const { guest } = await api<{ guest: GuestAccount }>(orgSlug, '/guest/me/api-key', {
+      method: 'PUT', body: JSON.stringify({ apiKey }),
+    }, 'guest');
+    setGuestUser(guest);
+  }, [orgSlug]);
+
+  const removeGuestApiKey = useCallback(async () => {
+    const { guest } = await api<{ guest: GuestAccount }>(orgSlug, '/guest/me/api-key', { method: 'DELETE' }, 'guest');
+    setGuestUser(guest);
+  }, [orgSlug]);
+
   // Gespeicherte Gast-Sitzung beim Seitenaufruf prüfen — wie beim Personal
   // weiß nur der Server, ob sie noch gilt.
   useEffect(() => {
@@ -765,6 +790,21 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     }));
   }, [call]);
 
+  // Selbstbedienung auf dem EIGENEN Konto — anders als setUserPassword, das
+  // ein Admin auf einem fremden Konto auslöst, gibt es keine :id, und jede
+  // Rolle darf es (ein Kellner braucht den Schlüssel für den Bon-Scan).
+  const setMyApiKey = useCallback(async (apiKey: string) => {
+    const { user } = await call<{ user: AuthUser }>('/account/api-key', {
+      method: 'PUT', body: JSON.stringify({ apiKey }),
+    });
+    setAuthUser(user);
+  }, [call]);
+
+  const removeMyApiKey = useCallback(async () => {
+    const { user } = await call<{ user: AuthUser }>('/account/api-key', { method: 'DELETE' });
+    setAuthUser(user);
+  }, [call]);
+
   const setHiddenWidgets = useCallback(async (ids: string[]) => {
     setState(await call<OrgState>('/settings/dashboard', {
       method: 'PATCH', body: JSON.stringify({ hiddenWidgets: ids }),
@@ -835,18 +875,18 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const value = useMemo<StoreApi>(() => ({
     ...withDefaults(state), orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin,
-    guestLogout, deleteGuestAccount, claimPoints,
+    guestLogout, deleteGuestAccount, setGuestApiKey, removeGuestApiKey, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
     startRedemption, confirmRedemption,
     setDishAvailability,
-    resolveAlert, addUser, removeUser, updateUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
+    resolveAlert, addUser, removeUser, updateUser, setUserPassword, setMyApiKey, removeMyApiKey, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt,
   }), [state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
-    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, claimPoints,
+    guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, setGuestApiKey, removeGuestApiKey, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, updateUser, setUserPassword, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
+    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, updateUser, setUserPassword, setMyApiKey, removeMyApiKey, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
