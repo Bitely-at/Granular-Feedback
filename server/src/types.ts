@@ -194,6 +194,8 @@ export interface BrandDoc {
   guestTextColor?: string | null;
   // Deckkraft des Titelbilds auf dem Empfangsbildschirm, 0–1. null = 1 (voll).
   coverOpacity?: number | null;
+  // Sprache der Gastansicht, vom Betrieb vorgegeben. 'de' | 'en'.
+  guestLang?: 'de' | 'en';
 }
 
 /**

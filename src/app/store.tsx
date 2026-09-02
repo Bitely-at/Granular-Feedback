@@ -24,6 +24,9 @@ export interface Brand {
   // (voll). Ein hell laufendes Bild kann so hinter der Schlagzeile
   // zurücktreten.
   coverOpacity?: number | null;
+  // Sprache der GASTANSICHT, vom Betrieb vorgegeben. 'de' | 'en'. Die
+  // Verwaltung wählt ihre Sprache getrennt (localStorage `bitely.lang`).
+  guestLang?: 'de' | 'en';
 }
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.

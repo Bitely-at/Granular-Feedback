@@ -32,6 +32,7 @@ import {
   AuthHeader, AuthInput, AuthPasswordInput, AuthPrimaryButton, AuthSocialRow, ForgotPasswordLink,
 } from './components/auth/authUi';
 import { BitelyWordmark } from './components/BitelyWordmark';
+import { useT, useLang, LANGS, pick, type Lang } from './i18n';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
 // ═══════════════════════════════════════════════════════════
@@ -783,10 +784,17 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // Was hier steht, hängt daran, ob es überhaupt etwas zu bewerten gibt. Eine
   // eigene Leerzustands-Box dafür gibt es nicht: sie würde den Aufbau aus Bild,
   // Schlagzeile und Fuß auseinanderreißen.
+  // Die Sprache der Gastansicht gibt der Betrieb vor (brand.guestLang), nicht
+  // das Gerät. `t` übersetzt am Aufrufort, ohne Schlüssel.
+  const gl = store.brand?.guestLang ?? 'de';
+  const t = (de: string, en: string) => pick(gl, de, en);
+
   const hasOrder = tableDishes.length > 0;
   const welcomeText = hasOrder
-    ? 'Ein kurzes Feedback hilft uns, jeden Abend besonders zu machen. Es dauert nur eine Minute.'
-    : 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald dein Service-Team Gerichte einträgt, kannst du sie hier einzeln bewerten.';
+    ? t('Ein kurzes Feedback hilft uns, jeden Abend besonders zu machen. Es dauert nur eine Minute.',
+        'A quick bit of feedback helps us make every evening better. It only takes a minute.')
+    : t('Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald dein Service-Team Gerichte einträgt, kannst du sie hier einzeln bewerten.',
+        'There is no open order for this table right now. Once the staff add dishes, you can rate them here one by one.');
 
   // Zwei frei wählbare Schriftfarben aus den Design-Einstellungen. Nicht
   // gesetzt = undefined, dann greifen die Grau-/Schwarz-Klassen wie bisher.
@@ -859,12 +867,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {/* Klein und über der Schlagzeile: der Gast sitzt schon am Tisch und
                 muss nur kurz gegenprüfen, ob er den richtigen Code erwischt hat. */}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4" style={nameColor}>
-              {branch.name} · Tisch {tableNumber}
+              {branch.name} · {t('Tisch', 'Table')} {tableNumber}
             </p>
             <h1 className="text-[44px] font-bold leading-[1.1] tracking-tight mb-4 max-w-[280px] text-gray-900 dark:text-white" style={textColor}>
               {hasOrder
-                ? <>Wie war dein Besuch bei {store.brand?.name}?</>
-                : <>Willkommen bei {store.brand?.name}</>}
+                ? <>{t('Wie war dein Besuch bei', 'How was your visit to')} {store.brand?.name}?</>
+                : <>{t('Willkommen bei', 'Welcome to')} {store.brand?.name}</>}
             </h1>
             <p className="text-[16px] leading-relaxed max-w-[260px] text-gray-600 dark:text-gray-300" style={textColor}>
               {welcomeText}
@@ -875,7 +883,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 <button onClick={() => go('review')}
                   className="w-full h-[54px] rounded-[16px] shadow-lg flex items-center justify-between px-6 text-white transition-all hover:opacity-90 active:scale-[0.98]"
                   style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                  <span className="text-[16px] font-medium">Feedback starten</span>
+                  <span className="text-[16px] font-medium">{t('Feedback starten', 'Start feedback')}</span>
                   <ArrowRight size={20} strokeWidth={1.75} />
                 </button>
               )}
@@ -896,10 +904,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   hover:bg-white dark:hover:bg-gray-900 active:scale-[0.98]`}>
                 <span className="flex items-center gap-2.5 text-[15px] font-medium text-gray-900 dark:text-white">
                   <Ticket size={18} strokeWidth={1.75} style={{ color: 'var(--ba)' }} />
-                  Punkte &amp; Gutscheine
+                  {t('Punkte & Gutscheine', 'Points & vouchers')}
                 </span>
                 {store.guest.loggedIn
-                  ? <span className="text-[14px] font-semibold tabular-nums" style={{ color: 'var(--ba)' }}>{store.guest.points} Pkt.</span>
+                  ? <span className="text-[14px] font-semibold tabular-nums" style={{ color: 'var(--ba)' }}>{store.guest.points} {t('Pkt.', 'pts')}</span>
                   : <ArrowRight size={18} strokeWidth={1.75} className="text-gray-400" />}
               </button>
               {/* Kein zweiter Textknopf zum Anmelden: das Konto sitzt oben
@@ -920,10 +928,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               wird gearbeitet. Ruhiger Grund, weiße Blöcke, sonst nichts. */}
           <div className="bg-white dark:bg-gray-900 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go('welcome')} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
+              <button onClick={() => go('welcome')} aria-label={t('Zurück', 'Back')} className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white truncate">Deine Gerichte</p>
+              <p className="flex-1 text-[17px] font-medium text-gray-900 dark:text-white truncate">{t('Deine Gerichte', 'Your dishes')}</p>
               <span className="text-[13px] text-gray-400 tabular-nums flex-shrink-0">{stepsDone}/{stepsTotal}</span>
               {/* Der Stand und was gerade dazukommt, in einem. Der Zuwachs
                   springt bei jedem bewerteten Gericht hoch — das ist die
@@ -959,14 +967,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             ))}
             <button onClick={() => setShowSheet(true)}
               className="w-full bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-4 text-[14px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors flex items-center gap-2">
-              <Plus size={15} strokeWidth={2} /> Etwas vergessen?
+              <Plus size={15} strokeWidth={2} /> {t('Etwas vergessen?', 'Something missing?')}
             </button>
 
             {/* Gesamteindruck — auf demselben Bildschirm wie die Gerichte, nur
                 abgesetzt. Der Gast bewertet seinen Besuch in einem Durchgang;
                 zwei Schritte waren einer zu viel. */}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 px-5 pt-8 pb-3">
-              Und der Besuch insgesamt?
+              {t('Und der Besuch insgesamt?', 'And the visit overall?')}
             </p>
             {OVERALL_FIELDS.map(({ key, label, emoji }) => (
               <div key={key} className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-6">
@@ -983,13 +991,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
           </div>
 
           <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-5 py-4 space-y-2.5">
-            <p className="text-[11px] text-gray-400 text-center">Deinen Gutschein bekommst du unabhängig von deiner Bewertung.</p>
+            <p className="text-[11px] text-gray-400 text-center">{t('Deinen Gutschein bekommst du unabhängig von deiner Bewertung.', 'You get your voucher regardless of your rating.')}</p>
             {submitError && <p className="text-[12px] text-red-500 text-center">{submitError}</p>}
             <button onClick={handleSubmitReview} disabled={!allRated || !allOverall || submitting}
               className="w-full h-[54px] rounded-[16px] shadow-lg flex items-center justify-between px-6 text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
               style={{ backgroundColor: (!allRated || !allOverall || submitting) ? '#9CA3AF' : 'var(--ba, #16A34A)' }}>
               <span className="text-[16px] font-medium">
-                {submitting ? 'Wird gesendet…' : livePoints > 0 ? `Absenden · +${livePoints} Punkte` : 'Absenden'}
+                {submitting ? t('Wird gesendet…', 'Sending…') : livePoints > 0 ? t(`Absenden · +${livePoints} Punkte`, `Submit · +${livePoints} points`) : t('Absenden', 'Submit')}
               </span>
               <ArrowRight size={20} strokeWidth={1.75} />
             </button>
@@ -1022,9 +1030,9 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               className="w-16 h-16 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
               <Check size={30} strokeWidth={3} className="text-white" />
             </motion.div>
-            <p className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white" style={textColor}>Vielen Dank!</p>
+            <p className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white" style={textColor}>{t('Vielen Dank!', 'Thank you!')}</p>
             <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed mt-1.5 max-w-[280px]" style={textColor}>
-              Dein Feedback hilft uns, noch besser zu werden.
+              {t('Dein Feedback hilft uns, noch besser zu werden.', 'Your feedback helps us get even better.')}
             </p>
           </div>
 
@@ -2801,6 +2809,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   dark: boolean; setDark: (fn: (p: boolean) => boolean) => void;
 }) {
   const store = useStore();
+  const t = useT();
+  const { lang: uiLang, setLang: setUiLang } = useLang();
   const [page, setPage] = useState<AdminPage>('dashboard');
   // Der Bearbeiten-Modus mit ausblendbaren Kacheln ist entfallen: er versteckte
   // Zahlen hinter einem Schalter, den niemand wiederfand, und die Kacheln, die
@@ -2829,6 +2839,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     guestNameColor: (store.brand?.guestNameColor ?? null) as string | null,
     guestTextColor: (store.brand?.guestTextColor ?? null) as string | null,
     coverOpacity: (store.brand?.coverOpacity ?? 1) as number,
+    guestLang: (store.brand?.guestLang ?? 'de') as Lang,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2910,6 +2921,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       guestNameColor: store.brand.guestNameColor ?? null,
       guestTextColor: store.brand.guestTextColor ?? null,
       coverOpacity: store.brand.coverOpacity ?? 1,
+      guestLang: store.brand.guestLang ?? 'de',
     });
   }, [store.brand]);
 
@@ -3098,22 +3110,22 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const nav: { id: AdminPage; label: string; Icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
     ...(isChainAdmin
-      ? [{ id: 'vouchers' as const, label: 'Gutscheine', Icon: Ticket }]
+      ? [{ id: 'vouchers' as const, label: t('Gutscheine', 'Vouchers'), Icon: Ticket }]
       // Die Filialleitung hat keine Gutscheinseite, an der die Einlösungen
       // hängen könnten — für sie bleiben sie ein eigener Eintrag. Es sind die
       // Einlösungen ihrer eigenen Filiale.
-      : [{ id: 'redemptions' as const, label: 'Einlösungen', Icon: CheckCircle2 }]),
-    { id: 'menu', label: 'Menü', Icon: UtensilsCrossed },
+      : [{ id: 'redemptions' as const, label: t('Einlösungen', 'Redemptions'), Icon: CheckCircle2 }]),
+    { id: 'menu', label: t('Menü', 'Menu'), Icon: UtensilsCrossed },
     // Tische und QR-Codes waren ein Block ganz unten auf der
     // Einstellungsseite. Dort suchte sie niemand: „wo sind die Tische der
     // Filiale X" war die häufigste Frage zur Verwaltung — und die Antwort
     // lautete „unter Einstellungen, ganz runterscrollen, und vorher oben die
     // Filiale wechseln". Jetzt ist es eine Seite, und die Filiale wählt man
     // darauf.
-    { id: 'tables', label: 'Tische & QR', Icon: QrCode },
-    { id: 'users', label: 'Benutzer', Icon: Users },
+    { id: 'tables', label: t('Tische & QR', 'Tables & QR'), Icon: QrCode },
+    { id: 'users', label: t('Benutzer', 'Users'), Icon: Users },
     ...(isChainAdmin ? [{ id: 'design' as const, label: 'Design', Icon: Palette }] : []),
-    { id: 'settings', label: 'Einstellungen', Icon: Settings },
+    { id: 'settings', label: t('Einstellungen', 'Settings'), Icon: Settings },
   ];
 
   // Anlegen und Freischalten in einem Zug. Getrennt wäre es eine Sackgasse:
@@ -3183,6 +3195,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         guestNameColor: brandForm.guestNameColor ?? '',
         guestTextColor: brandForm.guestTextColor ?? '',
         coverOpacity: brandForm.coverOpacity,
+        guestLang: brandForm.guestLang,
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -3316,7 +3329,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             Der Umschalter lädt neu: der Server liefert die Daten genau einer
             Filiale (oder aller), die Oberfläche filtert nicht selbst. */}
         <div className="px-3 pt-3 relative">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 mb-1.5">Filiale</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 mb-1.5">{t('Filiale', 'Branch')}</p>
           <button onClick={() => canSwitchBranch && setBranchDrop(p => !p)}
             disabled={!canSwitchBranch}
             className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left transition-colors ${canSwitchBranch ? 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600' : 'border-transparent bg-gray-50 dark:bg-gray-800/60'}`}>
@@ -3324,7 +3337,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               ? <BranchIcon size={14} className="text-gray-400 flex-shrink-0" />
               : <Building2 size={14} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />}
             <span className="flex-1 min-w-0 text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">
-              {branch ? branch.name : 'Alle Filialen'}
+              {branch ? branch.name : t('Alle Filialen', 'All branches')}
             </span>
             {canSwitchBranch && (
               <ChevronDown size={13} className={`text-gray-400 transition-transform flex-shrink-0 ${branchDrop ? 'rotate-180' : ''}`} />
@@ -3338,8 +3351,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-700">
                   <span className="text-base">🏢</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-gray-900 dark:text-white">Alle Filialen</p>
-                    <p className="text-[11px] text-gray-400">Zahlen der ganzen Kette</p>
+                    <p className="text-[13px] font-medium text-gray-900 dark:text-white">{t('Alle Filialen', 'All branches')}</p>
+                    <p className="text-[11px] text-gray-400">{t('Zahlen der ganzen Kette', 'Figures for the whole chain')}</p>
                   </div>
                   {!branch && <Check size={13} strokeWidth={2.5} style={{ color: 'var(--ba)' }} />}
                 </button>
@@ -3397,7 +3410,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           )}
           <button onClick={store.logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <LogOut size={15} strokeWidth={1.5} /> Abmelden
+            <LogOut size={15} strokeWidth={1.5} /> {t('Abmelden', 'Sign out')}
           </button>
         </div>
       </aside>
@@ -4076,12 +4089,33 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                          {([['hell', 'Hell', 'Weißer Hintergrund'], ['dunkel', 'Dunkel', 'Dunkler Hintergrund']] as const).map(([id, label, desc]) => (
+                          {([['hell', t('Hell', 'Light'), t('Weißer Hintergrund', 'White background')], ['dunkel', t('Dunkel', 'Dark'), t('Dunkler Hintergrund', 'Dark background')]] as const).map(([id, label, desc]) => (
                             <button key={id} onClick={() => setBrandForm(p => ({ ...p, guestTheme: id }))}
                               className="text-left p-4 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
                               style={brandForm.guestTheme === id ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
                               <p className="text-[13px] font-semibold text-gray-900 dark:text-white mb-1">{label}</p>
                               <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">{desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* SPRACHE DER GASTANSICHT — vom Betrieb vorgegeben. Die
+                          Sprache der Verwaltung wählt jeder für sich unter
+                          „Einstellungen". */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Sprache der Gastansicht', 'Guest view language')}</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            {t('In dieser Sprache sehen Gäste die App am Tisch.', 'The language guests see at the table.')}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          {LANGS.map(l => (
+                            <button key={l.id} onClick={() => setBrandForm(p => ({ ...p, guestLang: l.id }))}
+                              className="text-left p-4 rounded-xl border-2 transition-colors border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
+                              style={brandForm.guestLang === l.id ? { borderColor: brandForm.accent, backgroundColor: `color-mix(in srgb, ${brandForm.accent} 8%, transparent)` } : {}}>
+                              <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{l.label}</p>
                             </button>
                           ))}
                         </div>
@@ -4350,7 +4384,28 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
 
               {page === 'settings' && (
                 <div className="space-y-5 max-w-3xl">
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">Einstellungen</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{t('Einstellungen', 'Settings')}</p>
+
+                  {/* SPRACHE DER VERWALTUNG — pro Gerät, wie Hell/Dunkel. Die
+                      Sprache der Gastansicht steht getrennt unter „Design". */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                    <div>
+                      <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Sprache der Verwaltung', 'Admin language')}</p>
+                      <p className="text-[12px] text-gray-400 mt-1">
+                        {t('Gilt für dieses Gerät. Die Sprache, in der Gäste die App sehen, stellst du unter „Design" ein.',
+                           'Applies to this device. The language guests see is set under “Design”.')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      {LANGS.map(l => (
+                        <button key={l.id} onClick={() => setUiLang(l.id)}
+                          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-[13px] font-medium transition-colors ${uiLang === l.id ? 'text-gray-900 dark:text-white' : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'}`}
+                          style={uiLang === l.id ? { borderColor: 'var(--ba)', backgroundColor: 'color-mix(in srgb, var(--ba) 8%, transparent)' } : {}}>
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
                   {/* DARSTELLUNG — stand vorher als Schalter in der schwarzen
                       Leiste über allem. Sie ist eine Einstellung wie jede
@@ -4359,14 +4414,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
                     <div>
                       <p className="text-[15px] font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        {dark ? <Moon size={15} strokeWidth={1.5} className="text-gray-400" /> : <Sun size={15} strokeWidth={1.5} className="text-gray-400" />} Darstellung
+                        {dark ? <Moon size={15} strokeWidth={1.5} className="text-gray-400" /> : <Sun size={15} strokeWidth={1.5} className="text-gray-400" />} {t('Darstellung', 'Appearance')}
                       </p>
                       <p className="text-[12px] text-gray-400 mt-1">
-                        Gilt für dieses Gerät und nur für die Verwaltung. Das Erscheinungsbild der Gastansicht legst du unter „Design" fest.
+                        {t('Gilt für dieses Gerät und nur für die Verwaltung. Das Erscheinungsbild der Gastansicht legst du unter „Design" fest.',
+                           'Applies to this device and only to the admin. The guest view’s appearance is set under “Design”.')}
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      {([['Hell', false], ['Dunkel', true]] as const).map(([label, value]) => (
+                      {([[t('Hell', 'Light'), false], [t('Dunkel', 'Dark'), true]] as const).map(([label, value]) => (
                         <button key={label} onClick={() => setDark(() => value)}
                           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-[13px] font-medium transition-colors ${dark === value ? 'text-gray-900 dark:text-white' : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'}`}
                           style={dark === value ? { borderColor: 'var(--ba)', backgroundColor: 'color-mix(in srgb, var(--ba) 8%, transparent)' } : {}}>

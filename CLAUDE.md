@@ -574,8 +574,23 @@ der normale `mongodb+srv`-String.
 
 ## Sprache
 
-Code-Kommentare, Oberfläche und Fehlermeldungen auf Deutsch. Commit-Nachrichten
-auf Englisch.
+Code-Kommentare und Server-Fehlermeldungen auf Deutsch, Commit-Nachrichten auf
+Englisch.
+
+**Die Oberfläche ist zweisprachig (DE/EN), im Aufbau.** `src/app/i18n.tsx`:
+`useT()` in der Verwaltung gibt `(de, en) => string`, `pick(lang, de, en)` in
+der Gastansicht. Kein Schlüssel-System — die Übersetzung steht am Aufrufort,
+das deutsche Wort bleibt im Code lesbar. Zwei getrennte Sprachen:
+
+- **Verwaltung:** jeder wählt für sich (Einstellungen → Sprache der Verwaltung),
+  gemerkt im `localStorage` unter `bitely.lang`, wie das Hell/Dunkel.
+- **Gastansicht:** der Betrieb gibt sie vor (`brand.guestLang`, Design →
+  Sprache der Gastansicht). Der Gast am Tisch stellt nichts um.
+
+Neue Texte immer als `t('…', '…')` / `pick(gl, '…', '…')` schreiben, nicht als
+nackten String. Die Abdeckung ist noch nicht vollständig — Stand: Gast-Empfang
+und -Bewertung, Admin-Navigation und -Einstellungen. Der Rest folgt demselben
+Muster.
 
 ## Anmeldung und Rollen
 

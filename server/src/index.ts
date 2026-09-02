@@ -635,6 +635,7 @@ async function getFullState(
       guestNameColor: brandDoc.guestNameColor ?? null,
       guestTextColor: brandDoc.guestTextColor ?? null,
       coverOpacity: brandDoc.coverOpacity ?? null,
+      guestLang: brandDoc.guestLang === 'en' ? 'en' : 'de',
     } : null,
     dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
@@ -1893,7 +1894,7 @@ const asHexOrNull = (v: unknown): string | null =>
 
 router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme,
-    guestNameColor, guestTextColor, coverOpacity } = req.body ?? {};
+    guestNameColor, guestTextColor, coverOpacity, guestLang } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
@@ -1903,6 +1904,7 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
   if (guestTheme === 'hell' || guestTheme === 'dunkel') update.guestTheme = guestTheme;
+  if (guestLang === 'de' || guestLang === 'en') update.guestLang = guestLang;
   if (guestNameColor !== undefined) update.guestNameColor = asHexOrNull(guestNameColor);
   if (guestTextColor !== undefined) update.guestTextColor = asHexOrNull(guestTextColor);
   if (coverOpacity !== undefined) {
