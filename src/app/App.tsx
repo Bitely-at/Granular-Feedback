@@ -2811,6 +2811,17 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [highlightLoading, setHighlightLoading] = useState(false);
+  // Der Wochenrückblick ist mehrere Absätze lang und stand doppelt so hoch da
+  // wie die Kennzahlen daneben. Zugeklappt gestartet, der letzte Zustand bleibt
+  // erhalten — wer ihn täglich liest, klappt ihn einmal auf.
+  const [highlightOpen, setHighlightOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('bitely.dash.highlight') === 'auf'; } catch { return false; }
+  });
+  const toggleHighlight = () => setHighlightOpen(v => {
+    const next = !v;
+    try { localStorage.setItem('bitely.dash.highlight', next ? 'auf' : 'zu'); } catch { /* Privatmodus */ }
+    return next;
+  });
   // Sortierung der Gerichtstabelle unten auf dem Dashboard.
   const [sort, setSort] = useState<{ key: DishSortKey; desc: boolean }>({ key: 'avg', desc: true });
 
@@ -3485,76 +3496,110 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       auch zusammen in EINER Karte stehen: wie gut, wie viel,
                       wovon. Ø Bewertung allein sagt nichts, wenn dahinter drei
                       Rückmeldungen auf zweihundert Bestellungen stehen. */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
-                      {insightsLoading ? (
-                        <div className="grid grid-cols-3 gap-4">
-                          {[0, 1, 2].map(i => <div key={i} className="space-y-2"><Sk h={11} w="70%" /><Sk h={28} w="60%" /></div>)}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="grid grid-cols-3 gap-2 sm:gap-4">
-                            {([
-                              { label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', Icon: Star,
-                                sub: rangeRatings > 0 ? `${rangeRatings} Gerichtsurteile` : 'noch keine' },
-                              { label: 'Bewertungen', value: String(rangeReviews), Icon: MessageSquare,
-                                sub: range === 'custom' ? 'eigener Zeitraum' : RANGES.find(r => r.key === range)?.label ?? '' },
-                              { label: 'Bestellungen', value: String(rangeOrders), Icon: UtensilsCrossed,
-                                sub: rangeOrders > 0 ? 'gebucht' : 'noch keine' },
-                            ] as const).map(k => (
-                              <div key={k.label} className="min-w-0">
-                                <div className="flex items-center gap-1.5 mb-1.5">
-                                  <k.Icon size={13} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
-                                  <p className="text-[11px] sm:text-[12px] text-gray-500 dark:text-gray-400 truncate">{k.label}</p>
-                                </div>
-                                <p className="text-[26px] sm:text-3xl font-bold text-gray-900 dark:text-white leading-none">{k.value}</p>
-                                <p className="text-[11px] text-gray-400 mt-1 truncate">{k.sub}</p>
-                              </div>
-                            ))}
-                          </div>
-                          {/* Die eine Zahl, die aus den dreien erst entsteht.
-                              Sie steht am Fuß der Karte, weil sie keine vierte
-                              Kennzahl ist, sondern ihr Verhältnis. */}
-                          {rangeOrders > 0 && (
-                            <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                              <div className="flex items-center justify-between text-[12px] mb-1.5">
-                                <span className="text-gray-500 dark:text-gray-400">Bestellungen mit Feedback</span>
-                                <span className="font-semibold text-gray-800 dark:text-gray-200">{Math.round(feedbackRate * 100)} %</span>
-                              </div>
-                              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, feedbackRate * 100)}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                  {/* WOCHENRÜCKBLICK — was in den letzten sieben Tagen zählte,
+                      in zwei bis vier Sätzen. Bewusst unabhängig vom Zeitraum:
+                      „diese Woche" ist die Frage, die sich jeden Morgen neu
+                      stellt.
 
-                    {/* WOCHENRÜCKBLICK — was in den letzten sieben Tagen
-                        zählte, in zwei bis vier Sätzen. Bewusst unabhängig vom
-                        Zeitraum links: „diese Woche" ist die Frage, die sich
-                        jeden Morgen neu stellt. */}
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 flex flex-col">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
-                        <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Diese Woche</p>
-                        {highlight && (
-                          <span className="text-[11px] text-gray-400 ml-auto">
-                            Stand {new Date(highlight.generatedAt).toLocaleDateString('de-AT')}
+                      Eine schmale Leiste über den Zahlen, KEINE Kachel neben
+                      ihnen: der volle Text ist mehrere Absätze lang und ließ,
+                      in eine halbe Spalte gezwängt, entweder die Zeile viel zu
+                      hoch werden oder daneben eine leere Fläche stehen.
+                      Zugeklappt (Standard) ist es eine Zeile mit der ersten
+                      Aussage als Anhalt; ausgeklappt wächst der Text darunter
+                      und schiebt die Zahlen nach unten. Zustand im localStorage
+                      (`highlightOpen`). */}
+                  {highlightLoading && !highlight ? (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 flex items-center gap-2">
+                      <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
+                      <p className="text-[14px] font-semibold text-gray-900 dark:text-white">Diese Woche</p>
+                      <div className="flex-1"><Sk h={12} w="60%" /></div>
+                    </div>
+                  ) : highlight ? (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-3">
+                      <button onClick={toggleHighlight}
+                        aria-expanded={highlightOpen} aria-controls="dash-highlight-text"
+                        className={`w-full flex items-center gap-2.5 text-left min-h-[36px] ${FOCUS_RING} rounded-lg`}>
+                        <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
+                        <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">Diese Woche</span>
+                        {!highlightOpen && (
+                          <span className="text-[13px] text-gray-500 dark:text-gray-400 truncate min-w-0 flex-1">
+                            {highlight.text.split('\n')[0]}
                           </span>
                         )}
-                      </div>
-                      {highlightLoading && !highlight ? (
-                        <div className="space-y-2"><Sk h={13} /><Sk h={13} /><Sk h={13} w="70%" /></div>
-                      ) : highlight ? (
+                        <span className="text-[11px] text-gray-400 ml-auto flex-shrink-0 hidden sm:inline">
+                          Stand {new Date(highlight.generatedAt).toLocaleDateString('de-AT')}
+                        </span>
+                        <ChevronDown size={15} strokeWidth={2}
+                          className={`text-gray-400 flex-shrink-0 transition-transform ${highlightOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {highlightOpen && (
                         // pre-line: der Rückblick kommt in zwei Absätzen (Lage,
                         // dann „Woran ich arbeiten würde:"); ohne das liefe beides
                         // zu einem Block zusammen.
-                        <p className="text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-line">{highlight.text}</p>
-                      ) : (
-                        <p className="text-[13px] text-gray-400">Noch kein Rückblick. Er entsteht, sobald Bewertungen vorliegen.</p>
+                        <p id="dash-highlight-text" className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 text-[14px] text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-line">{highlight.text}</p>
                       )}
                     </div>
+                  ) : (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 flex items-center gap-2.5">
+                      <Zap size={15} strokeWidth={1.5} style={{ color: 'var(--ba)' }} className="flex-shrink-0" />
+                      <span className="text-[14px] font-semibold text-gray-900 dark:text-white flex-shrink-0">Diese Woche</span>
+                      <span className="text-[13px] text-gray-400 truncate">Noch kein Rückblick — er entsteht, sobald Bewertungen vorliegen.</span>
+                    </div>
+                  )}
+
+                  {/* ══ ZEILE 2 — DIE DREI ZAHLEN, UND WAS SIE BEDEUTEN ══
+                      Vorher standen sechs Kacheln nebeneinander, drei davon
+                      ohne Bezug zum Zeitraum (Punkte, eingelöste Gutscheine)
+                      und obendrein aus dem GASTPROFIL des angemeldeten
+                      Verwalters gerechnet — also praktisch immer null.
+
+                      Übrig bleiben die drei, die zusammengehören und deshalb
+                      auch zusammen in EINER Karte stehen: wie gut, wie viel,
+                      wovon. Ø Bewertung allein sagt nichts, wenn dahinter drei
+                      Rückmeldungen auf zweihundert Bestellungen stehen. */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
+                    {insightsLoading ? (
+                      <div className="grid grid-cols-3 gap-4">
+                        {[0, 1, 2].map(i => <div key={i} className="space-y-2"><Sk h={11} w="70%" /><Sk h={28} w="60%" /></div>)}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                          {([
+                            { label: 'Ø Bewertung', value: rangeRatings > 0 ? rangeAvg.toFixed(1) : '—', Icon: Star,
+                              sub: rangeRatings > 0 ? `${rangeRatings} Gerichtsurteile` : 'noch keine' },
+                            { label: 'Bewertungen', value: String(rangeReviews), Icon: MessageSquare,
+                              sub: range === 'custom' ? 'eigener Zeitraum' : RANGES.find(r => r.key === range)?.label ?? '' },
+                            { label: 'Bestellungen', value: String(rangeOrders), Icon: UtensilsCrossed,
+                              sub: rangeOrders > 0 ? 'gebucht' : 'noch keine' },
+                          ] as const).map(k => (
+                            <div key={k.label} className="min-w-0">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <k.Icon size={13} strokeWidth={1.5} className="text-gray-400 flex-shrink-0" />
+                                <p className="text-[11px] sm:text-[12px] text-gray-500 dark:text-gray-400 truncate">{k.label}</p>
+                              </div>
+                              <p className="text-[26px] sm:text-3xl font-bold text-gray-900 dark:text-white leading-none">{k.value}</p>
+                              <p className="text-[11px] text-gray-400 mt-1 truncate">{k.sub}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Die eine Zahl, die aus den dreien erst entsteht.
+                            Sie steht am Fuß der Karte, weil sie keine vierte
+                            Kennzahl ist, sondern ihr Verhältnis. */}
+                        {rangeOrders > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                            <div className="flex items-center justify-between text-[12px] mb-1.5">
+                              <span className="text-gray-500 dark:text-gray-400">Bestellungen mit Feedback</span>
+                              <span className="font-semibold text-gray-800 dark:text-gray-200">{Math.round(feedbackRate * 100)} %</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, feedbackRate * 100)}%`, backgroundColor: 'var(--ba, #16A34A)' }} />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {/* ══ ZEILE 3 — VERLAUF ══
