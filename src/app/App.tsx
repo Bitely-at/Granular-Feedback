@@ -10,7 +10,7 @@ import {
   Shield, LogOut, Upload, Palette, MapPin, Zap, BarChart3, Menu,
   Trash2, UserPlus, Lock, Building2, ImagePlus,
   AlertOctagon, Loader2, MessageSquare, Ticket, ArrowRight,
-  Mail, User,
+  Mail, User, WifiOff, RefreshCw,
 } from 'lucide-react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -305,6 +305,45 @@ function FullScreenMessage({ children, error, action }: { children: React.ReactN
       )}
       <p className="text-[14px] text-gray-600 dark:text-gray-300 max-w-sm leading-relaxed">{children}</p>
       {action}
+    </div>
+  );
+}
+
+/**
+ * Der Server war nicht erreichbar. Statt der nackten Browser-Meldung „Failed to
+ * fetch" eine ruhige, ganzseitige Karte: ein Symbol, ein Satz zur Ursache
+ * (offline vs. Server schläft) und ein Knopf, der es noch einmal versucht — mit
+ * drehendem Symbol, solange er läuft. Auf dem festen Bitely-Blau, weil die
+ * Marke des Lokals in diesem Zustand womöglich noch gar nicht geladen ist.
+ */
+function NetworkErrorPage({ onRetry }: { onRetry: () => void | Promise<void> }) {
+  const [retrying, setRetrying] = useState(false);
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const retry = async () => {
+    setRetrying(true);
+    try { await onRetry(); } finally { setRetrying(false); }
+  };
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5 bg-[#F7F8FA] dark:bg-[#0D1117] p-8 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+        <WifiOff size={26} strokeWidth={1.5} className="text-gray-400" aria-hidden />
+      </div>
+      <div className="space-y-1.5 max-w-sm">
+        <p className="text-[17px] font-semibold text-gray-900 dark:text-white">
+          {offline ? 'Keine Internetverbindung' : 'Server nicht erreichbar'}
+        </p>
+        <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
+          {offline
+            ? 'Dein Gerät ist gerade offline. Prüfe die Verbindung und versuch es noch einmal.'
+            : 'Wir konnten den Server nicht erreichen. Das liegt an der Verbindung — oder der Server fährt gerade hoch, dann dauert der erste Aufruf 20–30 Sekunden.'}
+        </p>
+      </div>
+      <button onClick={retry} disabled={retrying}
+        className={`inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl text-[14px] font-semibold text-white disabled:opacity-60 ${FOCUS_RING}`}
+        style={{ backgroundColor: BITELY_ACCENT }}>
+        <RefreshCw size={15} strokeWidth={2} className={retrying ? 'animate-spin' : ''} aria-hidden />
+        {retrying ? 'Wird versucht…' : 'Erneut versuchen'}
+      </button>
     </div>
   );
 }
@@ -1176,10 +1215,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             {vTab === 'Eingelöst' && (redeemedVouchers.length === 0
               ? <EmptyState icon={CheckCircle2} title="Noch nichts eingelöst" desc="Eingelöste Gutscheine erscheinen hier." />
               : redeemedVouchers.map(v => {
-                  // Entwertet, aber noch nicht ausgegeben: der Code muss
-                  // erreichbar bleiben, auch wenn der Gast den Bildschirm
-                  // zwischendurch geschlossen hat.
-                  const pending = store.redemptions.some(r => r.voucherId === v.id && r.status === 'entwertet');
+                  // Eingelöst: der Gast kann den Bildschirm mit dem Häkchen
+                  // jederzeit wieder aufmachen und der Servicekraft zeigen,
+                  // auch wenn er ihn zwischendurch geschlossen hat.
+                  const pending = store.redemptions.some(r => r.voucherId === v.id && (r.status === 'eingelöst' || r.status === 'entwertet'));
                   return <VoucherCard key={v.id} v={v} state="redeemed"
                     pending={pending} onAction={() => setRedeeming(v)} />;
                 }))}
@@ -4727,11 +4766,10 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                     </p>
                   </div>
 
-                  {/* Kennzahlen. Die Punkte sind ab dem Wischen abgebucht,
-                      also zählen sie als verbraucht, auch wenn die Ausgabe noch
-                      aussteht. Zurückgebuchtes entsteht nicht mehr neu — die
-                      Kachel erscheint nur, wenn aus der Zeit der
-                      60-Sekunden-Frist noch etwas in der Datenbank liegt. */}
+                  {/* Kennzahlen. Der Wisch löst ein und bucht die Punkte ab —
+                      ein Zwischenschritt „Ausgabe offen" gibt es nicht mehr.
+                      „Ausstehend" und „Zurückgebucht" erscheinen nur, wenn aus
+                      der Zeit der 60-Sekunden-Frist noch Altbestand da ist. */}
                   {(() => {
                     const done = store.redemptions.filter(r => r.status === 'eingelöst').length;
                     const pending = store.redemptions.filter(r => r.status === 'entwertet' || r.status === 'offen').length;
@@ -4740,13 +4778,13 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       .filter(r => r.status !== 'verfallen' && r.status !== 'abgebrochen')
                       .reduce((a, r) => a + r.points, 0);
                     const tiles: [string, number, string][] = [
-                      ['Ausgegeben', done, 'text-emerald-700 dark:text-emerald-300'],
-                      ['Ausgabe offen', pending, 'text-amber-700 dark:text-amber-300'],
+                      ['Eingelöst', done, 'text-emerald-700 dark:text-emerald-300'],
                       ['Punkte verbraucht', spentPoints, 'text-gray-900 dark:text-white'],
                     ];
+                    if (pending > 0) tiles.push(['Ausstehend (alt)', pending, 'text-amber-700 dark:text-amber-300']);
                     if (refunded > 0) tiles.push(['Zurückgebucht', refunded, 'text-gray-500']);
                     return (
-                      <div className={`grid grid-cols-2 gap-3 ${refunded > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                      <div className={`grid grid-cols-2 gap-3 ${tiles.length >= 4 ? 'sm:grid-cols-4' : tiles.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                         {tiles.map(([label, value, cls]) => (
                           <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-4">
                             <p className="text-[11px] text-gray-400 uppercase tracking-wider">{label}</p>
@@ -4760,21 +4798,21 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                     {store.redemptions.length === 0 ? (
                       <EmptyState icon={Ticket} title="Noch keine Einlösungen"
-                        desc="Sobald ein Gast einen Gutschein am Tisch entwertet, erscheint er hier, mit Zeitpunkt, Tisch und der Servicekraft, die die Ausgabe eingetragen hat." />
+                        desc="Sobald ein Gast einen Gutschein am Tisch einlöst, erscheint er hier — mit Zeitpunkt, Tisch und Punktepreis." />
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                              {['Gutschein', 'Status', 'Tisch', 'Punkte', 'Wann', 'Ausgegeben von'].map(h => (
+                              {['Gutschein', 'Status', 'Tisch', 'Punkte', 'Wann'].map(h => (
                                 <th key={h} className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             {store.redemptions.map(r => {
-                              // Bernstein heißt: hier steht noch etwas aus.
-                              // 'offen' ist der Altbestand mit derselben Bedeutung.
+                              // Grün = eingelöst (der Normalfall). Bernstein nur
+                              // noch für Altbestand aus der Zeit der Frist.
                               const badge = r.status === 'eingelöst'
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                                 : r.status === 'entwertet' || r.status === 'offen'
@@ -4793,7 +4831,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                       day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
                                     })}
                                   </td>
-                                  <td className="px-5 py-3.5 text-[13px] text-gray-500 dark:text-gray-400">{r.confirmedByName ?? '—'}</td>
                                 </tr>
                               );
                             })}
@@ -5179,10 +5216,13 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   }
 
   if (store.loading) return <FullScreenMessage>Lädt Restaurantdaten…</FullScreenMessage>;
+  if (store.connectionLost) return <NetworkErrorPage onRetry={store.refresh} />;
   if (store.error) {
     return (
       <FullScreenMessage error action={
-        <button onClick={() => store.refresh()} className="px-4 py-2 rounded-xl text-white text-[13px]" style={{ backgroundColor: '#16A34A' }}>Erneut versuchen</button>
+        <button onClick={() => store.refresh()} className={`inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl text-white text-[13px] font-semibold ${FOCUS_RING}`} style={{ backgroundColor: BITELY_ACCENT }}>
+          <RefreshCw size={14} strokeWidth={2} /> Erneut versuchen
+        </button>
       }>
         {store.error}
       </FullScreenMessage>
@@ -5426,22 +5466,15 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   // Server hält ihn dann für Personal und schickt die Einlösungen der ganzen
   // Filiale. Genau so testet man diese App.
   const pending = store.guest.loggedIn
-    ? store.redemptions.find(r => r.voucherId === voucher.id && r.status === 'entwertet')
+    ? store.redemptions.find(r => r.voucherId === voucher.id && (r.status === 'eingelöst' || r.status === 'entwertet'))
     : undefined;
-  // Immer den Server-Stand nehmen, falls vorhanden: die Servicekraft trägt in
-  // ihrer App ein, und das erfahren wir nur über den Zustand.
   const live = started
     ? store.redemptions.find(r => r.id === started.id) ?? started
     : pending ?? null;
-  const open = live != null && live.status === 'entwertet';
-
-  // Solange die Ausgabe aussteht, regelmäßig nachfragen — sonst merkt der Gast
-  // nicht, dass eingetragen wurde.
-  useEffect(() => {
-    if (!open) return;
-    const iv = setInterval(() => { store.refresh(); }, 2500);
-    return () => clearInterval(iv);
-  }, [live?.id, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Der Wisch löst direkt ein — 'entwertet' ist nur noch Altbestand. Beides
+  // führt auf denselben Bildschirm: das Zeichen, das der Gast der Servicekraft
+  // zeigt.
+  const open = live != null && (live.status === 'eingelöst' || live.status === 'entwertet');
 
   const start = async () => {
     if (busy) return;
@@ -5492,13 +5525,11 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
             </div>
           )}
 
-          {/* ── Schritt 2: entwertet — das Zeichen, das die Servicekraft sieht ──
-              Vorher stand hier eine vierstellige Zahl zum Abgleich. Sie hat nie
-              etwas bewiesen (der Gutschein ist ohnehin schon entwertet), war
-              aber das Erste, was der Gast vorzeigte — und aus einem Meter
-              Entfernung nicht zu lesen. Ein großes, ruhig pulsierendes Zeichen
-              beantwortet die einzige Frage, die am Tisch zählt: hat es
-              geklappt? */}
+          {/* ── Schritt 2: eingelöst — das Zeichen, das die Servicekraft sieht ──
+              Der Wisch hat den Gutschein eingelöst und die Punkte abgebucht.
+              Ein großes, ruhig pulsierendes Zeichen beantwortet die einzige
+              Frage, die am Tisch zählt: hat es geklappt? Der Bildschirm liegt
+              womöglich eine Weile, bis jemand vorbeikommt. */}
           {open && live && (
             <div className="space-y-6 text-center">
               <div className="relative w-48 h-48 mx-auto flex items-center justify-center">
@@ -5526,44 +5557,21 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
               </div>
 
               <div>
-                <p className="text-[26px] font-bold tracking-tight text-gray-900 dark:text-white">Entwertet</p>
+                <p className="text-[26px] font-bold tracking-tight text-gray-900 dark:text-white">Eingelöst</p>
                 <p className="text-[17px] font-medium mt-1" style={{ color: 'var(--ba, #16A34A)' }}>{live.voucherTitle}</p>
                 {live.tableNumber != null && (
                   <p className="text-[13px] text-gray-400 mt-1">Tisch {live.tableNumber}</p>
                 )}
                 <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed max-w-[280px] mx-auto">
-                  Die {live.points} Punkte sind abgebucht. Zeig diesen Bildschirm
-                  der Servicekraft, sie gibt den Gutschein aus.
+                  {live.points > 0 && <>Die {live.points} Punkte sind abgebucht. </>}
+                  Zeig diesen Bildschirm der Servicekraft, sie gibt den Gutschein aus.
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <button onClick={onClose}
-                  className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
-                  Schließen
-                </button>
-                <p className="text-[11px] text-gray-400">
-                  Der Gutschein bleibt unter „Eingelöst" stehen, bis die Ausgabe eingetragen ist.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* ── Schritt 3: die Servicekraft hat die Ausgabe eingetragen ── */}
-          {live?.status === 'eingelöst' && (
-            <div className="space-y-4 text-center py-4">
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 240, damping: 16 }}
-                className="w-20 h-20 rounded-full mx-auto flex items-center justify-center" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                <Check size={40} className="text-white" strokeWidth={3} />
-              </motion.div>
-              <div>
-                <p className="text-[19px] font-bold text-gray-900 dark:text-white">Eingelöst</p>
-                <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">
-                  {live.voucherTitle}
-                  {live.confirmedByName && <> · bestätigt von {live.confirmedByName}</>}
-                </p>
-              </div>
-              <PrimaryBtn onClick={onClose}>Fertig</PrimaryBtn>
+              <button onClick={onClose}
+                className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
+                Schließen
+              </button>
             </div>
           )}
 
@@ -5663,6 +5671,7 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
   const branch = branchSlug ? store.branches.find(b => b.slug === branchSlug) ?? null : null;
 
   if (store.loading) return <FullScreenMessage>Lädt…</FullScreenMessage>;
+  if (store.connectionLost) return <NetworkErrorPage onRetry={store.refresh} />;
 
   const links: { to: string; label: string; desc: string; Icon: React.ElementType }[] = [
     ...(branch ? [{

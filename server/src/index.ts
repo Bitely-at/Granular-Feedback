@@ -1272,6 +1272,10 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   }
 
   const now = Date.now();
+  // Der Wisch IST die Einlösung: 'eingelöst' direkt. Es gab einmal einen
+  // Zwischenzustand 'entwertet' ("Punkte weg, Ausgabe steht noch aus"), den die
+  // Servicekraft in ihrer App bestätigte — der Schritt ist entfallen, der Wisch
+  // vor Ort erklärt sich selbst und die Punkte sind ohnehin schon abgebucht.
   const doc: Omit<RedemptionDoc, '_id'> = {
     voucherId: String(voucherId),
     voucherTitle: String(voucher.title),
@@ -1281,10 +1285,10 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
     guestId,
     code: redemptionCode(),
     points: Number(voucher.points),
-    status: 'entwertet',
+    status: 'eingelöst',
     createdAt: now,
     expiresAt: null,
-    redeemedAt: null,
+    redeemedAt: now,
     confirmedBy: null,
     confirmedByName: null,
   };
@@ -1294,56 +1298,11 @@ router.post('/branches/:branchSlug/vouchers/:id/redeem', withBranch(async (req: 
   res.json({ ...state, redemption: { id: String(inserted.insertedId), ...doc } });
 }));
 
-/**
- * Servicekraft: die Ausgabe eintragen.
- *
- * Der Gutschein ist zu diesem Zeitpunkt bereits entwertet, hier wird nur noch
- * festgehalten, dass er auch tatsächlich über die Theke ging und von wem.
- *
- * Die Einmaligkeit steckt in der Bedingung des Updates, nicht in einer
- * vorgelagerten Prüfung: nur eine von zwei gleichzeitigen Eintragungen findet
- * den Datensatz noch offen. `offen` steht mit in der Bedingung, weil in der
- * Datenbank noch Einlösungen aus der Zeit der 60-Sekunden-Frist liegen können.
- */
-router.post('/branches/:branchSlug/redemptions/:id/confirm',
-  staffOrAdmin(withBranch(async (req: OrgRequest, res) => {
-    const db = req.db!;
-    const now = Date.now();
-    // Namen vorher holen: im Token steht nur die ID, und der Datensatz soll
-    // nach dem Eintragen sofort vollständig sein.
-    const staff = await db.collection<UserDoc>('users')
-      .findOne({ _id: requireObjectId(req.user!.sub, 'Benutzer-ID') });
-
-    const claimed = await db.collection<RedemptionDoc>('redemptions').findOneAndUpdate(
-      {
-        _id: requireObjectId(req.params.id, 'Einlösungs-ID'),
-        branchId: String(req.branch!._id),
-        status: { $in: ['entwertet', 'offen'] },
-      },
-      {
-        $set: {
-          status: 'eingelöst',
-          redeemedAt: now,
-          confirmedBy: req.user!.sub,
-          confirmedByName: staff?.name ?? null,
-        },
-      }
-    );
-
-    if (!claimed) {
-      res.status(409).json({
-        error: 'Diese Einlösung wurde bereits eingetragen.',
-      });
-      return;
-    }
-    res.json(await stateFor(req));
-  }))
-);
-
-// Eine Route zum Abbrechen gibt es nicht mehr: der Wisch entwertet endgültig,
-// und ein Rückweg wäre genau die Lücke, über die derselbe Gutschein zweimal
-// gälte. Die Rückbuchung in refundGuest bleibt für den Altbestand stehen,
-// dessen 60-Sekunden-Frist noch verfallen kann.
+// Eine Route, um die Ausgabe gesondert zu bestätigen, gibt es nicht mehr: der
+// Wisch setzt 'eingelöst' direkt. Auch keine Route zum Abbrechen — ein Rückweg
+// wäre genau die Lücke, über die derselbe Gutschein zweimal gälte. Die
+// Rückbuchung in refundGuest bleibt für den Altbestand stehen, dessen
+// 60-Sekunden-Frist noch verfallen kann.
 
 // ═══════════════════════════════════════════════════════════
 // GASTKONTEN

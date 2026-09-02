@@ -165,10 +165,10 @@ export interface Review {
 }
 
 /**
- * Eine Gutschein-Einlösung am Tisch. Der Wisch entwertet sofort und endgültig,
- * die Punkte sind damit weg. `entwertet` heißt: der Gast zeigt den Bildschirm,
- * die Ausgabe ist noch nicht eingetragen. `eingelöst` heißt: die Servicekraft
- * hat sie eingetragen.
+ * Eine Gutschein-Einlösung am Tisch. Der Wisch löst sofort und endgültig ein
+ * (`eingelöst`), die Punkte sind damit weg. Der Gast zeigt danach den
+ * Bildschirm mit dem Häkchen der Servicekraft — ein gesonderter Schritt, das
+ * einzutragen, entfällt.
  */
 export interface Redemption {
   id: string;
@@ -182,9 +182,9 @@ export interface Redemption {
   // Einlösung im Reporting der Verwaltung.
   code?: string;
   points: number;
-  // 'entwertet' = gewischt, Punkte weg, Ausgabe steht aus. 'eingelöst' = die
-  // Servicekraft hat sie eingetragen. Die drei anderen stammen aus der Zeit
-  // der 60-Sekunden-Frist und entstehen nicht mehr neu.
+  // 'eingelöst' = gewischt, Punkte weg — der Normalfall. Die vier anderen sind
+  // Altbestand (60-Sekunden-Frist bzw. der frühere Zwischenschritt 'entwertet')
+  // und entstehen nicht mehr neu.
   status: 'entwertet' | 'eingelöst' | 'offen' | 'verfallen' | 'abgebrochen';
   createdAt: number;
   expiresAt: number | null;
@@ -353,6 +353,14 @@ function writeGuestToken(orgSlug: string, token: string | null) {
 export class UnauthorizedError extends Error {}
 
 /**
+ * Der Server war gar nicht erreichbar — `fetch` selbst ist gescheitert, nicht
+ * erst die Antwort. Eigene Klasse, damit die Oberfläche eine Verbindungs-Seite
+ * zeigen kann statt der nackten Browser-Meldung „Failed to fetch". Häufigste
+ * Ursachen: kein Netz, oder der Render-Server fährt nach dem Schlaf gerade hoch.
+ */
+export class NetworkError extends Error {}
+
+/**
  * Wer die Anfrage stellt. Der Header trägt nur EIN Token, also muss die Ansicht
  * entscheiden: In der Gastansicht gilt das Gastkonto, in Kellner- und
  * Adminansicht das Personalkonto.
@@ -368,14 +376,21 @@ async function api<T>(orgSlug: string, path: string, init?: RequestInit, audienc
   const token = audience === 'guest'
     ? (readGuestToken(orgSlug) ?? readToken(orgSlug))
     : (readToken(orgSlug) ?? readGuestToken(orgSlug));
-  const res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/${orgSlug}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch {
+    // fetch wirft einen TypeError, wenn die Anfrage das Netz nicht verlässt
+    // oder keine Antwort zurückkommt. Ab hier reden wir von „keine Verbindung".
+    throw new NetworkError('Keine Verbindung zum Server.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const message = body.error ?? `Anfrage fehlgeschlagen (${res.status})`;
@@ -392,6 +407,8 @@ interface StoreApi extends OrgState {
   orgSlug: string;
   loading: boolean;
   error: string | null;
+  /** Wahr, wenn der letzte Ladeversuch am Netz scheiterte (Server nicht erreichbar). */
+  connectionLost: boolean;
   // Angemeldeter Mitarbeiter (Admin/Manager/Kellner) oder null.
   // authLoading deckt das Nachprüfen eines gespeicherten Tokens beim Seitenaufruf
   // ab — ohne das würde die Login-Maske kurz aufblitzen, obwohl die Sitzung gilt.
@@ -435,7 +452,6 @@ interface StoreApi extends OrgState {
   // Servicekraft in ihrer eigenen App gegenprüft.
   startRedemption: (branchSlug: string, voucherId: string, tableNumber?: number)
     => Promise<{ ok: true; redemption: Redemption } | { ok: false; error: string }>;
-  confirmRedemption: (branchSlug: string, redemptionId: string) => Promise<void>;
   // Gericht in EINER Filiale führen oder nicht — der Hebel der Filialleitung.
   setDishAvailability: (branchSlug: string, dishId: string, active: boolean) => Promise<void>;
   resolveAlert: (alertId: string) => Promise<void>;
@@ -526,6 +542,9 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const [state, setState] = useState<OrgState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Getrennt von `error`: nur wahr, wenn der Server gar nicht erreichbar war.
+  // Die Oberfläche zeigt dann eine eigene Verbindungs-Seite statt der Meldung.
+  const [connectionLost, setConnectionLost] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [guestUser, setGuestUser] = useState<GuestAccount | null>(null);
@@ -539,12 +558,14 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     if (!scope) return;
     try {
       setError(null);
+      setConnectionLost(false);
       // 'self' lässt den Parameter weg — dann leitet der Server die Filiale aus
       // dem Token ab.
       const query = scope === 'self' ? '' : `?branch=${encodeURIComponent(scope)}`;
       const data = await api<OrgState>(orgSlug, `/state${query}`, undefined, audience);
       setState(data);
     } catch (err) {
+      if (err instanceof NetworkError) setConnectionLost(true);
       setError(err instanceof Error ? err.message : 'Verbindung zum Server fehlgeschlagen.');
     } finally {
       setLoading(false);
@@ -746,10 +767,6 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
     }
   }, [call]);
 
-  const confirmRedemption = useCallback(async (branchSlug: string, redemptionId: string) => {
-    setState(await call<OrgState>(`/branches/${branchSlug}/redemptions/${redemptionId}/confirm`, { method: 'POST' }));
-  }, [call]);
-
   const setDishAvailability = useCallback(async (branchSlug: string, dishId: string, active: boolean) => {
     setState(await call<OrgState>(`/branches/${branchSlug}/dishes/${dishId}/availability`, {
       method: 'PATCH', body: JSON.stringify({ active }),
@@ -873,20 +890,20 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   }, [call]);
 
   const value = useMemo<StoreApi>(() => ({
-    ...withDefaults(state), orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
+    ...withDefaults(state), orgSlug, loading, error, connectionLost, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin,
     guestLogout, deleteGuestAccount, setGuestApiKey, removeGuestApiKey, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption,
+    startRedemption,
     setDishAvailability,
     resolveAlert, addUser, removeUser, updateUser, setUserPassword, setMyApiKey, removeMyApiKey, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable,
     addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher,
     addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt,
-  }), [state, orgSlug, loading, error, authUser, authLoading, login, googleLogin, logout,
+  }), [state, orgSlug, loading, error, connectionLost, authUser, authLoading, login, googleLogin, logout,
     guestUser, authOptions, guestRegister, guestLogin, guestGoogleLogin, guestLogout, deleteGuestAccount, setGuestApiKey, removeGuestApiKey, claimPoints,
     refresh, saveTableOrder, closeTable, addItemToTable, submitReview, fetchReviewText,
-    startRedemption, confirmRedemption, setDishAvailability, resolveAlert, addUser, removeUser, updateUser, setUserPassword, setMyApiKey, removeMyApiKey, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
+    startRedemption, setDishAvailability, resolveAlert, addUser, removeUser, updateUser, setUserPassword, setMyApiKey, removeMyApiKey, setHiddenWidgets, updateBrand, updateDishImage, addTables, removeTable, addDish, updateDish, removeDish, addVoucher, updateVoucher, removeVoucher, addBranch, updateBranch, removeBranch,
     fetchInsights, refreshHighlight, scanReceipt]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

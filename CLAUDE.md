@@ -46,8 +46,8 @@ npm run new-org --prefix server -- <slug> "<Name>" <admin-email> --demo --kind=p
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
-npm run verify:redemptions   # Tests für die Gutschein-Einlösung: entwerten,
-                             # Ausgabe eintragen, Nebenläufigkeit
+npm run verify:redemptions   # Tests für die Gutschein-Einlösung: der Wisch
+                             # löst sofort ein, Punkte genau einmal, Rückweg zu
 npm run verify:guests    # 39 Tests für die Gastkonten
 npm run build            # Produktionsbuild
 
@@ -195,30 +195,34 @@ Gutscheine als verbraucht.
 ## Gutschein-Einlösung
 
 Ein zweiter Lebenszyklus, mit eigener Sammlung `redemptions`. Der Wisch des
-Gastes **entwertet sofort und endgültig**: Punkte abgebucht, Gutschein
-verbraucht. Danach zeigt er den vierstelligen Code der Servicekraft, die die
-Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Auge
-überstehen.
+Gastes **löst sofort und endgültig ein**: Punkte abgebucht, Gutschein
+verbraucht, `status: 'eingelöst'`. Danach zeigt der Gast nur noch den Bildschirm
+mit dem Häkchen — die Servicekraft sieht die Geste, mehr braucht es nicht.
 
 ```
-(Gast wischt) ──> entwertet ──(Servicekraft trägt die Ausgabe ein)──> eingelöst
+(Gast wischt) ──> eingelöst
 ```
 
-- **Ein Screenshot bringt nichts, weil er dasselbe kostet** wie der echte Wisch,
-  nicht weil er beim Personal keinen Eintrag erzeugt. Vorher hing der Schutz an
-  einer 60-Sekunden-Frist mit Quittung; die setzte den Gast unter Zeitdruck für
-  etwas, das er nicht in der Hand hat — ob gerade jemand am Tisch vorbeikommt.
+- **Kein Bestätigen durch die Servicekraft mehr.** Es gab einmal einen
+  Zwischenzustand `entwertet` ("Punkte weg, Ausgabe steht aus"), den das Personal
+  in seiner App abhakte — samt Banner in der Kellneransicht und Route
+  `POST /redemptions/:id/confirm`. Beides ist entfernt: die Punkte sind ohnehin
+  schon weg, der Wisch vor Ort erklärt sich selbst, und ein Extra-Klick für die
+  Servicekraft brachte nur Reibung. Der Wisch schreibt jetzt direkt `eingelöst`.
+- **Ein Screenshot bringt nichts, weil er dasselbe kostet** wie der echte Wisch.
+  Vorher hing der Schutz an einer 60-Sekunden-Frist mit Quittung; die setzte den
+  Gast unter Zeitdruck für etwas, das er nicht in der Hand hat.
 - **Es gibt keinen Rückweg**: keine Abbruch-Route, keinen Verfall. Er wäre genau
   die Lücke, über die derselbe Gutschein zweimal gälte.
-- **Die Regeln liegen im Update-Filter**, wie beim Doppelbewertungs-Schutz. Beim
-  Abbuchen `points >= Preis` **und** `redeemed: { $ne: voucherId }`; beim
-  Eintragen `status: { $in: ['entwertet', 'offen'] }`. Die Prüfungen davor sind
-  Diagnose für eine gute Fehlermeldung, kein Schutz — sie lagen im Prüflauf
-  messbar zu früh (zwei gleichzeitige Wische buchten doppelt ab).
+- **Die Regel liegt im Update-Filter**, wie beim Doppelbewertungs-Schutz: beim
+  Abbuchen `points >= Preis` **und** `redeemed: { $ne: voucherId }`. Die
+  Prüfungen davor sind Diagnose für eine gute Fehlermeldung, kein Schutz — sie
+  lagen im Prüflauf messbar zu früh (zwei gleichzeitige Wische buchten doppelt
+  ab).
 - **Der Code wird nirgends mehr angezeigt.** Nach dem Wisch sieht der Gast ein
-  großes Häkchen; eine vierstellige Zahl bewies nichts (entwertet ist entwertet)
-  und war aus einem Meter Entfernung nicht zu lesen. Der Code bleibt als Kennung
-  der Einlösung in der Datenbank und im Reporting und geht nur an das Personal
+  großes Häkchen; eine vierstellige Zahl bewies nichts und war aus einem Meter
+  Entfernung nicht zu lesen. Der Code bleibt als Kennung der Einlösung in der
+  Datenbank und im Reporting und geht nur an das Personal
   (`serializeRedemption`) — `redemptions` steckt im Zustand, den auch ein Gast
   lädt.
 - **Abgelaufene Gutscheine sieht der Gast nicht.** `voucherExpired` (in
@@ -241,19 +245,21 @@ Ausgabe in IHRER App einträgt — der Code muss nur den Abgleich mit bloßem Au
 - **Ein Gast bekommt nur SEINE Einlösungen** (`redemptionScope` in
   `getFullState`); das Personal bekommt alle der Filiale, weil sie ihr
   Arbeitsvorrat sind. Das ist kein Feinschliff: die Gastansicht liest aus den
-  Einlösungen, ob für einen Gutschein schon eine Entwertung offen ist, und
+  Einlösungen, ob für einen Gutschein schon eine Einlösung vorliegt, und
   überspringt dann den Wisch, um dem Gast den vorzuzeigenden Bildschirm
   zurückzugeben. Sah sie fremde Einlösungen, traf das auf einen fremden
   Datensatz zu — der Wisch entfiel, es wurden keine Punkte abgebucht, und ein
-  Gutschein, den irgendein Gast gerade offen hatte, war für alle anderen in der
-  Filiale gratis. Die Oberfläche prüft zusätzlich auf `guest.loggedIn`, weil
+  Gutschein, den irgendein Gast gerade eingelöst hatte, war für alle anderen in
+  der Filiale gratis. Die Oberfläche prüft zusätzlich auf `guest.loggedIn`, weil
   es einen Weg gibt, auf dem sie NICHT als Gast gilt: wer die Verwaltung im
   selben Browser offen hat und daneben den QR-Code aufruft, schickt nur ein
   Personal-Token mit — und genau so testet man diese App.
-- **Altbestand**: `offen`, `verfallen` und `abgebrochen` stammen aus der Zeit der
-  Frist und entstehen nicht mehr neu. `expireStaleRedemptions` räumt sie
-  weiterhin beim Laden des Zustands ab — kein Hintergrundjob, wer als Erster
-  hinsieht, räumt auf.
+- **Altbestand**: `entwertet`, `offen`, `verfallen` und `abgebrochen` entstehen
+  nicht mehr neu — `entwertet` war der frühere Zwischenschritt, die drei anderen
+  stammen aus der Zeit der Frist. Die Gast- und Verwaltungsansicht behandeln
+  `entwertet` wie `eingelöst`; `expireStaleRedemptions` räumt die
+  Fristen-Datensätze weiterhin beim Laden des Zustands ab — kein Hintergrundjob,
+  wer als Erster hinsieht, räumt auf.
 - Eingelöst wird in einer Filiale: die Route liegt unter `/branches/:branchSlug/`,
   und ein Gutschein mit `branchIds` gilt nur dort.
 

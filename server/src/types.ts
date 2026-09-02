@@ -225,19 +225,16 @@ export interface InsightsDoc {
 /**
  * Eine Gutschein-Einlösung am Tisch.
  *
- * Der Wisch entwertet sofort und endgültig: die Punkte sind weg, der Gutschein
- * gilt als verbraucht. Danach zeigt der Gast den Bildschirm der Servicekraft,
- * die die Ausgabe in ihrer App einträgt. Der `code` dient nur dem Abgleich mit
- * bloßem Auge, er ist kein Nachweis.
+ * Der Wisch löst sofort und endgültig ein (`status: 'eingelöst'`): die Punkte
+ * sind weg, der Gutschein gilt als verbraucht. Danach zeigt der Gast der
+ * Servicekraft nur noch den Bildschirm mit dem Häkchen — ein gesonderter
+ * Schritt, die Ausgabe zu bestätigen, entfällt.
  *
- * Vorher war der Wisch nur eine Reservierung mit 60 Sekunden Frist, und erst
- * die Quittung machte sie endgültig. Das kehrte die Beweislast um: wer nicht
- * rechtzeitig jemanden fand, bekam die Punkte zurück, und das Personal musste
- * unter Zeitdruck tippen.
- *
- * Die Statuswerte `offen`, `verfallen` und `abgebrochen` stammen aus dieser
- * Zeit. Neue Einlösungen tragen sie nicht mehr, die alten Datensätze bleiben
- * lesbar.
+ * Frühere Zwischenzustände: `entwertet` ("Punkte weg, Ausgabe steht aus", von
+ * der Servicekraft zu bestätigen) sowie `offen`/`verfallen`/`abgebrochen` aus
+ * der Zeit der 60-Sekunden-Frist. Neue Einlösungen tragen keinen davon mehr,
+ * die alten Datensätze bleiben lesbar. `confirmedBy`/`confirmedByName` bleiben
+ * für diesen Altbestand im Schema.
  */
 export interface RedemptionDoc {
   _id?: ObjectId;
