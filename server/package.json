@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
+    "seed:miners": "tsx src/seedTheMiners.ts",
     "new-org": "tsx src/newOrg.ts",
     "set-password": "tsx src/setPassword.ts",
     "guest-points": "tsx src/setGuestPoints.ts",
