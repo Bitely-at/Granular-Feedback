@@ -632,6 +632,8 @@ async function getFullState(
       logoImage: brandDoc.logoImage ?? null, coverImage: brandDoc.coverImage ?? null,
       font: brandDoc.font ?? 'Inter', cardStyle: brandDoc.cardStyle ?? 'standard',
       guestTheme: brandDoc.guestTheme ?? 'hell',
+      guestNameColor: brandDoc.guestNameColor ?? null,
+      guestTextColor: brandDoc.guestTextColor ?? null,
     } : null,
     dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
@@ -1883,8 +1885,14 @@ router.put('/users/:id/password', branchAdmin(async (req: OrgRequest, res) => {
 }));
 
 // ── Admin: Branding-Einstellungen (inkl. Design-Studio: Logo, Schrift, Karten-Layout) ──
+// #rrggbb oder leer (= zurücksetzen auf die Vorgabefarben). Alles andere fällt
+// still auf null zurück, statt einen unbrauchbaren Wert in die Anzeige zu lassen.
+const asHexOrNull = (v: unknown): string | null =>
+  typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null;
+
 router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
-  const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme } = req.body ?? {};
+  const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme,
+    guestNameColor, guestTextColor } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
@@ -1894,6 +1902,8 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (font !== undefined) update.font = font;
   if (cardStyle !== undefined) update.cardStyle = cardStyle;
   if (guestTheme === 'hell' || guestTheme === 'dunkel') update.guestTheme = guestTheme;
+  if (guestNameColor !== undefined) update.guestNameColor = asHexOrNull(guestNameColor);
+  if (guestTextColor !== undefined) update.guestTextColor = asHexOrNull(guestTextColor);
   await req.db!.collection<BrandDoc>('settings').updateOne({ _id: 'brand' }, { $set: update }, { upsert: true });
   res.json(await stateFor(req));
 }));

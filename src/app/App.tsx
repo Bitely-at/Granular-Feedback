@@ -788,6 +788,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
     ? 'Ein kurzes Feedback hilft uns, jeden Abend besonders zu machen. Es dauert nur eine Minute.'
     : 'Für diesen Tisch liegt gerade keine offene Bestellung vor. Sobald dein Service-Team Gerichte einträgt, kannst du sie hier einzeln bewerten.';
 
+  // Zwei frei wählbare Schriftfarben aus den Design-Einstellungen. Nicht
+  // gesetzt = undefined, dann greifen die Grau-/Schwarz-Klassen wie bisher.
+  const nameColor = store.brand?.guestNameColor ? { color: store.brand.guestNameColor } : undefined;
+  const textColor = store.brand?.guestTextColor ? { color: store.brand.guestTextColor } : undefined;
+
   return (
     <div className="relative flex flex-col flex-1 min-h-0 bg-[#F7F8FA] dark:bg-[#0D1117]">
 
@@ -852,15 +857,15 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <div className="flex-1 flex flex-col items-start justify-end pt-8">
             {/* Klein und über der Schlagzeile: der Gast sitzt schon am Tisch und
                 muss nur kurz gegenprüfen, ob er den richtigen Code erwischt hat. */}
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-4" style={nameColor}>
               {branch.name} · Tisch {tableNumber}
             </p>
-            <h1 className="text-[44px] font-bold leading-[1.1] tracking-tight mb-4 max-w-[280px] text-gray-900 dark:text-white">
+            <h1 className="text-[44px] font-bold leading-[1.1] tracking-tight mb-4 max-w-[280px] text-gray-900 dark:text-white" style={textColor}>
               {hasOrder
                 ? <>Wie war dein Besuch bei {store.brand?.name}?</>
                 : <>Willkommen bei {store.brand?.name}</>}
             </h1>
-            <p className="text-[16px] leading-relaxed max-w-[260px] text-gray-600 dark:text-gray-300">
+            <p className="text-[16px] leading-relaxed max-w-[260px] text-gray-600 dark:text-gray-300" style={textColor}>
               {welcomeText}
             </p>
 
@@ -1016,8 +1021,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               className="w-16 h-16 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
               <Check size={30} strokeWidth={3} className="text-white" />
             </motion.div>
-            <p className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white">Vielen Dank!</p>
-            <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed mt-1.5 max-w-[280px]">
+            <p className="text-[22px] font-bold tracking-tight text-gray-900 dark:text-white" style={textColor}>Vielen Dank!</p>
+            <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed mt-1.5 max-w-[280px]" style={textColor}>
               Dein Feedback hilft uns, noch besser zu werden.
             </p>
           </div>
@@ -2820,6 +2825,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     font: store.brand?.font ?? 'Inter',
     cardStyle: (store.brand?.cardStyle ?? 'standard') as NonNullable<Brand['cardStyle']>,
     guestTheme: (store.brand?.guestTheme ?? 'hell') as NonNullable<Brand['guestTheme']>,
+    guestNameColor: (store.brand?.guestNameColor ?? null) as string | null,
+    guestTextColor: (store.brand?.guestTextColor ?? null) as string | null,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2898,6 +2905,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       coverImage: store.brand.coverImage ?? null,
       font: store.brand.font ?? 'Inter', cardStyle: store.brand.cardStyle ?? 'standard',
       guestTheme: store.brand.guestTheme ?? 'hell',
+      guestNameColor: store.brand.guestNameColor ?? null,
+      guestTextColor: store.brand.guestTextColor ?? null,
     });
   }, [store.brand]);
 
@@ -3168,6 +3177,8 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         name: brandForm.name, accent: brandForm.accent, logoImage: brandForm.logoImage,
         coverImage: brandForm.coverImage,
         font: brandForm.font, cardStyle: brandForm.cardStyle, guestTheme: brandForm.guestTheme,
+        guestNameColor: brandForm.guestNameColor ?? '',
+        guestTextColor: brandForm.guestTextColor ?? '',
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -3290,7 +3301,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
           <BrandLogo brand={store.brand} size={32} textSize={22} rounded="rounded-lg" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight truncate">{store.brand?.name}</p>
-            <p className="text-[11px] text-gray-400">Verwaltung</p>
+            <p className="text-[11px] text-gray-400 flex items-center gap-1.5">Admin · <BitelyWordmark className="h-4 opacity-70" /></p>
           </div>
           <button onClick={() => setMobileNav(false)} title="Menü schließen"
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -3381,14 +3392,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <LogOut size={15} strokeWidth={1.5} /> Abmelden
           </button>
-        </div>
-
-        {/* Die Bitely-Wortmarke steht genau einmal auf dem Bildschirm — hier,
-            am Fuß der Leiste, mit Platz und in lesbarer Größe: wer verwaltet
-            wessen Laden womit. */}
-        <div className="px-4 py-3.5 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2.5">
-          <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Powered by</span>
-          <BitelyWordmark className="h-6" />
         </div>
       </aside>
 
@@ -4077,6 +4080,42 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         </div>
                       </div>
 
+                      {/* SCHRIFTFARBEN — zwei, unabhängig voneinander: die Zeile
+                          „Filiale · Tisch" und der übrige Text (Schlagzeile,
+                          Fließtext). Leer heißt: die üblichen Grau-/Schwarztöne
+                          je nach Hell/Dunkel. */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                        <div>
+                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Schriftfarben der Gastansicht</p>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            Getrennt für den Standortnamen und den übrigen Text. Leer = die Standardfarben (Grau bzw. Schwarz/Weiß je nach Hell/Dunkel).
+                          </p>
+                        </div>
+                        {([
+                          { key: 'guestNameColor' as const, label: 'Standortname („Filiale · Tisch")', fallback: '#6B7280' },
+                          { key: 'guestTextColor' as const, label: 'Text (Schlagzeile und Fließtext)', fallback: brandForm.guestTheme === 'dunkel' ? '#FFFFFF' : '#111827' },
+                        ]).map(({ key, label, fallback }) => {
+                          const value = brandForm[key];
+                          return (
+                            <div key={key}>
+                              <p className="text-[12px] text-gray-400 mb-1.5">{label}</p>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <input type="color" value={value ?? fallback}
+                                  onChange={e => setBrandForm(p => ({ ...p, [key]: e.target.value }))}
+                                  className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
+                                <input value={value ?? ''} placeholder="Standard"
+                                  onChange={e => setBrandForm(p => ({ ...p, [key]: e.target.value.trim() === '' ? null : e.target.value }))}
+                                  className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
+                                {value && (
+                                  <button onClick={() => setBrandForm(p => ({ ...p, [key]: null }))}
+                                    className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Zurücksetzen</button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
                       {/* TITELBILD — das Bild, das beim Gast über dem halben
                           Startbildschirm liegt. Ohne eines bleibt dort eine
                           Fläche in der Akzentfarbe: der Bildschirm funktioniert,
@@ -4143,10 +4182,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               <div className="absolute inset-0 bg-gradient-to-t from-white from-15% via-white/25 via-55% to-transparent dark:from-gray-900 dark:via-gray-900/50" />
                             </div>
                             <div className="relative z-10 px-5 pt-16 pb-5">
-                              <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2">
+                              <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-2"
+                                style={brandForm.guestNameColor ? { color: brandForm.guestNameColor } : undefined}>
                                 {branch?.name ?? store.branches[0]?.name} · Tisch 1
                               </p>
-                              <p className="text-[24px] font-bold leading-[1.1] tracking-tight text-gray-900 dark:text-white max-w-[200px]">
+                              <p className="text-[24px] font-bold leading-[1.1] tracking-tight text-gray-900 dark:text-white max-w-[200px]"
+                                style={brandForm.guestTextColor ? { color: brandForm.guestTextColor } : undefined}>
                                 Wie war dein Besuch bei {brandForm.name || 'Dein Restaurant'}?
                               </p>
                               <button className="w-full h-[44px] mt-5 rounded-[14px] shadow-lg flex items-center justify-between px-4 text-white text-[14px] font-medium"

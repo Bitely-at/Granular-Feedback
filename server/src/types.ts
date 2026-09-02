@@ -187,6 +187,11 @@ export interface BrandDoc {
   // Restaurant in den Design-Einstellungen gesetzt. Der Hell/Dunkel-Schalter
   // in den Verwaltungs-Einstellungen betrifft nur die Verwaltung selbst.
   guestTheme?: 'hell' | 'dunkel';
+  // Zwei Schriftfarben der Gastansicht, unabhängig voneinander: guestNameColor
+  // färbt die Zeile „Filiale · Tisch", guestTextColor Überschrift und Fließtext.
+  // Leer/null = die üblichen Grau-/Schwarztöne je Hell/Dunkel. Hex-String.
+  guestNameColor?: string | null;
+  guestTextColor?: string | null;
 }
 
 /**

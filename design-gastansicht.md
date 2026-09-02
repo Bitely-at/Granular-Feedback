@@ -38,6 +38,13 @@ Das **Titelbild** kommt aus den Marken-Einstellungen (`coverImage`, Admin →
 Design → Titelbild). Fehlt es, bleibt eine ruhige Fläche in der Akzentfarbe
 stehen — der Bildschirm funktioniert dann, er lebt nur weniger.
 
+Die **Schriftfarbe der Zeile „Filiale · Tisch"** (`guestNameColor`) und die
+**Schriftfarbe von Schlagzeile und Fließtext** (`guestTextColor`) lassen sich
+in den Design-Einstellungen getrennt setzen. Nicht gesetzt heißt: die üblichen
+Grautöne bzw. Schwarz/Weiß je nach Hell/Dunkel. Die Vorgabe bleibt der ruhige
+Dreiklang Weiß/Grau/Schwarz — die Farbwahl ist die Ausnahme für Betriebe, deren
+Titelbild einen anderen Ton verlangt.
+
 Das **Logo** steht oben links auf dem Bild, wie der Kopf einer Karte — 44 px,
 ohne Namen daneben, der steht drei Zeilen tiefer in voller Größe. Der Gast kennt
 das Zeichen von der Tür; ein Name in einer Schlagzeile ersetzt es nicht. Auf dem

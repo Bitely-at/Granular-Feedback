@@ -277,6 +277,13 @@ Die Fußzeile „POWERED BY bitely" steht auf dem ersten und dem letzten
 Bildschirm. Sie ist der Grund, warum oben keine Bitely-Leiste mehr hängt: den
 Bildschirm besitzt das Restaurant, wir stehen im Fuß.
 
+**Zwei Schriftfarben sind frei wählbar** (Admin → Design), unabhängig
+voneinander: `guestNameColor` für die Zeile „Filiale · Tisch",
+`guestTextColor` für Schlagzeile und Fließtext. Leer/`null` = die üblichen
+Grau-/Schwarztöne je Hell/Dunkel; die Akzentfarbe bleibt davon unberührt. Die
+Marke selbst wird weiterhin über `readableAccent` auf einen lesbaren Kontrast
+gebracht, bevor sie als `--ba` in die Gastansicht geht.
+
 Die ausführliche Fassung mit allen Maßen steht in `design-gastansicht.md` —
 vor Änderungen an der Gastansicht dort nachsehen.
 

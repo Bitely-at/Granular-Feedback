@@ -14,6 +14,12 @@ export interface Brand {
   // Hell/Dunkel der GASTANSICHT — Markenauftritt, getrennt vom Hell/Dunkel
   // der Verwaltung (das liegt lokal unter `bitely.theme`).
   guestTheme?: 'hell' | 'dunkel';
+  // Zwei Schriftfarben der Gastansicht, unabhängig voneinander gesetzt:
+  // `guestNameColor` färbt die Zeile „Filiale · Tisch", `guestTextColor` die
+  // Überschrift und den Fließtext. Leer/`null` = die üblichen Grau-/Schwarz-
+  // töne je Hell/Dunkel. Hex-String.
+  guestNameColor?: string | null;
+  guestTextColor?: string | null;
 }
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.
