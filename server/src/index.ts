@@ -636,7 +636,6 @@ async function getFullState(
       guestTextColor: brandDoc.guestTextColor ?? null,
       coverOpacity: brandDoc.coverOpacity ?? null,
       guestLang: brandDoc.guestLang === 'en' ? 'en' : 'de',
-      weakRatingColor: brandDoc.weakRatingColor ?? null,
     } : null,
     dashboard: { hiddenWidgets: dashboardDoc?.hiddenWidgets ?? [] },
     branches: branches.map(serialize),
@@ -1895,7 +1894,7 @@ const asHexOrNull = (v: unknown): string | null =>
 
 router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   const { name, accent, logo, logoImage, coverImage, font, cardStyle, guestTheme,
-    guestNameColor, guestTextColor, coverOpacity, guestLang, weakRatingColor } = req.body ?? {};
+    guestNameColor, guestTextColor, coverOpacity, guestLang } = req.body ?? {};
   const update: Partial<BrandDoc> = {};
   if (name !== undefined) update.name = name;
   if (accent !== undefined) update.accent = accent;
@@ -1908,7 +1907,6 @@ router.patch('/settings/brand', chainAdmin(async (req: OrgRequest, res) => {
   if (guestLang === 'de' || guestLang === 'en') update.guestLang = guestLang;
   if (guestNameColor !== undefined) update.guestNameColor = asHexOrNull(guestNameColor);
   if (guestTextColor !== undefined) update.guestTextColor = asHexOrNull(guestTextColor);
-  if (weakRatingColor !== undefined) update.weakRatingColor = asHexOrNull(weakRatingColor);
   if (coverOpacity !== undefined) {
     // 0–1, sonst zurück auf null (= voll). Unter 0,1 wäre das Bild praktisch weg.
     const n = Number(coverOpacity);

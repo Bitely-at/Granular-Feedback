@@ -64,10 +64,10 @@ const BITELY_ACCENT = '#5265AF';
 // sich selbst.
 const STAR_COLOR = '#F59E0B';
 
-// Farbe für schwache Gerichtsschnitte (unter 4,0 ★) in Dashboard und Menü,
-// wenn der Betrieb keine eigene gewählt hat. Warmes Orange — eine Aufgabe,
-// kein Alarm. Der getönte Hintergrund wird per color-mix daraus gerechnet,
-// damit die Kombination immer stimmt.
+// Farbe für schwache Gerichtsschnitte (unter 4,0 ★) in Dashboard und Menü.
+// Warmes Orange — eine Aufgabe, kein Alarm. Der getönte Hintergrund wird per
+// color-mix daraus gerechnet, damit die Kombination immer stimmt. Fest, kein
+// Marken-Regler: die eine Ausnahme war mehr Schalter als Nutzen.
 const WEAK_RATING_DEFAULT = '#C2410C';
 const weakRatingStyle = (hex: string) => ({
   color: hex,
@@ -2870,7 +2870,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     guestTextColor: (store.brand?.guestTextColor ?? null) as string | null,
     coverOpacity: (store.brand?.coverOpacity ?? 1) as number,
     guestLang: (store.brand?.guestLang ?? 'de') as Lang,
-    weakRatingColor: (store.brand?.weakRatingColor ?? null) as string | null,
   });
   const [brandSaved, setBrandSaved] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -2953,7 +2952,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       guestTextColor: store.brand.guestTextColor ?? null,
       coverOpacity: store.brand.coverOpacity ?? 1,
       guestLang: store.brand.guestLang ?? 'de',
-      weakRatingColor: store.brand.weakRatingColor ?? null,
     });
   }, [store.brand]);
 
@@ -3230,7 +3228,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
         guestTextColor: brandForm.guestTextColor ?? '',
         coverOpacity: brandForm.coverOpacity,
         guestLang: brandForm.guestLang,
-        weakRatingColor: brandForm.weakRatingColor ?? '',
       });
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 2500);
@@ -3800,7 +3797,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {([
                       { key: 'best', title: t('Beste Gerichte', 'Best dishes'), rows: solidDishes.slice(0, 5), tone: 'text-emerald-700 dark:text-emerald-300', tstyle: undefined as React.CSSProperties | undefined },
-                      { key: 'worst', title: t('Schwächste Gerichte', 'Weakest dishes'), rows: [...solidDishes].reverse().slice(0, 5), tone: '', tstyle: { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT } as React.CSSProperties | undefined },
+                      { key: 'worst', title: t('Schwächste Gerichte', 'Weakest dishes'), rows: [...solidDishes].reverse().slice(0, 5), tone: '', tstyle: { color: WEAK_RATING_DEFAULT } as React.CSSProperties | undefined },
                     ] as const).map(({ key, title, rows, tone, tstyle }) => (
                       <div key={key} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
                         <p className="text-[15px] font-semibold text-gray-900 dark:text-white mb-3">{title}</p>
@@ -3998,7 +3995,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                     <div className="flex items-center gap-2">
                                       <StarRating value={Math.round(d.avg)} size={12} />
                                       <span className={`text-[14px] font-semibold ${d.avg >= 4 ? 'text-emerald-700' : ''}`}
-                                        style={d.avg >= 4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT }}>{d.avg.toFixed(1)}</span>
+                                        style={d.avg >= 4 ? undefined : { color: WEAK_RATING_DEFAULT }}>{d.avg.toFixed(1)}</span>
                                     </div>
                                   </td>
                                   <td className="px-5 py-3 text-[14px] text-gray-600 dark:text-gray-400">{d.count}</td>
@@ -4019,7 +4016,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 <p className="text-[11px] text-gray-400">{catLabel(d.cat)} · {d.price.toFixed(2)} € · {d.count}×</p>
                               </div>
                               <span className={`text-[15px] font-bold flex-shrink-0 ${d.avg >= 4 ? 'text-emerald-700' : ''}`}
-                                style={d.avg >= 4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT }}>
+                                style={d.avg >= 4 ? undefined : { color: WEAK_RATING_DEFAULT }}>
                                 {d.avg.toFixed(1)}
                               </span>
                             </div>
@@ -4191,36 +4188,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             </div>
                           );
                         })}
-                      </div>
-
-                      {/* FARBE FÜR SCHWACHE BEWERTUNGEN — im Dashboard und auf
-                          der Menüseite, für Gerichtsschnitte unter 4,0 ★. Der
-                          getönte Hintergrund wird aus dieser Farbe gerechnet,
-                          die Kombination stimmt also immer. */}
-                      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-6 space-y-3">
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Farbe für schwache Bewertungen', 'Colour for weak ratings')}</p>
-                          <p className="text-[12px] text-gray-400 mt-0.5">
-                            {t('Für Gerichtsschnitte unter 4,0 ★ in Dashboard und Menü. Ab 4,0 ist es grün.',
-                               'For dish averages below 4.0 ★ in the dashboard and menu. From 4.0 it is green.')}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <input type="color" value={brandForm.weakRatingColor ?? WEAK_RATING_DEFAULT}
-                            onChange={e => setBrandForm(p => ({ ...p, weakRatingColor: e.target.value }))}
-                            className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5" />
-                          <input value={brandForm.weakRatingColor ?? ''} placeholder={WEAK_RATING_DEFAULT}
-                            onChange={e => setBrandForm(p => ({ ...p, weakRatingColor: e.target.value.trim() === '' ? null : e.target.value }))}
-                            className="flex-1 min-w-[120px] px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-[14px] text-gray-900 dark:text-white outline-none font-mono uppercase" />
-                          <span className="text-[13px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5"
-                            style={weakRatingStyle(brandForm.weakRatingColor || WEAK_RATING_DEFAULT)}>
-                            <Star size={11} fill="currentColor" strokeWidth={0} />3.4
-                          </span>
-                          {brandForm.weakRatingColor && (
-                            <button onClick={() => setBrandForm(p => ({ ...p, weakRatingColor: null }))}
-                              className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">{t('Zurücksetzen', 'Reset')}</button>
-                          )}
-                        </div>
                       </div>
 
                       {/* TITELBILD — das Bild, das beim Gast über dem halben
@@ -4867,16 +4834,15 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                       <tbody>
                         {[...store.dishes].sort((a, b) => (dishAvg(b) ?? 0) - (dishAvg(a) ?? 0)).map((dish, i) => {
                           const avg = dishAvg(dish) ?? 0;
-                          // Zwei Stufen: ab 4,0 grün, darunter die vom Betrieb
-                          // gewählte Farbe (Design → Farbe für schwache
-                          // Bewertungen), Vorgabe warmes Orange. Der getönte
-                          // Hintergrund wird aus der Textfarbe gerechnet.
+                          // Zwei Stufen: ab 4,0 grün, darunter warmes Orange
+                          // (WEAK_RATING_DEFAULT). Der getönte Hintergrund wird
+                          // aus der Textfarbe gerechnet.
                           const good = avg >= 4;
                           const scoreCls = good ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' : '';
-                          const scoreStyle = good ? undefined : weakRatingStyle(store.brand?.weakRatingColor || WEAK_RATING_DEFAULT);
+                          const scoreStyle = good ? undefined : weakRatingStyle(WEAK_RATING_DEFAULT);
                           const TrendIcon = avg >= 4.4 ? TrendingUp : (avg > 0 && avg < 3) ? TrendingDown : null;
                           const trendColor = avg >= 4.4 ? 'text-gray-500' : '';
-                          const trendStyle = avg >= 4.4 ? undefined : { color: store.brand?.weakRatingColor || WEAK_RATING_DEFAULT };
+                          const trendStyle = avg >= 4.4 ? undefined : { color: WEAK_RATING_DEFAULT };
                           return (
                             <tr key={dish.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
                               <td className="px-5 py-3.5 text-[13px] text-gray-400">{i + 1}</td>

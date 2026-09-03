@@ -27,10 +27,6 @@ export interface Brand {
   // Sprache der GASTANSICHT, vom Betrieb vorgegeben. 'de' | 'en'. Die
   // Verwaltung wählt ihre Sprache getrennt (localStorage `bitely.lang`).
   guestLang?: 'de' | 'en';
-  // Farbe für schwache Gerichtsschnitte (unter 4,0 ★) im Dashboard und auf der
-  // Menüseite — Textfarbe, der getönte Hintergrund wird daraus gerechnet.
-  // `null` = die Vorgabe (warmes Orange). Hex.
-  weakRatingColor?: string | null;
 }
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.
