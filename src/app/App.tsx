@@ -3353,7 +3353,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
             Verwaltung. Das Logo und der Name des Lokals stehen nicht mehr hier,
             sondern unten am Konto: wer verwaltet gerade welchen Laden. */}
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2.5">
-          <BitelyWordmark className="h-8" />
+          <BitelyWordmark className="h-10" />
           <button onClick={() => setMobileNav(false)} title={t("Menü schließen", "Close menu")}
             className="lg:hidden w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={16} className="text-gray-500" />
