@@ -511,6 +511,14 @@ Was das Dashboard daraus macht:
   sonst laufen Legende und Diagramm irgendwann auseinander. Die zwei Begriffe
   darüber („Hoch", „Viele") stehen in der Akzentfarbe, der Rest ist
   gewöhnlicher Text.
+- **Eine Bewertung wird nie als Badge, Chip oder Pill gezeigt** — nicht im
+  Dashboard, nicht im Menü, nicht auf der Bewertungsseite. Kein getönter oder
+  eingefärbter Hintergrund, kein Container, kein Rahmen, kein Radius: gefülltes
+  Stern-Icon plus Wert direkt daneben (`gap-1.5`, ~6px), und die Hervorhebung
+  trägt allein die Schrift- und Icon-Farbe — Grün ab 4,0, `WEAK_RATING_DEFAULT`
+  darunter, `STAR_COLOR` für den Sammelwert einer Rezension. Die Menütabelle
+  hatte hier lange eine getönte Pille; sie ist raus, `weakRatingStyle` (der
+  `color-mix`-Hintergrund) mit ihr.
 
 ## Fallstricke
 

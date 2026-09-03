@@ -77,14 +77,11 @@ const BITELY_ACCENT = '#5265AF';
 const STAR_COLOR = '#F59E0B';
 
 // Farbe für schwache Gerichtsschnitte (unter 4,0 ★) in Dashboard und Menü.
-// Warmes Orange — eine Aufgabe, kein Alarm. Der getönte Hintergrund wird per
-// color-mix daraus gerechnet, damit die Kombination immer stimmt. Fest, kein
-// Marken-Regler: die eine Ausnahme war mehr Schalter als Nutzen.
+// Warmes Orange — eine Aufgabe, kein Alarm. Fest, kein Marken-Regler: die eine
+// Ausnahme war mehr Schalter als Nutzen. Getragen wird die Hervorhebung von der
+// Schrift- und Icon-Farbe, nie von einer Fläche: Bewertungen stehen frei im
+// Layout, ohne Badge, Chip oder getönten Hintergrund.
 const WEAK_RATING_DEFAULT = '#C2410C';
-const weakRatingStyle = (hex: string) => ({
-  color: hex,
-  backgroundColor: `color-mix(in srgb, ${hex} 14%, transparent)`,
-});
 
 // ── Markenfarbe lesbar halten ──────────────────────────────
 // `--ba` steckt in der ganzen Gastansicht: als Fläche unter weißer Schrift
@@ -4867,11 +4864,12 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                         {[...store.dishes].sort((a, b) => (dishAvg(b) ?? 0) - (dishAvg(a) ?? 0)).map((dish, i) => {
                           const avg = dishAvg(dish) ?? 0;
                           // Zwei Stufen: ab 4,0 grün, darunter warmes Orange
-                          // (WEAK_RATING_DEFAULT). Der getönte Hintergrund wird
-                          // aus der Textfarbe gerechnet.
+                          // (WEAK_RATING_DEFAULT). Nur Schrift- und Icon-Farbe,
+                          // keine Fläche — die Bewertung steht frei, wie auf der
+                          // Bewertungsseite und im Dashboard.
                           const good = avg >= 4;
-                          const scoreCls = good ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950' : '';
-                          const scoreStyle = good ? undefined : weakRatingStyle(WEAK_RATING_DEFAULT);
+                          const scoreCls = good ? 'text-emerald-700 dark:text-emerald-300' : '';
+                          const scoreStyle = good ? undefined : { color: WEAK_RATING_DEFAULT };
                           const TrendIcon = avg >= 4.4 ? TrendingUp : (avg > 0 && avg < 3) ? TrendingDown : null;
                           const trendColor = avg >= 4.4 ? 'text-gray-500' : '';
                           const trendStyle = avg >= 4.4 ? undefined : { color: WEAK_RATING_DEFAULT };
@@ -4889,7 +4887,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               </td>
                               <td className="px-5 py-3.5">
                                 {dish.ratingsCount > 0 ? (
-                                  <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1 rounded-lg ${scoreCls}`} style={scoreStyle}>
+                                  <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold ${scoreCls}`} style={scoreStyle}>
                                     <Star size={11} fill="currentColor" strokeWidth={0} />{avg.toFixed(1)}
                                   </span>
                                 ) : <span className="text-[12px] text-gray-400">{t('Noch keine', 'None yet')}</span>}
