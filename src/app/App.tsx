@@ -85,8 +85,7 @@ const WEAK_RATING_DEFAULT = '#C2410C';
 
 // ── Markenfarbe lesbar halten ──────────────────────────────
 // `--ba` steckt in der ganzen Gastansicht: als Fläche unter weißer Schrift
-// (Knöpfe, Punkte-Badges) UND als Textfarbe auf hellem Grund (Punktezahl,
-// Standort). Eine helle Marke — Beige, Pastell, kräftiges Gelb — ist in beiden
+// (Knöpfe) UND als Textfarbe auf hellem Grund (Punktezahl, Standort). Eine helle Marke — Beige, Pastell, kräftiges Gelb — ist in beiden
 // Rollen nicht zu entziffern. `readableAccent` schiebt sie so weit Richtung
 // Schwarz (heller Grund) bzw. Weiß (dunkler), bis der Kontrast für beides
 // reicht (WCAG AA, 4.5:1). Eine schon dunkle Marke bleibt unverändert.
@@ -618,17 +617,15 @@ function GuestPointsChip({ points, loggedIn, live = 0, onClick }: {
     </>
   );
 
-  const look = `flex items-center gap-1.5 px-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap flex-shrink-0${
-    loggedIn ? '' : ' bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+  const look = `flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap flex-shrink-0${
+    loggedIn ? '' : ' text-gray-500 dark:text-gray-400'
   }`;
-  // Die Tönung wie überall sonst über `color-mix` im style-Attribut, nicht als
-  // Tailwind-Kurzform: die Akzentfarbe steht erst zur Laufzeit fest.
-  const color = loggedIn
-    ? { color: 'var(--ba)', backgroundColor: 'color-mix(in srgb, var(--ba, #16A34A) 12%, transparent)' }
-    : undefined;
+  // Keine Pille mehr: kein getönter Grund, kein Radius. Die Akzentfarbe steht
+  // erst zur Laufzeit fest, darum als style-Attribut statt Tailwind-Kurzform.
+  const color = loggedIn ? { color: 'var(--ba)' } : undefined;
 
   if (!onClick) {
-    return <span className={`${look} h-8`} style={color} aria-label={aria}>{body}</span>;
+    return <span className={look} style={color} aria-label={aria}>{body}</span>;
   }
   return (
     <button onClick={onClick} aria-label={`${aria}. ${t('Punkte und Gutscheine ansehen', 'View points and vouchers')}`}
@@ -1511,7 +1508,7 @@ function VoucherCard({ v, state, onAction, pointsMissing, pending }: {
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         {state === 'locked' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center"><Lock size={18} className="text-white" strokeWidth={1.5} /></div></div>}
         {state === 'redeemed' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center"><CheckCircle2 size={18} className="text-white" strokeWidth={1.5} /></div></div>}
-        <span className="absolute bottom-2 right-3 text-[11px] text-white/80 bg-black/30 px-2 py-0.5 rounded-full">{t('bis', 'until')} {v.expiry}</span>
+        <span className="absolute bottom-2 right-3 text-[11px] font-medium text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]">{t('bis', 'until')} {v.expiry}</span>
       </div>
       <div className="p-4 flex items-center justify-between gap-3">
         <div>
@@ -3443,7 +3440,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                   weggefallenen Leiste. Sie gehören dorthin, wo man sie
                   abarbeitet — ans Dashboard. */}
               {id === 'dashboard' && openOutstandingAlerts > 0 && (
-                <span className={`ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${page === id ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+                <span className={`ml-auto text-[12px] font-bold tabular-nums ${page === id ? 'text-white' : 'text-red-600 dark:text-red-300'}`}>
                   {openOutstandingAlerts}
                 </span>
               )}
@@ -4369,11 +4366,11 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               </div>
                             </td>
                             <td className="px-6 py-3.5">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.role === 'Admin' ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : u.role === 'Manager' ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500'}`}>{roleLabel(u.role)}</span>
+                              <span className={`text-[13px] ${u.role === 'Admin' ? 'font-semibold text-gray-900 dark:text-white' : u.role === 'Manager' ? 'font-medium text-gray-700 dark:text-gray-300' : 'font-medium text-gray-500 dark:text-gray-500'}`}>{roleLabel(u.role)}</span>
                             </td>
                             <td className="px-6 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{store.branches.find(b => b.id === u.branchId)?.name ?? t('Alle Filialen', 'All branches')}</td>
                             <td className="px-6 py-3.5">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${u.status === 'aktiv' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : u.status === 'eingeladen' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'}`}>{statusLabel(u.status)}</span>
+                              <span className={`text-[13px] font-medium ${u.status === 'aktiv' ? 'text-emerald-700 dark:text-emerald-300' : u.status === 'eingeladen' ? 'text-amber-700 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}`}>{statusLabel(u.status)}</span>
                               {u.status === 'eingeladen' && (
                                 <p className="text-[11px] text-gray-400 mt-1">{t('kann sich noch nicht anmelden', 'cannot sign in yet')}</p>
                               )}
@@ -4883,7 +4880,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 </div>
                               </td>
                               <td className="px-5 py-3.5">
-                                <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">{catLabel(dish.cat)}</span>
+                                <span className="text-[13px] text-gray-500 dark:text-gray-400">{catLabel(dish.cat)}</span>
                               </td>
                               <td className="px-5 py-3.5">
                                 {dish.ratingsCount > 0 ? (
@@ -4901,9 +4898,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                                 {branch ? (
                                   <DishAvailabilityToggle dish={dish} branch={branch} />
                                 ) : dish.branchIds == null ? (
-                                  <span className="text-[12px] text-gray-400">{t('Alle', 'All')}</span>
+                                  <span className="text-[13px] text-gray-400">{t('Alle', 'All')}</span>
                                 ) : (
-                                  <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                                  <span className="text-[13px] font-medium text-amber-700 dark:text-amber-400">
                                     {t(`${dish.branchIds.length} von ${store.branches.length}`, `${dish.branchIds.length} of ${store.branches.length}`)}
                                   </span>
                                 )}
@@ -4997,16 +4994,16 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             {store.redemptions.map(r => {
                               // Grün = eingelöst (der Normalfall). Bernstein nur
                               // noch für Altbestand aus der Zeit der Frist.
-                              const badge = r.status === 'eingelöst'
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              const statusCls = r.status === 'eingelöst'
+                                ? 'text-emerald-700 dark:text-emerald-300'
                                 : r.status === 'entwertet' || r.status === 'offen'
-                                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                                  : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400';
+                                  ? 'text-amber-700 dark:text-amber-400'
+                                  : 'text-gray-500 dark:text-gray-400';
                               return (
                                 <tr key={r.id} className="border-b border-gray-50 dark:border-gray-800 last:border-0">
                                   <td className="px-5 py-3.5 text-[14px] font-medium text-gray-900 dark:text-white">{r.voucherTitle}</td>
                                   <td className="px-5 py-3.5">
-                                    <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${badge}`}>{r.status === 'eingelöst' ? t('eingelöst', 'redeemed') : r.status === 'entwertet' ? t('entwertet', 'voided') : r.status}</span>
+                                    <span className={`text-[13px] font-medium ${statusCls}`}>{r.status === 'eingelöst' ? t('eingelöst', 'redeemed') : r.status === 'entwertet' ? t('entwertet', 'voided') : r.status}</span>
                                   </td>
                                   <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{r.tableNumber ?? '—'}</td>
                                   <td className="px-5 py-3.5 text-[14px] text-gray-600 dark:text-gray-400">{r.points}</td>
@@ -5074,7 +5071,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                             <div className="p-4 space-y-2">
                               <div className="flex items-start justify-between gap-2">
                                 <p className="text-[14px] font-semibold text-gray-900 dark:text-white leading-snug">{v.title}</p>
-                                <span className="text-[11px] px-2 py-1 rounded-full font-medium text-white flex-shrink-0" style={{ backgroundColor: 'var(--ba)' }}>{v.points} P</span>
+                                <span className="text-[13px] font-semibold flex-shrink-0" style={{ color: 'var(--ba)' }}>{v.points} P</span>
                               </div>
                               <p className="text-[12px] flex items-center gap-1.5 text-gray-400">
                                 <Clock size={11} strokeWidth={1.5} />

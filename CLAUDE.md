@@ -511,14 +511,21 @@ Was das Dashboard daraus macht:
   sonst laufen Legende und Diagramm irgendwann auseinander. Die zwei Begriffe
   darüber („Hoch", „Viele") stehen in der Akzentfarbe, der Rest ist
   gewöhnlicher Text.
-- **Eine Bewertung wird nie als Badge, Chip oder Pill gezeigt** — nicht im
-  Dashboard, nicht im Menü, nicht auf der Bewertungsseite. Kein getönter oder
-  eingefärbter Hintergrund, kein Container, kein Rahmen, kein Radius: gefülltes
-  Stern-Icon plus Wert direkt daneben (`gap-1.5`, ~6px), und die Hervorhebung
-  trägt allein die Schrift- und Icon-Farbe — Grün ab 4,0, `WEAK_RATING_DEFAULT`
-  darunter, `STAR_COLOR` für den Sammelwert einer Rezension. Die Menütabelle
-  hatte hier lange eine getönte Pille; sie ist raus, `weakRatingStyle` (der
-  `color-mix`-Hintergrund) mit ihr.
+- **Keine Pillen, nirgends.** Ein kurzes Label — Rolle, Status, Kategorie,
+  Punktepreis, Einlöse-Status, Zähler, Punktestand des Gasts — steht als
+  reiner Text, nie in einem getönten oder gefüllten Container mit Radius. Die
+  Bedeutung trägt allein Schrift (Größe, Gewicht), Farbe und ggf. ein Icon
+  daneben; die Ampelfarbe eines Status wird zur Schriftfarbe, nicht zur Fläche.
+  Das galt zuerst nur für Bewertungen und gilt jetzt für die ganze App —
+  Gastansicht wie Verwaltung. Wer ein neues Label baut, gibt ihm kein
+  `rounded-*`, kein `bg-*` und kein `px/py`. (Ausgenommen sind echte Bauteile:
+  Knöpfe, runde Avatare/Icon-Kreise, Fortschrittsbalken, Schalter,
+  Alarm-Banner — die sind keine Labels.)
+- **Eine Bewertung** im Besonderen: gefülltes Stern-Icon plus Wert direkt
+  daneben (`gap-1.5`, ~6px), Hervorhebung nur über Schrift- und Icon-Farbe —
+  Grün ab 4,0, `WEAK_RATING_DEFAULT` darunter, `STAR_COLOR` für den Sammelwert
+  einer Rezension. Die Menütabelle hatte hier lange eine getönte Pille; sie ist
+  raus, `weakRatingStyle` (der `color-mix`-Hintergrund) mit ihr.
 
 ## Fallstricke
 
