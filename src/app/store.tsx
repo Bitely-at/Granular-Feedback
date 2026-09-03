@@ -745,7 +745,10 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   }, [orgSlug]);
 
   const saveTableOrder = useCallback(async (branchSlug: string, tableNumber: number, cart: Record<string, number>) => {
-    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart }) }));
+    // Nur tatsächlich gewählte Gerichte: ein auf 0 heruntergezähltes bleibt im
+    // Warenkorb-Objekt stehen und würde vom Server als ungültige Menge abgelehnt.
+    const picked = Object.fromEntries(Object.entries(cart).filter(([, q]) => q > 0));
+    setState(await call<OrgState>(`/branches/${branchSlug}/tables/${tableNumber}/order`, { method: 'POST', body: JSON.stringify({ cart: picked }) }));
   }, [call]);
 
   // Der Server antwortet mit dem vollständigen neuen Zustand — die Oberfläche

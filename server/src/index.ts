@@ -951,8 +951,16 @@ router.post('/branches/:branchSlug/tables/:number/order', staffOrAdmin(withBranc
     const cartRaw = (req.body?.cart ?? {}) as Record<string, unknown>;
     const cart: Record<string, number> = {};
     for (const [dishId, qty] of Object.entries(cartRaw)) {
+      // Menge 0 heißt: im Warenkorb wieder abgewählt. Die Oberfläche lässt den
+      // Schlüssel dann stehen — hier übergehen, statt requireQty daran scheitern
+      // zu lassen.
+      const n = Number(qty ?? 0);
+      if (!Number.isFinite(n) || n <= 0) continue;
       requireObjectId(dishId, 'dishId');
-      cart[dishId] = requireQty(qty);
+      cart[dishId] = requireQty(n);
+    }
+    if (Object.keys(cart).length === 0) {
+      throw new HttpError(400, 'Der Warenkorb enthält kein Gericht.');
     }
     const table = await findTableInBranch(req, number);
     if (!table) {
