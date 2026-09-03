@@ -417,12 +417,20 @@ Drei Stellen fragen ein Modell (SDK `@anthropic-ai/sdk`): der
   sonst wartet der Gast Sekunden vor einem hängenden „Wird gesendet…".
   Der fertige Text wird an der Bewertung abgelegt — Neuladen gibt denselben.
 - **Der Wochenrückblick liegt in `settings._id: 'insights'`**, je Reichweite
-  (Filial-ID oder `'all'`) einmal, und wird erneuert, wenn er älter als einen
-  Tag ist. Ein Rückblick, der sich bei jedem Neuladen ändert, liest sich wie
-  ein Zufallstext — und kostet jedes Mal. Erzeugt wird er in einer eigenen
-  Route (`POST /insights/highlight`), damit das Dashboard sofort steht.
+  UND Sprache (`<Filial-ID|'all'>:<de|en>`) einmal, und wird erneuert, wenn er
+  älter als einen Tag ist. Ein Rückblick, der sich bei jedem Neuladen ändert,
+  liest sich wie ein Zufallstext — und kostet jedes Mal. Erzeugt wird er in
+  einer eigenen Route (`POST /insights/highlight`), damit das Dashboard sofort
+  steht.
+- **Der Rückblick kommt in der Sprache der Verwaltung.** Das Frontend hängt
+  `?lang=` (aus `localStorage['bitely.lang']`) an `POST /insights/highlight` und
+  `GET /insights`; der Server (`highlightLangOf`) wählt darüber System-Prompt,
+  Vorlage (`fallbackHighlight`) und die Namens-Rückfälle. Deshalb der
+  Sprach-Anteil im Cache-Schlüssel — sonst teilten sich ein deutscher und ein
+  englischer Betrachter denselben Text. Alteinträge ohne Sprach-Suffix werden
+  einmalig neu erzeugt.
 - **Der Rückblick gibt Empfehlungen, der Rezensionstext bleibt nüchtern.**
-  `HIGHLIGHT_SYSTEM` verlangt zwei Absätze — was sich verändert hat, dann
+  `HIGHLIGHT_SYSTEM_DE`/`HIGHLIGHT_SYSTEM_EN` verlangen zwei Absätze — was sich verändert hat, dann
   „Woran ich arbeiten würde:" mit zwei bis vier Empfehlungen, jede an einer
   Zahl oder Anmerkung aus den Daten festgemacht (keine allgemeinen Ratschläge).
   Läuft auf `effort: 'medium'`, weil das mehr ist als eine Zusammenfassung.
