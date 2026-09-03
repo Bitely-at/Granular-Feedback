@@ -520,7 +520,7 @@ Was das Dashboard daraus macht:
   Gastansicht wie Verwaltung. Wer ein neues Label baut, gibt ihm kein
   `rounded-*`, kein `bg-*` und kein `px/py`. (Ausgenommen sind echte Bauteile:
   Knöpfe, runde Avatare/Icon-Kreise, Fortschrittsbalken, Schalter,
-  Alarm-Banner — die sind keine Labels.)
+  Fehler-/Hinweisbanner — die sind keine Labels.)
 - **Eine Bewertung** im Besonderen: gefülltes Stern-Icon plus Wert direkt
   daneben (`gap-1.5`, ~6px), Hervorhebung nur über Schrift- und Icon-Farbe —
   Grün ab 4,0, `WEAK_RATING_DEFAULT` darunter, `STAR_COLOR` für den Sammelwert

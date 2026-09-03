@@ -20,7 +20,7 @@ import {
   StoreProvider, useStore, dishAvg, sinceLabel, tableItemCount, compressImageFile, isAdminRole,
   BRAND_FONTS, BRAND_CARD_STYLES,
   availableIn, voucherExpired, pointsFor,
-  type Dish, type TableRow, type Voucher, type AdminUser, type Alert, type DishRatingInput, type Brand,
+  type Dish, type TableRow, type Voucher, type AdminUser, type DishRatingInput, type Brand,
   type Branch, type BranchScope, type Redemption, type PointsRule,
   // Highlight heißt auch ein DOM-Typ (CSS Custom Highlight API) — der Import
   // hier überdeckt ihn in dieser Datei, sonst greift TypeScript zum falschen.
@@ -1574,22 +1574,12 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
     offen: 'bg-white dark:bg-gray-800 border-orange-500 text-gray-600 dark:text-white',
   };
 
-  const openAlerts = store.alerts.filter(a => !a.resolved && a.branchId === branch.id);
-
-  // Alle paar Sekunden nachladen, damit neue Bestellungen, Tischwechsel und
-  // Alarme ohne Zutun erscheinen. Gutschein-Einlösungen tauchen hier bewusst
-  // NICHT mehr als Banner auf — der Wisch des Gastes entwertet endgültig, mehr
-  // muss die Servicekraft dazu nicht tun. Die Übersicht steht in der
-  // Verwaltung unter „Einlösungen".
+  // Alle paar Sekunden nachladen, damit neue Bestellungen und Tischwechsel
+  // ohne Zutun erscheinen.
   useEffect(() => {
     const iv = setInterval(() => { store.refresh(); }, 12000);
     return () => clearInterval(iv);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const openTableByNumber = (number: number) => {
-    const t = branchTables.find(x => x.number === number);
-    if (t) { setActiveTableNumber(t.number); setScreen('detail'); }
-  };
 
   // Bestellung buchen: Gerichte aus dem Warenkorb auf den Tisch schreiben.
   const handleSaveOrder = async () => {
@@ -1659,20 +1649,6 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
 
   return (
     <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0D1117] flex flex-col">
-      <AnimatePresence>
-        {openAlerts.map(a => (
-          <motion.div key={a.id} initial={{ y: -56 }} animate={{ y: 0 }} exit={{ y: -56 }}
-            className="bg-amber-100 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-900 px-5 py-2.5 flex items-center gap-3 z-40 relative">
-            <AlertTriangle size={16} className="text-amber-700 dark:text-amber-400 flex-shrink-0" />
-            <p className="text-[13px] text-amber-900 dark:text-amber-200 flex-1">
-              Tisch {a.tableNumber} · {a.dishName} · {a.stars}★{a.note ? ` · „${a.note}"` : ''}
-            </p>
-            <button onClick={() => openTableByNumber(a.tableNumber)} className="text-amber-800 dark:text-amber-300 text-[12px] font-medium underline">Ansehen</button>
-            <button onClick={() => store.resolveAlert(a.id)} className="text-amber-800 dark:text-amber-300 text-[12px] font-medium underline">Erledigt</button>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-
       <header className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
         <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 h-14">
           {screen !== 'tables' && (
@@ -1718,9 +1694,6 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
             {[...branchTables].sort((a, b) => a.number - b.number).map(t => (
               <button key={t.id} onClick={() => { setActiveTableNumber(t.number); setScreen('detail'); }}
                 className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-3 transition-all hover:scale-105 active:scale-95 relative ${statusCls[t.status]}`}>
-                {openAlerts.some(a => a.tableNumber === t.number) && (
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-amber-500" />
-                )}
                 <span className="text-2xl font-bold">{t.number}</span>
                 <span className="text-[10px] font-semibold mt-0.5 uppercase tracking-wide opacity-70">
                   {t.status === 'frei' ? 'Frei' : 'Bewertung offen'}
@@ -1749,7 +1722,11 @@ function WaiterApp({ orgSlug, branch }: { orgSlug: string; branch: Branch }) {
             <div className="mb-4"><TabBar tabs={['Speisen', 'Getränke']} active={tab} onChange={setTab} /></div>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {store.dishes.filter(d => d.cat === tab && (search === '' || d.name.toLowerCase().includes(search.toLowerCase()))).map(dish => (
+                {/* Nur was diese Filiale führt: ein Admin/Manager bekommt über
+                    fullMenu ALLE Gerichte der Kette, auch die hier abgeschalteten
+                    — die ließen sich nicht buchen (assertDishesAvailable) und
+                    hätten am Tisch nichts zu suchen. */}
+                {store.dishes.filter(d => d.cat === tab && availableIn(d, branch.id) && (search === '' || d.name.toLowerCase().includes(search.toLowerCase()))).map(dish => (
                   <button key={dish.id} onClick={() => setCart(p => ({ ...p, [dish.id]: (p[dish.id] || 0) + 1 }))}
                     className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-3 text-left relative hover:border-gray-300 dark:hover:border-gray-600 transition-all active:scale-95 shadow-sm">
                     {(cart[dish.id] || 0) > 0 && (
@@ -3125,8 +3102,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     });
   }, [insights]);
 
-  const openOutstandingAlerts = store.alerts.filter(a => !a.resolved).length;
-
   // Gültig und abgelaufen getrennt. Sortiert nach Punkten — die Gutscheinseite
   // liest sich damit wie eine Preisliste, von der billigsten Belohnung aufwärts.
   const activeVouchers = useMemo(
@@ -3436,14 +3411,6 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-colors ${page === id ? 'text-white font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'}`}
               style={page === id ? { backgroundColor: 'var(--ba, #16A34A)' } : {}}>
               <Icon size={15} strokeWidth={1.5} />{label}
-              {/* Offene Alarme hingen an einem Glockensymbol in der
-                  weggefallenen Leiste. Sie gehören dorthin, wo man sie
-                  abarbeitet — ans Dashboard. */}
-              {id === 'dashboard' && openOutstandingAlerts > 0 && (
-                <span className={`ml-auto text-[12px] font-bold tabular-nums ${page === id ? 'text-white' : 'text-red-600 dark:text-red-300'}`}>
-                  {openOutstandingAlerts}
-                </span>
-              )}
             </button>
           ))}
         </nav>
