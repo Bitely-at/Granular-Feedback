@@ -2981,7 +2981,9 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
       .catch(err => { if (!cancelled) setInsightsError(err instanceof Error ? err.message : 'Auswertung fehlgeschlagen.'); })
       .finally(() => { if (!cancelled) setInsightsLoading(false); });
     return () => { cancelled = true; };
-  }, [range, custom.from, custom.to, branchFilter, branch?.id, store.fetchInsights]); // eslint-disable-line react-hooks/exhaustive-deps
+    // uiLang: wechselt die Verwaltungssprache, holt das der KI-Rückblick in der
+    // neuen Sprache nach (er wird serverseitig je Sprache getrennt gehalten).
+  }, [range, custom.from, custom.to, branchFilter, branch?.id, uiLang, store.fetchInsights]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Den Wochenrückblick nachreichen, sobald klar ist, dass keiner vorliegt
   // oder der vorhandene von gestern ist. Getrennt von der Auswertung, weil ein

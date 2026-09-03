@@ -337,6 +337,14 @@ export function tableItemCount(t: TableRow): number {
 // der Server hat CORS bereits offen, ein Cross-Origin-Aufruf funktioniert also direkt.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
+// Sprache der Verwaltung (localStorage `bitely.lang`, gesetzt in i18n.tsx).
+// Hier direkt gelesen statt über den Context, weil diese Aufrufe außerhalb
+// der React-Bäume laufen. Der KI-Rückblick geht damit in derselben Sprache
+// heraus, in der die Verwaltung gerade angezeigt wird.
+function adminLang(): 'de' | 'en' {
+  try { return localStorage.getItem('bitely.lang') === 'en' ? 'en' : 'de'; } catch { return 'de'; }
+}
+
 // Das Sitzungs-Token liegt pro Organisation getrennt, damit ein Wechsel zwischen
 // zwei Mandanten im selben Browser nicht das jeweils andere Token überschreibt.
 const tokenKey = (orgSlug: string) => `bitely.token.${orgSlug}`;
@@ -888,17 +896,22 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
 
   // Auswertung und Rückblick ersetzen den Zustand NICHT — sie sind eine Sicht
   // auf dieselben Daten, kein neuer Stand. Deshalb kein setState hier.
+  // `lang` steuert die Sprache des KI-Rückblicks: er wird je Sprache getrennt
+  // zwischengespeichert, damit ein Wechsel der Verwaltungssprache ihn neu holt.
   const fetchInsights = useCallback((from: string | null, to: string | null, branchIds?: string[] | null) => {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (branchIds && branchIds.length > 0) params.set('branches', branchIds.join(','));
+    params.set('lang', adminLang());
     const query = params.toString();
     return call<Insights>(`/insights${query ? `?${query}` : ''}`);
   }, [call]);
 
   const refreshHighlight = useCallback(async () => {
-    const { highlight } = await call<{ highlight: Highlight }>('/insights/highlight', { method: 'POST' });
+    const { highlight } = await call<{ highlight: Highlight }>(
+      `/insights/highlight?lang=${adminLang()}`, { method: 'POST' }
+    );
     return highlight;
   }, [call]);
 

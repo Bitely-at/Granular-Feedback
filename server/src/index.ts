@@ -2120,9 +2120,17 @@ async function collectInsights(
   };
 }
 
-/** Unter welchem Schlüssel der Rückblick dieser Reichweite liegt. */
+/** Sprache des Rückblicks aus der Anfrage — die Verwaltung sagt, welche sie
+ *  gerade anzeigt. Alles außer 'en' zählt als Deutsch. */
+function highlightLangOf(req: OrgRequest): 'de' | 'en' {
+  return String(req.query.lang) === 'en' ? 'en' : 'de';
+}
+
+/** Unter welchem Schlüssel der Rückblick liegt — je Reichweite UND Sprache,
+ *  damit ein deutscher und ein englischer Betrachter nicht denselben Text
+ *  teilen. Alteinträge ohne Sprach-Suffix werden einmalig neu erzeugt. */
 function highlightKey(req: OrgRequest): string {
-  return scopeOf(req) ?? 'all';
+  return `${scopeOf(req) ?? 'all'}:${highlightLangOf(req)}`;
 }
 
 async function storedHighlight(req: OrgRequest) {
@@ -2191,9 +2199,10 @@ router.post('/insights/highlight', branchAdmin(async (req: OrgRequest, res) => {
   const dishDocs = await db.collection<DishDoc>('dishes').find({}).toArray();
   const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
 
+  const lang = highlightLangOf(req);
   const input: HighlightInput = {
-    restaurantName: brandDoc?.name ?? 'Das Restaurant',
-    scopeName: branch?.name ?? 'alle Filialen',
+    restaurantName: brandDoc?.name ?? (lang === 'en' ? 'The restaurant' : 'Das Restaurant'),
+    scopeName: branch?.name ?? (lang === 'en' ? 'all branches' : 'alle Filialen'),
     current: { reviews: thisWeek.totals.reviews, avg: thisWeek.totals.avg },
     previous: { reviews: lastWeek.totals.reviews, avg: lastWeek.totals.avg },
     best: solid.slice(0, 5),
@@ -2205,7 +2214,7 @@ router.post('/insights/highlight', branchAdmin(async (req: OrgRequest, res) => {
   };
 
   const apiKey = await callerApiKey(req);
-  const result = await generateHighlight(input, apiKey);
+  const result = await generateHighlight(input, apiKey, lang);
   const entry = {
     text: result.text, generatedAt: now, source: result.source,
     reviewCount: thisWeek.totals.reviews,

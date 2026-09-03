@@ -73,7 +73,9 @@ export interface HighlightResult {
   source: 'llm' | 'fallback';
 }
 
-const HIGHLIGHT_SYSTEM = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber. Sie will wissen, was diese Woche zählt und was sie daraus machen kann.
+export type HighlightLang = 'de' | 'en';
+
+const HIGHLIGHT_SYSTEM_DE = `Du schreibst den Wochenrückblick im Dashboard eines Restaurants. Leser ist die Inhaberin oder der Betreiber. Sie will wissen, was diese Woche zählt und was sie daraus machen kann.
 
 Aufbau, zwei Absätze:
 - Erster Absatz: was sich verändert hat. Schnitt und Zahl der Bewertungen gegen die Vorwoche, die auffälligsten Gerichte beim Namen mit ihrer Sternzahl und der Zahl der Bewertungen dahinter. Wenn Gäste dasselbe mehrfach anmerken, steht das hier.
@@ -89,9 +91,40 @@ Regeln:
 
 Gib ausschließlich den Rückblick aus.`;
 
+const HIGHLIGHT_SYSTEM_EN = `You write the weekly review in a restaurant's dashboard. The reader is the owner or operator. They want to know what mattered this week and what they can do about it.
+
+Structure, two paragraphs:
+- First paragraph: what changed. The average and number of ratings against last week, the most notable dishes by name with their star count and the number of ratings behind them. If guests raise the same point repeatedly, it belongs here.
+- Second paragraph, opened with the sentence "What I would work on:": two to four concrete recommendations. Each tied to a number or a comment from the data, for example a dish with a low average and recurring criticism, an ingredient or preparation named repeatedly, or a strong dish that deserves more attention.
+
+Rules:
+- English prose, full sentences, no bullet points.
+- About 120 to 200 words.
+- Every recommendation must follow from the data. No generic advice that would apply to any restaurant.
+- Invent nothing. Only what is in the data. If there are too few ratings for a statement, say so and give fewer recommendations accordingly.
+- No marketing tone, no filler, no emojis.
+- No dashes. Where one would go, use a comma or a full stop.
+
+Output only the review.`;
+
 /** Aus den Zahlen gerechnet — Notausgang ohne Schlüssel oder bei Fehlern. */
-export function fallbackHighlight(input: HighlightInput): string {
+export function fallbackHighlight(input: HighlightInput, lang: HighlightLang = 'de'): string {
   const { current, previous, best, worst } = input;
+  if (lang === 'en') {
+    if (current.reviews === 0) {
+      return 'No ratings came in over the last seven days. The review appears here once guests rate again.';
+    }
+    const parts: string[] = [];
+    const diff = current.avg - previous.avg;
+    const trend = previous.reviews === 0 ? 'with no prior week to compare'
+      : Math.abs(diff) < 0.1 ? 'about the same as the week before'
+      : diff > 0 ? `${diff.toFixed(1)} stars more than the week before`
+      : `${Math.abs(diff).toFixed(1)} stars less than the week before`;
+    parts.push(`${current.reviews} ${current.reviews === 1 ? 'rating' : 'ratings'} in the last seven days, averaging ${current.avg.toFixed(1)} stars, ${trend}.`);
+    if (best[0]) parts.push(`${best[0].name} did best (${best[0].avg.toFixed(1)} stars from ${best[0].count} ratings).`);
+    if (worst[0] && worst[0].avg < 3.5) parts.push(`The weakest item is ${worst[0].name} at ${worst[0].avg.toFixed(1)} stars.`);
+    return parts.join(' ');
+  }
   if (current.reviews === 0) {
     return 'In den letzten sieben Tagen ist keine Bewertung eingegangen. Sobald Gäste wieder bewerten, steht hier der Rückblick.';
   }
@@ -107,16 +140,33 @@ export function fallbackHighlight(input: HighlightInput): string {
   return parts.join(' ');
 }
 
-export async function generateHighlight(input: HighlightInput, apiKey?: string | null): Promise<HighlightResult> {
+export async function generateHighlight(input: HighlightInput, apiKey?: string | null, lang: HighlightLang = 'de'): Promise<HighlightResult> {
   const anthropic = claudeClient(apiKey);
   if (!anthropic || input.current.reviews === 0) {
-    return { text: fallbackHighlight(input), source: 'fallback' };
+    return { text: fallbackHighlight(input, lang), source: 'fallback' };
   }
 
+  const en = lang === 'en';
   const list = (rows: { name: string; avg: number; count: number }[]) =>
-    rows.length === 0 ? '  (keine)' : rows.map(r => `  - ${r.name}: ${r.avg.toFixed(1)} Sterne aus ${r.count} Bewertungen`).join('\n');
+    rows.length === 0 ? (en ? '  (none)' : '  (keine)')
+      : rows.map(r => `  - ${r.name}: ${r.avg.toFixed(1)} ${en ? 'stars from' : 'Sterne aus'} ${r.count} ${en ? 'ratings' : 'Bewertungen'}`).join('\n');
 
-  const brief = [
+  const brief = en ? [
+    `Restaurant: ${input.restaurantName} — ${input.scopeName}`,
+    '',
+    'Last seven days:',
+    `  ${input.current.reviews} ratings, average ${input.current.avg.toFixed(2)}`,
+    'The seven days before that:',
+    `  ${input.previous.reviews} ratings, average ${input.previous.avg.toFixed(2)}`,
+    '',
+    'Best dishes:', list(input.best),
+    'Weakest dishes:', list(input.worst),
+    '',
+    'Guest comments:',
+    input.notes.length === 0 ? '  (none)' : input.notes.map(n => `  - ${n.dish} (${n.stars}/5): ${n.note}`).join('\n'),
+    '',
+    'Write the weekly review from this.',
+  ].join('\n') : [
     `Restaurant: ${input.restaurantName} — ${input.scopeName}`,
     '',
     'Letzte sieben Tage:',
@@ -140,7 +190,7 @@ export async function generateHighlight(input: HighlightInput, apiKey?: string |
       // 'medium' statt 'low': aus den Zahlen echte Empfehlungen abzuleiten ist
       // mehr als eine Zusammenfassung. Läuft nur einmal am Tag je Filiale.
       output_config: { effort: 'medium' },
-      system: HIGHLIGHT_SYSTEM,
+      system: en ? HIGHLIGHT_SYSTEM_EN : HIGHLIGHT_SYSTEM_DE,
       messages: [{ role: 'user', content: brief }],
       // Lehnt das Modell aus Policy-Gründen ab, beantwortet Anthropic die
       // Anfrage automatisch mit einem Ersatzmodell. Nur hier: der Rückblick
@@ -151,17 +201,17 @@ export async function generateHighlight(input: HighlightInput, apiKey?: string |
     });
 
     if (response.stop_reason === 'refusal') {
-      return { text: fallbackHighlight(input), source: 'fallback' };
+      return { text: fallbackHighlight(input, lang), source: "fallback" };
     }
     logUsage('wochenrückblick', response);
     const text = response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map(b => b.text).join('\n').trim();
-    if (!text) return { text: fallbackHighlight(input), source: 'fallback' };
+    if (!text) return { text: fallbackHighlight(input, lang), source: "fallback" };
     return { text, source: 'llm' };
   } catch (err) {
     console.error('Wochenrückblick konnte nicht erzeugt werden:', err);
-    return { text: fallbackHighlight(input), source: 'fallback' };
+    return { text: fallbackHighlight(input, lang), source: "fallback" };
   }
 }
 
