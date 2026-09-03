@@ -35,6 +35,18 @@ import { BitelyWordmark } from './components/BitelyWordmark';
 import { useT, useLang, LANGS, pick, type Lang } from './i18n';
 import { SwipeToRedeem } from './components/SwipeToRedeem';
 
+/**
+ * Übersetzen in der Gastansicht. Anders als `useT` (Gerät wählt) richtet sich
+ * die Gastansicht nach dem Betrieb: `brand.guestLang`, gesetzt in Design →
+ * Sprache der Gastansicht. Steht sie auf Englisch, MUSS die ganze Gastansicht
+ * englisch sein — jeder Text hier läuft über `t(de, en)`, kein nackter String.
+ */
+function useGuestT() {
+  const store = useStore();
+  const gl: Lang = store.brand?.guestLang ?? 'de';
+  return (de: string, en: string) => pick(gl, de, en);
+}
+
 // ═══════════════════════════════════════════════════════════
 // DECORATIVE / REFERENCE DATA (kein Mandanten-Bezug)
 // ═══════════════════════════════════════════════════════════
@@ -131,7 +143,7 @@ function BranchIcon({ size = 16, className }: { size?: number; className?: strin
   );
 }
 
-function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: (v: number) => void; size?: number }) {
+function StarRating({ value, onChange, size = 22, lang = 'de' }: { value: number; onChange?: (v: number) => void; size?: number; lang?: Lang }) {
   const [hov, setHov] = useState(0);
   const fill = hov || value;
   return (
@@ -139,7 +151,7 @@ function StarRating({ value, onChange, size = 22 }: { value: number; onChange?: 
       {[1, 2, 3, 4, 5].map(s => (
         <button key={s} onClick={() => onChange?.(s)}
           onMouseEnter={() => onChange && setHov(s)} onMouseLeave={() => onChange && setHov(0)}
-          aria-label={onChange ? `${s} von 5 Sternen` : undefined}
+          aria-label={onChange ? pick(lang, `${s} von 5 Sternen`, `${s} out of 5 stars`) : undefined}
           className={`p-0.5 rounded transition-transform active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white ${onChange ? 'cursor-pointer' : 'cursor-default'}`}>
           <Star size={size} fill={s <= fill ? STAR_COLOR : 'none'}
             stroke={s <= fill ? STAR_COLOR : '#D1D5DB'} strokeWidth={1.5} />
@@ -199,13 +211,18 @@ function SecondaryBtn({ children, onClick, full }: { children: React.ReactNode; 
   );
 }
 
-function TabBar({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (t: string) => void }) {
+function TabBar({ tabs, active, onChange, label }: {
+  tabs: string[]; active: string; onChange: (t: string) => void;
+  // Der Reiter-Wert bleibt die Kennung (oft ein DB-Wert wie 'Speisen'); `label`
+  // übersetzt nur die Beschriftung. Ohne `label` steht der Wert selbst da.
+  label?: (t: string) => string;
+}) {
   return (
     <div className="flex border-b border-gray-200 dark:border-gray-800">
       {tabs.map(t => (
         <button key={t} onClick={() => onChange(t)}
           className={`px-4 py-2.5 text-[13px] font-medium transition-colors relative ${active === t ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}>
-          {t}
+          {label ? label(t) : t}
           {active === t && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ backgroundColor: 'var(--ba, #16A34A)' }} />
           )}
@@ -369,10 +386,14 @@ function NetworkErrorPage({ onRetry }: { onRetry: () => void | Promise<void> }) 
 // untereinander und lässt das Papier die Arbeit machen.
 // ═══════════════════════════════════════════════════════════
 
-function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', onRate, onToggleExpand, onNoteChange }: {
+function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', lang = 'de', onRate, onToggleExpand, onNoteChange }: {
   dish: Dish; stars: number; note: string; expanded: boolean; cardStyle?: NonNullable<Brand['cardStyle']>;
+  // Sprache der Gastansicht (brand.guestLang). Die Karte läuft im echten
+  // Gast-Flow und in der Design-Vorschau — beide reichen sie durch.
+  lang?: Lang;
   onRate: (v: number) => void; onToggleExpand: () => void; onNoteChange: (v: string) => void;
 }) {
+  const tr = (de: string, en: string) => pick(lang, de, en);
   // Der Auslöser braucht eine eigene Kennung, damit `aria-controls` auf etwas
   // zeigt — bei mehreren Gerichten untereinander sonst mehrfach dieselbe.
   const noteId = `anmerkung-${dish.id}`;
@@ -383,7 +404,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
         <motion.div id={noteId} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
           <div className="px-5 pb-5">
             <textarea rows={2} value={note} onChange={e => onNoteChange(e.target.value)}
-              placeholder={stars > 0 && stars <= 3 ? 'Was war nicht gut? (optional)' : 'Was ist dir aufgefallen? (optional)'}
+              placeholder={stars > 0 && stars <= 3 ? tr('Was war nicht gut? (optional)', 'What could have been better? (optional)') : tr('Was ist dir aufgefallen? (optional)', 'Anything you noticed? (optional)')}
               className="w-full text-[14px] text-gray-700 dark:text-gray-200 placeholder:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-xl px-3.5 py-3 outline-none resize-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white" />
           </div>
         </motion.div>
@@ -415,7 +436,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
       className={`-ml-2 px-2 min-h-[44px] flex items-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors ${FOCUS_RING}
         ${note.trim() ? 'text-gray-700 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}>
       <MessageSquare size={15} strokeWidth={1.75} />
-      {expanded ? 'Anmerkung ausblenden' : note.trim() ? 'Anmerkung bearbeiten' : 'Anmerkung hinzufügen'}
+      {expanded ? tr('Anmerkung ausblenden', 'Hide note') : note.trim() ? tr('Anmerkung bearbeiten', 'Edit note') : tr('Anmerkung hinzufügen', 'Add a note')}
       <ChevronDown size={15} strokeWidth={2} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
     </button>
   );
@@ -427,7 +448,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
         <div className="px-5 py-5">
           <p className="text-[19px] font-medium text-gray-900 dark:text-white leading-tight">{dish.name}</p>
           <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-0.5">{dish.price.toFixed(2)} €</p>
-          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={30} /></div>
+          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={30} lang={lang} /></div>
           <div className="mt-1">{noteToggle}</div>
         </div>
         {notesBlock}
@@ -442,7 +463,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
           <img src={dish.img} alt={dish.name} className="w-12 h-12 rounded-[12px] object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-800" />
           <div className="flex-1 min-w-0">
             <p className="text-[15px] font-medium text-gray-900 dark:text-white leading-tight truncate">{dish.name}</p>
-            <div className="mt-1 -ml-1"><StarRating value={stars} onChange={onRate} size={22} /></div>
+            <div className="mt-1 -ml-1"><StarRating value={stars} onChange={onRate} size={22} lang={lang} /></div>
             {noteToggle}
           </div>
         </div>
@@ -461,7 +482,7 @@ function DishRatingCard({ dish, stars, note, expanded, cardStyle = 'standard', o
           {/* Große Trefferfläche: gewischt und getippt wird am Tisch, oft
               einhändig, und ein danebengegangener Stern ist ärgerlicher als
               ein paar Pixel mehr Platz. */}
-          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={28} /></div>
+          <div className="mt-3 -ml-1"><StarRating value={stars} onChange={onRate} size={28} lang={lang} /></div>
           <div className="mt-1">{noteToggle}</div>
         </div>
       </div>
@@ -519,6 +540,7 @@ function PointsExplainer({ rule, points, loggedIn }: {
   rule: PointsRule; points: number; loggedIn: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const t = useGuestT();
   // `?.` ist Absicht: fehlt die Regel (älterer Server), bleibt der Block aus,
   // statt die ganze Ansicht mitzureißen.
   if (!(rule?.perDish > 0)) return null;
@@ -529,15 +551,15 @@ function PointsExplainer({ rule, points, loggedIn }: {
         <Zap size={16} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--ba)' }} />
         <div className="min-w-0">
           <p className="text-[14px] leading-relaxed text-gray-700 dark:text-gray-200">
-            Für jedes Gericht, das du bewertest, bekommst du{' '}
-            <strong className="font-semibold text-gray-900 dark:text-white">{rule.perDish} Punkte</strong>.
-            Je mehr du bewertest, desto mehr Punkte.
+            {t('Für jedes Gericht, das du bewertest, bekommst du', 'For every dish you rate, you get')}{' '}
+            <strong className="font-semibold text-gray-900 dark:text-white">{rule.perDish} {t('Punkte', 'points')}</strong>.
+            {' '}{t('Je mehr du bewertest, desto mehr Punkte.', 'The more you rate, the more points.')}
           </p>
           <button onClick={() => setOpen(o => !o)}
             aria-expanded={open} aria-controls="punkte-erklaerung"
             className="mt-1 -ml-1 px-1 min-h-[44px] flex items-center gap-1 text-[13px] font-medium rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
             style={{ color: 'var(--ba)' }}>
-            {open ? 'Weniger' : 'Mehr erfahren'}
+            {open ? t('Weniger', 'Less') : t('Mehr erfahren', 'Learn more')}
             <ChevronDown size={15} strokeWidth={2} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
         </div>
@@ -549,10 +571,10 @@ function PointsExplainer({ rule, points, loggedIn }: {
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden">
             <div className="pt-1 pl-[26px] space-y-2 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400">
-              <p>Für die abgeschickte Bewertung kommen {rule.perReview} Punkte dazu.</p>
-              <p>Deine Punkte sammeln sich auf deinem Konto und gelten in allen Filialen.</p>
-              <p>Ab einem bestimmten Stand schaltest du Gutscheine frei und löst sie direkt am Tisch ein.</p>
-              {loggedIn && <p className="text-gray-600 dark:text-gray-300">Du hast gerade {points} Punkte.</p>}
+              <p>{t(`Für die abgeschickte Bewertung kommen ${rule.perReview} Punkte dazu.`, `Submitting the review adds another ${rule.perReview} points.`)}</p>
+              <p>{t('Deine Punkte sammeln sich auf deinem Konto und gelten in allen Filialen.', 'Your points collect in your account and count at every location.')}</p>
+              <p>{t('Ab einem bestimmten Stand schaltest du Gutscheine frei und löst sie direkt am Tisch ein.', 'Once you reach a certain level you unlock vouchers and redeem them right at the table.')}</p>
+              {loggedIn && <p className="text-gray-600 dark:text-gray-300">{t(`Du hast gerade ${points} Punkte.`, `You currently have ${points} points.`)}</p>}
             </div>
           </motion.div>
         )}
@@ -584,10 +606,12 @@ function PointsExplainer({ rule, points, loggedIn }: {
 function GuestPointsChip({ points, loggedIn, live = 0, onClick }: {
   points: number; loggedIn: boolean; live?: number; onClick?: () => void;
 }) {
-  const label = loggedIn ? `${points} Pkt.` : live > 0 ? `${live} Pkt. offen` : '0 Pkt.';
+  const t = useGuestT();
+  const pts = t('Pkt.', 'pts');
+  const label = loggedIn ? `${points} ${pts}` : live > 0 ? `${live} ${pts} ${t('offen', 'pending')}` : `0 ${pts}`;
   const aria = loggedIn
-    ? `${points} Punkte auf deinem Konto`
-    : live > 0 ? `${live} Punkte, noch nicht gesichert` : 'Noch keine Punkte';
+    ? t(`${points} Punkte auf deinem Konto`, `${points} points in your account`)
+    : live > 0 ? t(`${live} Punkte, noch nicht gesichert`, `${live} points, not yet saved`) : t('Noch keine Punkte', 'No points yet');
 
   const body = (
     <>
@@ -610,7 +634,7 @@ function GuestPointsChip({ points, loggedIn, live = 0, onClick }: {
     return <span className={`${look} h-8`} style={color} aria-label={aria}>{body}</span>;
   }
   return (
-    <button onClick={onClick} aria-label={`${aria}. Punkte und Gutscheine ansehen`}
+    <button onClick={onClick} aria-label={`${aria}. ${t('Punkte und Gutscheine ansehen', 'View points and vouchers')}`}
       className={`${look} min-h-[44px] transition-transform active:scale-95 ${FOCUS_RING}`} style={color}>
       {body}
     </button>
@@ -619,6 +643,13 @@ function GuestPointsChip({ points, loggedIn, live = 0, onClick }: {
 
 function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number }) {
   const store = useStore();
+  // Die Sprache der Gastansicht gibt der Betrieb vor (brand.guestLang), nicht
+  // das Gerät. `t` übersetzt am Aufrufort, ohne Schlüssel. Steht guestLang auf
+  // Englisch, ist die GANZE Gastansicht englisch — jeder Text hier läuft über `t`.
+  const gl: Lang = store.brand?.guestLang ?? 'de';
+  const t = (de: string, en: string) => pick(gl, de, en);
+  // Reiter-Beschriftungen: der Wert bleibt die Kennung, `t` übersetzt die Anzeige.
+  const tabLabel = (map: Record<string, string>) => (x: string) => map[x] ?? x;
   const [screen, setScreen] = useState<GuestScreen>('welcome');
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -758,7 +789,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
       setPts(0);
       go('thanks');
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Absenden fehlgeschlagen. Bitte versuch es erneut.');
+      setSubmitError(err instanceof Error ? err.message : t('Absenden fehlgeschlagen. Bitte versuch es erneut.', 'Submitting failed. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -786,7 +817,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   if (!table) {
     return (
       <FullScreenMessage error>
-        Tisch {tableNumber} gibt es in der Filiale {branch.name} nicht. Bitte scanne den QR-Code am Tisch erneut.
+        {t(`Tisch ${tableNumber} gibt es in der Filiale ${branch.name} nicht. Bitte scanne den QR-Code am Tisch erneut.`,
+           `Table ${tableNumber} does not exist at ${branch.name}. Please scan the QR code on the table again.`)}
       </FullScreenMessage>
     );
   }
@@ -794,11 +826,6 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
   // Was hier steht, hängt daran, ob es überhaupt etwas zu bewerten gibt. Eine
   // eigene Leerzustands-Box dafür gibt es nicht: sie würde den Aufbau aus Bild,
   // Schlagzeile und Fuß auseinanderreißen.
-  // Die Sprache der Gastansicht gibt der Betrieb vor (brand.guestLang), nicht
-  // das Gerät. `t` übersetzt am Aufrufort, ohne Schlüssel.
-  const gl = store.brand?.guestLang ?? 'de';
-  const t = (de: string, en: string) => pick(gl, de, en);
-
   const hasOrder = tableDishes.length > 0;
   const welcomeText = hasOrder
     ? t('Ein kurzes Feedback hilft uns, jeden Abend besonders zu machen. Es dauert nur eine Minute.',
@@ -856,8 +883,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <BrandLogo brand={store.brand} size={44} textSize={38} rounded="rounded-xl" />
               <button
                 onClick={() => store.guest.loggedIn ? openProfile('welcome') : setAuthOpen(true)}
-                title={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
-                aria-label={store.guest.loggedIn ? 'Dein Konto' : 'Anmelden'}
+                title={store.guest.loggedIn ? t('Dein Konto', 'Your account') : t('Anmelden', 'Sign in')}
+                aria-label={store.guest.loggedIn ? t('Dein Konto', 'Your account') : t('Anmelden', 'Sign in')}
                 className={`w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-transform active:scale-95 shadow-sm border border-black/5 dark:border-white/10 ${FOCUS_RING}`}
                 style={store.guest.loggedIn
                   ? { backgroundColor: 'var(--ba, #16A34A)' }
@@ -962,7 +989,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             <PointsExplainer rule={store.pointsRule} points={store.guest.points} loggedIn={store.guest.loggedIn} />
             {tableDishes.map(dish => (
               <DishRatingCard key={dish.id} dish={dish} stars={ratings[dish.id] || 0} note={notes[dish.id] ?? ''}
-                expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'}
+                expanded={expanded.has(dish.id)} cardStyle={store.brand?.cardStyle ?? 'standard'} lang={gl}
                 onRate={v => {
                   setRatings(p => ({ ...p, [dish.id]: v }));
                   // Aufklappen an den Rändern der Skala: wer ein Gericht sehr
@@ -995,7 +1022,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   </p>
                   <span className="text-[13px] text-gray-400 tabular-nums">{overall[key] > 0 ? `${overall[key]}/5` : ''}</span>
                 </div>
-                <div className="-ml-1"><StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={34} /></div>
+                <div className="-ml-1"><StarRating value={overall[key]} onChange={v => setOverall(p => ({ ...p, [key]: v }))} size={34} lang={gl} /></div>
               </div>
             ))}
             <div className="h-8" />
@@ -1055,29 +1082,29 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               gerade erledigt hat. */}
           {missedPts > 0 && !store.guest.loggedIn ? (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-4">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Punkte</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">{t('Deine Punkte', 'Your points')}</p>
               <p className="text-[44px] font-bold tracking-tight leading-none" style={{ color: 'var(--ba, #16A34A)' }}>+{missedPts}</p>
               <p className="text-[15px] text-gray-600 dark:text-gray-300 leading-relaxed">
-                Deine Bewertung ist angekommen. Die Punkte warten auf ein Konto:
-                ohne Anmeldung können wir sie niemandem gutschreiben.
+                {t('Deine Bewertung ist angekommen. Die Punkte warten auf ein Konto: ohne Anmeldung können wir sie niemandem gutschreiben.',
+                   'Your rating has arrived. The points are waiting for an account: without signing in we cannot credit them to anyone.')}
               </p>
-              <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
+              <PrimaryBtn onClick={() => setAuthOpen(true)}>{t('Punkte sichern', 'Save my points')}</PrimaryBtn>
               <p className="text-[12px] text-gray-400 leading-relaxed">
-                Ohne Konto kannst du weiterhin alles bewerten. Die Punkte dafür
-                werden dann nur nirgends gutgeschrieben.
+                {t('Ohne Konto kannst du weiterhin alles bewerten. Die Punkte dafür werden dann nur nirgends gutgeschrieben.',
+                   'You can still rate everything without an account. The points for it just will not be credited anywhere.')}
               </p>
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Verdiente Punkte</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">{t('Verdiente Punkte', 'Points earned')}</p>
               <p className="text-[44px] font-bold tracking-tight leading-none mt-2 mb-5" style={{ color: 'var(--ba, #16A34A)' }}>+{pts}</p>
               <div className="bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden mb-2">
                 <motion.div initial={{ width: 0 }} animate={{ width: `${nextRewardPoints == null ? 100 : Math.min(100, (store.guest.points / nextRewardPoints) * 100)}%` }} transition={{ delay: 0.6, duration: 1.2 }}
                   className="h-full rounded-full" style={{ backgroundColor: 'var(--ba, #16A34A)' }} />
               </div>
               <div className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400">
-                <span>{store.guest.points} Pkt. insgesamt</span>
-                <span>{nextRewardPoints == null ? 'keine weitere Belohnung offen' : `${nextRewardPoints} Pkt. = nächste Belohnung`}</span>
+                <span>{t(`${store.guest.points} Pkt. insgesamt`, `${store.guest.points} pts total`)}</span>
+                <span>{nextRewardPoints == null ? t('keine weitere Belohnung offen', 'no further reward open') : t(`${nextRewardPoints} Pkt. = nächste Belohnung`, `${nextRewardPoints} pts = next reward`)}</span>
               </div>
             </div>
           )}
@@ -1092,10 +1119,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <MessageSquare size={16} strokeWidth={1.5} style={{ color: 'var(--ba)' }} />
-                  <p className="text-[17px] font-medium text-gray-900 dark:text-white">Auch öffentlich teilen?</p>
+                  <p className="text-[17px] font-medium text-gray-900 dark:text-white">{t('Auch öffentlich teilen?', 'Share it publicly too?')}</p>
                 </div>
                 <p className="text-[14px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Aus deiner Bewertung ist dieser Text entstanden. Kopieren, bei Google einfügen, fertig.
+                  {t('Aus deiner Bewertung ist dieser Text entstanden. Kopieren, bei Google einfügen, fertig.',
+                     'This text was written from your rating. Copy it, paste it into Google, done.')}
                 </p>
               </div>
               {reviewTextPending && !reviewText ? (
@@ -1117,12 +1145,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                         } catch { /* ohne Zwischenablage bleibt das Markieren von Hand */ }
                       }}
                       className="flex-1 h-[48px] rounded-[14px] text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors flex items-center justify-center gap-1.5">
-                      {copied ? <><Check size={15} strokeWidth={2.5} /> Kopiert</> : 'Text kopieren'}
+                      {copied ? <><Check size={15} strokeWidth={2.5} /> {t('Kopiert', 'Copied')}</> : t('Text kopieren', 'Copy text')}
                     </button>
                     <a href={reviewText.mapsUrl} target="_blank" rel="noreferrer"
                       className="flex-1 h-[48px] rounded-[14px] text-[14px] font-medium text-white text-center transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
                       style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                      <MapPin size={15} strokeWidth={2} /> Bei Google
+                      <MapPin size={15} strokeWidth={2} /> {t('Bei Google', 'On Google')}
                     </a>
                   </div>
                 </>
@@ -1137,12 +1165,13 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               dreimal dasselbe tun. Es bleibt bei einer Aufforderung. */}
           {store.guest.loggedIn && (
             <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-7 space-y-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deine Gutscheine</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">{t('Deine Gutscheine', 'Your vouchers')}</p>
               {unlockedVouchers.length === 0 ? (
                 <p className="text-[14px] text-gray-500 dark:text-gray-400">
                   {nextRewardPoints == null
-                    ? 'Zurzeit sind keine weiteren Gutscheine verfügbar.'
-                    : `Noch kein Gutschein freigeschaltet. Es fehlen ${nextRewardPoints - store.guest.points} Punkte.`}
+                    ? t('Zurzeit sind keine weiteren Gutscheine verfügbar.', 'No further vouchers are available right now.')
+                    : t(`Noch kein Gutschein freigeschaltet. Es fehlen ${nextRewardPoints - store.guest.points} Punkte.`,
+                        `No voucher unlocked yet. ${nextRewardPoints - store.guest.points} points to go.`)}
                 </p>
               ) : unlockedVouchers.map(v => (
                 <VoucherCard key={v.id} v={v} state="available" onAction={() => openVouchers('thanks')} />
@@ -1173,14 +1202,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 was er sonst noch hat, statt einen vorgesetzt zu bekommen. */}
             {store.guest.loggedIn && (
               <PrimaryBtn onClick={() => openVouchers('thanks')}>
-                Punkte &amp; Gutscheine ansehen
+                {t('Punkte & Gutscheine ansehen', 'View points & vouchers')}
               </PrimaryBtn>
             )}
             {/* Auch der Dank-Bildschirm braucht einen Ausgang: sonst führt der
                 einzige Weg zurück über das Neuladen der Seite. */}
             <button onClick={() => go('welcome')}
               className={`w-full min-h-[44px] rounded-xl text-[14px] font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors ${FOCUS_RING}`}>
-              Zurück zum Start
+              {t('Zurück zum Start', 'Back to start')}
             </button>
             <PoweredByBitely />
           </div>
@@ -1191,13 +1220,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="vouchers" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go(vouchersBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
+              <button onClick={() => go(vouchersBack)} aria-label={t('Zurück', 'Back')} className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">Deine Gutscheine</p>
+              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">{t('Deine Gutscheine', 'Your vouchers')}</p>
               <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn} />
             </div>
-            <div className="px-4 pb-3"><TabBar tabs={['Verfügbar', 'Gesperrt', 'Eingelöst']} active={vTab} onChange={setVTab} /></div>
+            <div className="px-4 pb-3"><TabBar tabs={['Verfügbar', 'Gesperrt', 'Eingelöst']} active={vTab} onChange={setVTab}
+              label={tabLabel({ 'Verfügbar': t('Verfügbar', 'Available'), 'Gesperrt': t('Gesperrt', 'Locked'), 'Eingelöst': t('Eingelöst', 'Redeemed') })} /></div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {/* Ohne Konto ist hier nichts zu holen: einlösen setzt eines voraus,
@@ -1205,12 +1235,12 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                 der Liste, nicht erst in die Fehlermeldung nach dem Wischen. */}
             {!store.guest.loggedIn ? (
               <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3 text-center">
-                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gutscheine brauchen ein Konto</p>
+                <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Gutscheine brauchen ein Konto', 'Vouchers need an account')}</p>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Punkte sammeln und einlösen geht nur mit Anmeldung. Sonst wüssten
-                  wir nicht, wem die Punkte gehören.
+                  {t('Punkte sammeln und einlösen geht nur mit Anmeldung. Sonst wüssten wir nicht, wem die Punkte gehören.',
+                     'Collecting and redeeming points only works when you sign in. Otherwise we would not know whose points they are.')}
                 </p>
-                <PrimaryBtn onClick={() => setAuthOpen(true)}>Punkte sichern</PrimaryBtn>
+                <PrimaryBtn onClick={() => setAuthOpen(true)}>{t('Punkte sichern', 'Save my points')}</PrimaryBtn>
               </div>
             ) : (
               /* Der Weg ins eigene Konto. Er war eine 12-Pixel-Zeile in Grau
@@ -1226,7 +1256,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   {(store.guest.name ?? store.guest.email ?? '?').slice(0, 1).toUpperCase()}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">Dein Konto</span>
+                  <span className="block text-[14px] font-medium text-gray-900 dark:text-white truncate">{t('Dein Konto', 'Your account')}</span>
                   <span className="block text-[12px] text-gray-500 dark:text-gray-400 truncate">{store.guest.name ?? store.guest.email}</span>
                 </span>
                 <ChevronLeft size={16} className="rotate-180 flex-shrink-0 text-gray-400" strokeWidth={2} />
@@ -1234,11 +1264,11 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             )}
 
             {vTab === 'Verfügbar' && (unlockedVouchers.length === 0
-              ? <EmptyState icon={Zap} title="Noch nichts verfügbar" desc="Sammle weiter Punkte durch Bewertungen. Dein nächster Gutschein wartet." />
+              ? <EmptyState icon={Zap} title={t('Noch nichts verfügbar', 'Nothing available yet')} desc={t('Sammle weiter Punkte durch Bewertungen. Dein nächster Gutschein wartet.', 'Keep collecting points with ratings. Your next voucher is waiting.')} />
               : unlockedVouchers.map(v => <VoucherCard key={v.id} v={v} state="available" onAction={() => setRedeeming(v)} />))}
             {vTab === 'Gesperrt' && lockedVouchers.map(v => <VoucherCard key={v.id} v={v} state="locked" pointsMissing={v.points - store.guest.points} />)}
             {vTab === 'Eingelöst' && (redeemedVouchers.length === 0
-              ? <EmptyState icon={CheckCircle2} title="Noch nichts eingelöst" desc="Eingelöste Gutscheine erscheinen hier." />
+              ? <EmptyState icon={CheckCircle2} title={t('Noch nichts eingelöst', 'Nothing redeemed yet')} desc={t('Eingelöste Gutscheine erscheinen hier.', 'Redeemed vouchers appear here.')} />
               : redeemedVouchers.map(v => {
                   // Eingelöst: der Gast kann den Bildschirm mit dem Häkchen
                   // jederzeit wieder aufmachen und der Servicekraft zeigen,
@@ -1259,10 +1289,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
         <motion.div key="profile" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col flex-1 min-h-0">
           <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
             <div className="flex items-center gap-2 px-4 py-3">
-              <button onClick={() => go(profileBack)} aria-label="Zurück" className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
+              <button onClick={() => go(profileBack)} aria-label={t('Zurück', 'Back')} className={`w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${FOCUS_RING}`}>
                 <ChevronLeft size={20} strokeWidth={1.5} className="text-gray-600 dark:text-gray-300" />
               </button>
-              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">Dein Konto</p>
+              <p className="flex-1 text-[15px] font-semibold text-gray-900 dark:text-white truncate">{t('Dein Konto', 'Your account')}</p>
               <GuestPointsChip points={store.guest.points} loggedIn={store.guest.loggedIn}
                 onClick={() => openVouchers('profile')} />
             </div>
@@ -1274,7 +1304,7 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   {(store.guest.name ?? store.guest.email ?? '?').slice(0, 1).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[16px] font-semibold text-gray-900 dark:text-white truncate">{store.guest.name ?? 'Gast'}</p>
+                  <p className="text-[16px] font-semibold text-gray-900 dark:text-white truncate">{store.guest.name ?? t('Gast', 'Guest')}</p>
                   <p className="text-[13px] text-gray-500 dark:text-gray-400 truncate">{store.guest.email}</p>
                 </div>
               </div>
@@ -1285,8 +1315,8 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                   er schon verbraucht hat, ging zurück und suchte den Reiter. */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 {([
-                  ['Punkte', String(store.guest.points), 'Verfügbar'],
-                  ['Eingelöst', String(store.guest.redeemed.length), 'Eingelöst'],
+                  [t('Punkte', 'Points'), String(store.guest.points), 'Verfügbar'],
+                  [t('Eingelöst', 'Redeemed'), String(store.guest.redeemed.length), 'Eingelöst'],
                 ] as const).map(([label, value, tab]) => (
                   <button key={label} onClick={() => openVouchers('profile', tab)}
                     className={`bg-gray-50 dark:bg-gray-900 rounded-xl p-3.5 text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${FOCUS_RING}`}>
@@ -1298,11 +1328,10 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
-              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Eigener API-Schlüssel</p>
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Eigener API-Schlüssel', 'Your own API key')}</p>
               <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                Mit einem eigenen Anthropic-Schlüssel schreibt die KI deinen
-                Rezensionstext — sonst springt {store.brand?.name ?? 'das Restaurant'} auf eine
-                Vorlage. Der Schlüssel wird verschlüsselt gespeichert und dir nie wieder angezeigt.
+                {t(`Mit einem eigenen Anthropic-Schlüssel schreibt die KI deinen Rezensionstext — sonst springt ${store.brand?.name ?? 'das Restaurant'} auf eine Vorlage. Der Schlüssel wird verschlüsselt gespeichert und dir nie wieder angezeigt.`,
+                   `With your own Anthropic key the AI writes your review text — otherwise ${store.brand?.name ?? 'the restaurant'} falls back to a template. The key is stored encrypted and never shown to you again.`)}
               </p>
               {apiKeyError && <p className="text-[12px] text-red-500">{apiKeyError}</p>}
               {apiKeyOpen ? (
@@ -1311,70 +1340,71 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                     placeholder="sk-ant-…" autoComplete="off"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-[14px] text-gray-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-white" />
                   <div className="flex gap-2">
-                    <SecondaryBtn onClick={() => { setApiKeyOpen(false); setApiKeyInput(''); setApiKeyError(null); }}>Abbrechen</SecondaryBtn>
+                    <SecondaryBtn onClick={() => { setApiKeyOpen(false); setApiKeyInput(''); setApiKeyError(null); }}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
                     <button disabled={apiKeySaving || !apiKeyInput.trim()} onClick={async () => {
                         setApiKeySaving(true); setApiKeyError(null);
                         try {
                           await store.setGuestApiKey(apiKeyInput.trim());
                           setApiKeyOpen(false); setApiKeyInput('');
                         } catch (err) {
-                          setApiKeyError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+                          setApiKeyError(err instanceof Error ? err.message : t('Speichern fehlgeschlagen.', 'Saving failed.'));
                         } finally {
                           setApiKeySaving(false);
                         }
                       }}
                       className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white transition-colors disabled:opacity-50"
                       style={{ backgroundColor: 'var(--ba, #16A34A)' }}>
-                      {apiKeySaving ? 'Speichert…' : 'Speichern'}
+                      {apiKeySaving ? t('Speichert…', 'Saving…') : t('Speichern', 'Save')}
                     </button>
                   </div>
                 </div>
               ) : store.guestUser?.hasApiKey ? (
                 <div className="space-y-2">
-                  <p className="text-[13px] text-gray-700 dark:text-gray-300">Schlüssel hinterlegt.</p>
+                  <p className="text-[13px] text-gray-700 dark:text-gray-300">{t('Schlüssel hinterlegt.', 'Key saved.')}</p>
                   {confirmRemoveApiKey ? (
                     <div className="flex gap-2">
-                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(false)}>Abbrechen</SecondaryBtn>
+                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(false)}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
                       <button onClick={async () => { await store.removeGuestApiKey(); setConfirmRemoveApiKey(false); }}
                         className="flex-1 py-3 rounded-xl text-[14px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                        Ja, entfernen
+                        {t('Ja, entfernen', 'Yes, remove')}
                       </button>
                     </div>
                   ) : (
                     <div className="flex gap-2">
-                      <SecondaryBtn onClick={() => setApiKeyOpen(true)}>Ersetzen</SecondaryBtn>
-                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(true)}>Entfernen</SecondaryBtn>
+                      <SecondaryBtn onClick={() => setApiKeyOpen(true)}>{t('Ersetzen', 'Replace')}</SecondaryBtn>
+                      <SecondaryBtn onClick={() => setConfirmRemoveApiKey(true)}>{t('Entfernen', 'Remove')}</SecondaryBtn>
                     </div>
                   )}
                 </div>
               ) : (
                 <button onClick={() => setApiKeyOpen(true)}
                   className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                  Schlüssel hinzufügen
+                  {t('Schlüssel hinzufügen', 'Add a key')}
                 </button>
               )}
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
               <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                Deine Punkte hängen an diesem Konto und gelten in allen Filialen von {store.brand?.name}.
+                {t(`Deine Punkte hängen an diesem Konto und gelten in allen Filialen von ${store.brand?.name}.`,
+                   `Your points belong to this account and count at every ${store.brand?.name} location.`)}
               </p>
               <button onClick={async () => { await store.guestLogout(); go('welcome'); }}
                 className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                Abmelden
+                {t('Abmelden', 'Sign out')}
               </button>
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 space-y-3">
-              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Konto löschen</p>
+              <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Konto löschen', 'Delete account')}</p>
               <p className="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                Punkte und eingelöste Gutscheine verfallen dabei. Deine abgegebenen
-                Bewertungen bleiben beim Restaurant. Sie hängen am Tisch, nicht an dir.
+                {t('Punkte und eingelöste Gutscheine verfallen dabei. Deine abgegebenen Bewertungen bleiben beim Restaurant. Sie hängen am Tisch, nicht an dir.',
+                   'Points and redeemed vouchers are lost. The ratings you submitted stay with the restaurant. They belong to the table, not to you.')}
               </p>
               {deleteError && <p className="text-[12px] text-red-500">{deleteError}</p>}
               {confirmDelete ? (
                 <div className="flex gap-2">
-                  <SecondaryBtn onClick={() => setConfirmDelete(false)}>Abbrechen</SecondaryBtn>
+                  <SecondaryBtn onClick={() => setConfirmDelete(false)}>{t('Abbrechen', 'Cancel')}</SecondaryBtn>
                   <button onClick={async () => {
                       setDeleteError(null);
                       try {
@@ -1382,17 +1412,17 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
                         setConfirmDelete(false);
                         go('welcome');
                       } catch (err) {
-                        setDeleteError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+                        setDeleteError(err instanceof Error ? err.message : t('Löschen fehlgeschlagen.', 'Deleting failed.'));
                       }
                     }}
                     className="flex-1 py-3 rounded-xl text-[14px] font-medium text-white bg-red-600 hover:bg-red-700 transition-colors">
-                    Endgültig löschen
+                    {t('Endgültig löschen', 'Delete permanently')}
                   </button>
                 </div>
               ) : (
                 <button onClick={() => setConfirmDelete(true)}
                   className="w-full py-3 rounded-xl text-[14px] font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                  Konto löschen
+                  {t('Konto löschen', 'Delete account')}
                 </button>
               )}
             </div>
@@ -1423,13 +1453,14 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
               <div className="p-4 pb-0">
                 <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-4" />
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[15px] font-semibold text-gray-900 dark:text-white">Gericht hinzufügen</p>
+                  <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{t('Gericht hinzufügen', 'Add a dish')}</p>
                   <button onClick={() => setShowSheet(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
                     <X size={16} className="text-gray-500" />
                   </button>
                 </div>
-                <SField value={sheetQ} onChange={setSheetQ} placeholder="Gericht suchen…" />
-                <div className="mt-3"><TabBar tabs={['Speisen', 'Getränke']} active={sheetTab} onChange={setSheetTab} /></div>
+                <SField value={sheetQ} onChange={setSheetQ} placeholder={t('Gericht suchen…', 'Search dishes…')} />
+                <div className="mt-3"><TabBar tabs={['Speisen', 'Getränke']} active={sheetTab} onChange={setSheetTab}
+                  label={tabLabel({ 'Speisen': t('Speisen', 'Food'), 'Getränke': t('Getränke', 'Drinks') })} /></div>
               </div>
               {/* Das Blatt schließt SOFORT, nicht erst nach der Antwort des
                   Servers: es stand sonst eine gefühlte Ewigkeit offen, und wer
@@ -1475,6 +1506,7 @@ function VoucherCard({ v, state, onAction, pointsMissing, pending }: {
   // Bildschirm, den der Gast vorzeigt.
   pending?: boolean;
 }) {
+  const t = useGuestT();
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden ${state !== 'available' ? 'opacity-70' : ''}`}>
       <div className="h-28 relative">
@@ -1482,18 +1514,18 @@ function VoucherCard({ v, state, onAction, pointsMissing, pending }: {
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         {state === 'locked' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center"><Lock size={18} className="text-white" strokeWidth={1.5} /></div></div>}
         {state === 'redeemed' && <div className="absolute inset-0 flex items-center justify-center"><div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center"><CheckCircle2 size={18} className="text-white" strokeWidth={1.5} /></div></div>}
-        <span className="absolute bottom-2 right-3 text-[11px] text-white/80 bg-black/30 px-2 py-0.5 rounded-full">bis {v.expiry}</span>
+        <span className="absolute bottom-2 right-3 text-[11px] text-white/80 bg-black/30 px-2 py-0.5 rounded-full">{t('bis', 'until')} {v.expiry}</span>
       </div>
       <div className="p-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-[14px] font-medium text-gray-900 dark:text-white">{v.title}</p>
-          <p className="text-[12px] text-gray-400">{v.points} Punkte</p>
+          <p className="text-[12px] text-gray-400">{v.points} {t('Punkte', 'points')}</p>
         </div>
-        {state === 'locked' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">noch {pointsMissing} Pkt.</span>}
+        {state === 'locked' && <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">{t(`noch ${pointsMissing} Pkt.`, `${pointsMissing} pts to go`)}</span>}
         {state === 'redeemed' && (pending
-          ? <button onClick={onAction} className={`text-[13px] font-semibold px-4 min-h-[44px] rounded-xl whitespace-nowrap text-white ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Vorzeigen</button>
-          : <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">Eingelöst</span>)}
-        {state === 'available' && <button onClick={onAction} className={`text-[14px] font-semibold px-5 min-h-[44px] rounded-xl text-white whitespace-nowrap active:scale-[0.98] transition-transform ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>Einlösen</button>}
+          ? <button onClick={onAction} className={`text-[13px] font-semibold px-4 min-h-[44px] rounded-xl whitespace-nowrap text-white ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>{t('Vorzeigen', 'Show')}</button>
+          : <span className="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg whitespace-nowrap">{t('Eingelöst', 'Redeemed')}</span>)}
+        {state === 'available' && <button onClick={onAction} className={`text-[14px] font-semibold px-5 min-h-[44px] rounded-xl text-white whitespace-nowrap active:scale-[0.98] transition-transform ${FOCUS_RING}`} style={{ backgroundColor: 'var(--ba, #16A34A)' }}>{t('Einlösen', 'Redeem')}</button>}
       </div>
     </div>
   );
@@ -4294,7 +4326,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
                               Bildschirm weiter. */}
                           <div className="border-t border-gray-100 dark:border-gray-800">
                             {previewDish ? (
-                              <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle}
+                              <DishRatingCard dish={previewDish} stars={previewStars} note="" expanded={false} cardStyle={brandForm.cardStyle} lang={brandForm.guestLang}
                                 onRate={setPreviewStars} onToggleExpand={() => {}} onNoteChange={() => {}} />
                             ) : (
                               <div className="w-full h-24 bg-gray-50 dark:bg-gray-800/50" />
@@ -5490,6 +5522,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
  */
 function GuestAuthSheet({ onClose }: { onClose: () => void }) {
   const store = useStore();
+  const t = useGuestT();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [form, setForm] = useState({ email: '', name: '', password: '' });
   const [error, setError] = useState<string | null>(null);
@@ -5503,7 +5536,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
       await fn();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Hat nicht geklappt. Bitte erneut versuchen.');
+      setError(err instanceof Error ? err.message : t('Hat nicht geklappt. Bitte erneut versuchen.', 'That did not work. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -5528,8 +5561,9 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
           <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full" />
 
           <AuthHeader
-            title="Punkte sichern"
-            subtitle="Deine Punkte hängen an deinem Konto. Damit sind sie auf jedem Gerät da, auch beim nächsten Besuch."
+            title={t('Punkte sichern', 'Save your points')}
+            subtitle={t('Deine Punkte hängen an deinem Konto. Damit sind sie auf jedem Gerät da, auch beim nächsten Besuch.',
+                        'Your points belong to your account. That way they are there on every device, and on your next visit too.')}
           />
 
           {/* Google steht ZUERST. Es ist der kürzeste Weg zu einem Konto: kein
@@ -5537,19 +5571,19 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
               Formular direkt darunter. Ohne hinterlegte Client-ID entfällt der
               ganze Block, statt eine tote Reihe zu zeigen. */}
           {store.authOptions.google && (
-            <AuthSocialRow placeholders={false} label="Am schnellsten"
+            <AuthSocialRow placeholders={false} label={t('Am schnellsten', 'Fastest')}
               googleSlot={<div ref={googleRef} className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0" />} />
           )}
 
           <div className="w-full flex flex-col gap-3">
             {mode === 'register' && (
-              <AuthInput icon={User} type="text" placeholder="Dein Name" value={form.name}
+              <AuthInput icon={User} type="text" placeholder={t('Dein Name', 'Your name')} value={form.name}
                 onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
             )}
-            <AuthInput icon={Mail} type="email" placeholder="E-Mail" autoComplete="email" value={form.email}
+            <AuthInput icon={Mail} type="email" placeholder={t('E-Mail', 'Email')} autoComplete="email" value={form.email}
               onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
             <AuthPasswordInput value={form.password}
-              placeholder={mode === 'login' ? 'Passwort' : 'Passwort (mind. 8 Zeichen)'}
+              placeholder={mode === 'login' ? t('Passwort', 'Password') : t('Passwort (mind. 8 Zeichen)', 'Password (at least 8 characters)')}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
               onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
@@ -5557,7 +5591,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
 
           {mode === 'login' && (
             <div className="w-full flex justify-end -mt-1">
-              <ForgotPasswordLink />
+              <ForgotPasswordLink label={t('Passwort vergessen?', 'Forgot password?')} title={t('Bald verfügbar', 'Coming soon')} />
             </div>
           )}
 
@@ -5565,7 +5599,7 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
 
           <AuthPrimaryButton onClick={submit} disabled={busy}>
             {busy && <Loader2 size={15} className="animate-spin" />}
-            {busy ? 'Einen Moment…' : mode === 'login' ? 'Anmelden' : 'Konto anlegen'}
+            {busy ? t('Einen Moment…', 'One moment…') : mode === 'login' ? t('Anmelden', 'Sign in') : t('Konto anlegen', 'Create account')}
           </AuthPrimaryButton>
 
           {/* Anmelden und Registrieren sind nicht zwei Angebote, sondern zwei
@@ -5573,11 +5607,11 @@ function GuestAuthSheet({ onClose }: { onClose: () => void }) {
               Knopf neben dem ersten. */}
           <button onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(null); }}
             className="w-full min-h-[44px] text-[13px] font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-600">
-            {mode === 'login' ? 'Noch kein Konto? Jetzt anlegen' : 'Schon ein Konto? Anmelden'}
+            {mode === 'login' ? t('Noch kein Konto? Jetzt anlegen', 'No account yet? Create one') : t('Schon ein Konto? Anmelden', 'Already have an account? Sign in')}
           </button>
           <button onClick={onClose}
             className="w-full min-h-[44px] text-[13px] rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-600">
-            Ohne Konto weiter
+            {t('Ohne Konto weiter', 'Continue without an account')}
           </button>
         </div>
       </motion.div>
@@ -5589,6 +5623,7 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
   branch: Branch; voucher: Voucher; tableNumber: number; onClose: () => void;
 }) {
   const store = useStore();
+  const t = useGuestT();
   const [started, setStarted] = useState<Redemption | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -5644,7 +5679,7 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
             <div className="space-y-5">
               <div className="text-center">
                 <p className="text-[19px] font-bold text-gray-900 dark:text-white">{voucher.title}</p>
-                <p className="text-[13px] text-gray-400 mt-1">{voucher.points} Punkte · {branch.name}</p>
+                <p className="text-[13px] text-gray-400 mt-1">{voucher.points} {t('Punkte', 'points')} · {branch.name}</p>
               </div>
               {/* Der Wisch gilt für JEDEN Gutschein, auch für einen ohne
                   Punktepreis. Er ist nicht nur eine Sperre gegen den
@@ -5658,13 +5693,15 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
                   kostet, steht dagegen dabei — sie ist nicht umkehrbar. */}
               <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center leading-relaxed max-w-[280px] mx-auto">
                 {voucher.points > 0
-                  ? <>Wischen bucht die {voucher.points} Punkte sofort ab. Erst danach zeigst du ihn der Servicekraft.</>
-                  : <>Wischen entwertet den Gutschein sofort. Erst danach zeigst du ihn der Servicekraft.</>}
+                  ? t(`Wischen bucht die ${voucher.points} Punkte sofort ab. Erst danach zeigst du ihn der Servicekraft.`,
+                      `Swiping deducts the ${voucher.points} points right away. Only then do you show it to the staff.`)
+                  : t('Wischen entwertet den Gutschein sofort. Erst danach zeigst du ihn der Servicekraft.',
+                      'Swiping redeems the voucher right away. Only then do you show it to the staff.')}
               </p>
               {error && <p className="text-[13px] text-red-600 dark:text-red-400 text-center">{error}</p>}
               <SwipeToRedeem onRedeem={start} redeemed={busy} />
               <button onClick={onClose} className="w-full text-[13px] py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                Abbrechen
+                {t('Abbrechen', 'Cancel')}
               </button>
             </div>
           )}
@@ -5701,20 +5738,20 @@ function RedemptionSheet({ branch, voucher, tableNumber, onClose }: {
               </div>
 
               <div>
-                <p className="text-[26px] font-bold tracking-tight text-gray-900 dark:text-white">Eingelöst</p>
+                <p className="text-[26px] font-bold tracking-tight text-gray-900 dark:text-white">{t('Eingelöst', 'Redeemed')}</p>
                 <p className="text-[17px] font-medium mt-1" style={{ color: 'var(--ba, #16A34A)' }}>{live.voucherTitle}</p>
                 {live.tableNumber != null && (
-                  <p className="text-[13px] text-gray-400 mt-1">Tisch {live.tableNumber}</p>
+                  <p className="text-[13px] text-gray-400 mt-1">{t(`Tisch ${live.tableNumber}`, `Table ${live.tableNumber}`)}</p>
                 )}
                 <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed max-w-[280px] mx-auto">
-                  {live.points > 0 && <>Die {live.points} Punkte sind abgebucht. </>}
-                  Zeig diesen Bildschirm der Servicekraft, sie gibt den Gutschein aus.
+                  {live.points > 0 && t(`Die ${live.points} Punkte sind abgebucht. `, `The ${live.points} points have been deducted. `)}
+                  {t('Zeig diesen Bildschirm der Servicekraft, sie gibt den Gutschein aus.', 'Show this screen to the staff and they hand over the voucher.')}
                 </p>
               </div>
 
               <button onClick={onClose}
                 className="w-full py-3 rounded-xl text-[14px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800">
-                Schließen
+                {t('Schließen', 'Close')}
               </button>
             </div>
           )}

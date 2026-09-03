@@ -437,6 +437,11 @@ Drei Stellen fragen ein Modell (SDK `@anthropic-ai/sdk`): der
   `SYSTEM_PROMPT` in `reviewText.ts` zieht in die andere Richtung: 25 bis 50
   Wörter, kein Schwärmen auch bei fünf Sternen, klingt wie ein beiläufiger
   Google-Maps-Eintrag. Beide ohne Gedankenstriche.
+- **Der Rezensionstext kommt in der Sprache der Gastansicht** (`brand.guestLang`)
+  — er gehört dem Gast, nicht der Verwaltung. `reviewText.ts` hält System-Prompt
+  und `fallbackReviewText` je Sprache; `index.ts` reicht `reviewLang` an
+  `generateReviewText`. Der Cache an der Bewertung ist bewusst NICHT
+  sprach-verkeilt: ein einmal erzeugter Text bleibt.
 
 ## Dashboard-Auswertung
 
@@ -606,9 +611,25 @@ das deutsche Wort bleibt im Code lesbar. Zwei getrennte Sprachen:
   Sprache der Gastansicht). Der Gast am Tisch stellt nichts um.
 
 Neue Texte immer als `t('…', '…')` / `pick(gl, '…', '…')` schreiben, nicht als
-nackten String. Die Abdeckung ist noch nicht vollständig — Stand: Gast-Empfang
-und -Bewertung, Admin-Navigation und -Einstellungen. Der Rest folgt demselben
-Muster.
+nackten String.
+
+- **Die Gastansicht ist vollständig übersetzt** — Empfang, Bewertung, Dank,
+  Gutscheine, „Dein Konto", Einlösen (`RedemptionSheet`), Anmeldung
+  (`GuestAuthSheet`) und alle Bausteine (`DishRatingCard`, `PointsExplainer`,
+  `GuestPointsChip`, `VoucherCard`). Steht `guestLang` auf Englisch, MUSS auch
+  jeder neue Text hier über `t` laufen — kein Halbdeutsch. Helfer: `useGuestT()`
+  in Komponenten ohne eigenen `t`, `DishRatingCard` bekommt die Sprache als
+  `lang`-Prop (echter Flow **und** Design-Vorschau reichen sie durch).
+  `TabBar` trägt die Kennung als Wert und übersetzt nur über `label`.
+- **Auch der KI-Rezensionstext folgt `guestLang`** (`reviewText.ts`, Parameter
+  `lang`): System-Prompt UND die gerechnete Vorlage (`fallbackReviewText`) gibt
+  es je Sprache. `index.ts` liest `brandDoc.guestLang` in der Route
+  `/guest/review-text`. Der Cache an der Bewertung ist **nicht** sprach-verkeilt
+  — ein vor dem Umschalten erzeugter Text bleibt, neue kommen in der neuen
+  Sprache.
+- Noch **deutsch**: Verwaltung außerhalb von Navigation/Einstellungen/Dashboard,
+  die Servicekraft-App (kein Umschalter), `LandingChrome` (Wegweiser für alle
+  drei Ansichten), Server-Fehlermeldungen (Konvention).
 
 ## Anmeldung und Rollen
 

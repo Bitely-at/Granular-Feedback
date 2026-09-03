@@ -167,12 +167,18 @@ export function AuthSocialRow({ googleSlot, placeholders = true, label = 'Oder w
   );
 }
 
-/** „Passwort vergessen?" — noch ohne Funktion (siehe „Bekannte Lücken" in CLAUDE.md). */
-export function ForgotPasswordLink() {
+/**
+ * „Passwort vergessen?" — noch ohne Funktion (siehe „Bekannte Lücken" in
+ * CLAUDE.md). `label`/`title` sind übersetzbar: die Personal-Anmeldung bleibt
+ * deutsch, die Gastansicht folgt `brand.guestLang`.
+ */
+export function ForgotPasswordLink({ label = 'Passwort vergessen?', title = 'Bald verfügbar' }: {
+  label?: string; title?: string;
+} = {}) {
   return (
-    <button type="button" title="Bald verfügbar"
+    <button type="button" title={title}
       className="text-xs text-gray-500 dark:text-gray-400 hover:underline font-medium shrink-0">
-      Passwort vergessen?
+      {label}
     </button>
   );
 }

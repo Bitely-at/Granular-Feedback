@@ -1544,7 +1544,10 @@ router.post('/guest/review-text', async (req: OrgRequest, res) => {
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection<Branch>('branches').findOne({ _id: new ObjectId(review.branchId) }),
   ]);
-  const brandName = brandDoc?.name ?? 'unser Restaurant';
+  // Sprache der Gastansicht: der Rezensionstext gehört dem Gast, nicht der
+  // Verwaltung. Steht guestLang auf Englisch, kommen KI-Text UND Vorlage englisch.
+  const reviewLang: 'de' | 'en' = brandDoc?.guestLang === 'en' ? 'en' : 'de';
+  const brandName = brandDoc?.name ?? (reviewLang === 'en' ? 'our restaurant' : 'unser Restaurant');
   const mapsUrl = mapsUrlFor(brandName, branch);
 
   if (review.reviewText) {
@@ -1555,7 +1558,7 @@ router.post('/guest/review-text', async (req: OrgRequest, res) => {
   const dishDocs = await db.collection<DishDoc>('dishes').find({
     _id: { $in: review.dishRatings.map(d => new ObjectId(d.dishId)) },
   }).toArray();
-  const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? 'Gericht';
+  const nameOf = (id: string) => dishDocs.find(d => String(d._id) === id)?.name ?? (reviewLang === 'en' ? 'dish' : 'Gericht');
 
   // Das Ticket bleibt die eigentliche Berechtigung zum Erzeugen; ob der Gast
   // nebenbei angemeldet ist, entscheidet nur, wessen Schlüssel dafür bezahlt.
@@ -1567,7 +1570,7 @@ router.post('/guest/review-text', async (req: OrgRequest, res) => {
     branchName: branch?.name ?? null,
     dishes: review.dishRatings.map(d => ({ name: nameOf(d.dishId), stars: d.stars, note: d.note })),
     overall: review.overall,
-  }, apiKey);
+  }, apiKey, reviewLang);
 
   await db.collection<ReviewDoc>('reviews').updateOne(
     { _id: review._id }, { $set: { reviewText: result.text } }
