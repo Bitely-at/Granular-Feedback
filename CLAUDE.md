@@ -53,9 +53,12 @@ npm run seed:miners --prefix server
 
 # Prototyp-Mandant: 'hungry-guys' — Street-Food-Pita beim Schwedenplatz
 # (Rabensteig 1), eine Filiale, echte Karte (Pita/Platten/Beilagen) mit echten
-# Gerichtsfotos, eigenem Logo und Standortfoto, acht kuratierte Bewertungen
-# (Pita/Schawarma stark, Beilagen und Wartezeit durchwachsen). Selbstheilend:
-# die Karte wird bei jedem Lauf an MENU angeglichen.
+# Gerichtsfotos, eigenem Logo und Standortfoto. Acht kuratierte Bewertungen plus
+# ~12 Wochen Demo-Verlauf (Bestellungen + Bewertungen) fürs Dashboard, mit von
+# Hand gesetztem Ruf je Gericht: Pita/Schawarma tragen den Laden, die
+# frittierten Beilagen und die Wartezeit am Wochenende ziehen runter.
+# Selbstheilend: Karte, Gutscheine und Verlauf werden bei jedem Lauf an
+# MENU/VOUCHERS/DISH_PROFILE angeglichen; kein drop-org nötig.
 npm run seed:hungry-guys --prefix server
 
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose

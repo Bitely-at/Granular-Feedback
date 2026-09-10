@@ -148,8 +148,108 @@ const SEED_REVIEWS: SeedReview[] = [
   ] },
 ];
 
+// ── Demo-Verlauf: ~12 Wochen Bestellungen und Bewertungen ────
+// Damit das Dashboard beim ersten Aufruf einen echten Verlauf zeigt und die
+// Menü-Matrix ihre vier Felder füllt — nicht ein einziger Balken „alles heute".
+// `demoReviews.ts` kann dasselbe, würfelt den Ruf eines Gerichts aber aus
+// seinem Namen; hier ist er von Hand gesetzt, damit die Verteilung die
+// Geschichte erzählt: Pita und Schawarma tragen den Laden, die frittierten
+// Beilagen und die Wartezeit ziehen runter.
+const HISTORY_WEEKS = 12;
+const ORDERS_PER_DAY = 17;   // Mittelwert; Wochentag und Wachstum modulieren
+const REVIEW_RATE = 0.42;    // Anteil der Bestellungen, der auch bewertet wird
+
+// rep = Ruf (Sterne, um die gestreut wird), demand = wie oft im Korb (1–5).
+const DISH_PROFILE: Record<string, { rep: number; demand: number }> = {
+  // Pita — hohe Nachfrage, das Aushängeschild
+  schawarma: { rep: 4.7, demand: 5 },
+  sabich: { rep: 4.6, demand: 3 },
+  bcpita: { rep: 4.4, demand: 3 },
+  schnitzelpita: { rep: 4.3, demand: 4 },
+  falafelpita: { rep: 4.2, demand: 4 },
+  arayes: { rep: 4.1, demand: 2 },
+  cheese: { rep: 3.8, demand: 3 },
+  // Pfanne / Platte
+  platte: { rep: 4.6, demand: 4 },
+  falafel: { rep: 4.0, demand: 3 },
+  melanzani: { rep: 3.8, demand: 2 },
+  hummusteller: { rep: 3.6, demand: 2 },
+  caesar: { rep: 3.5, demand: 2 },
+  // Beilagen — bestellt jeder, aber die Küche schwächelt hier
+  guyssalat: { rep: 3.9, demand: 2 },
+  hummus: { rep: 4.2, demand: 2 },
+  pommes: { rep: 3.5, demand: 5 },
+  onion: { rep: 3.2, demand: 3 },
+  // Getränke — selten bewertet, unauffällig
+  almdudler: { rep: 4.3, demand: 3 },
+  trumer: { rep: 4.4, demand: 2 },
+  makava: { rep: 4.2, demand: 1 },
+  fanta: { rep: 4.1, demand: 2 },
+  ayran: { rep: 4.0, demand: 2 },
+  voeslauer: { rep: 4.0, demand: 1 },
+};
+
+// Ein paar echte Notizen je Gericht — der Dashboard-Auszug „letzte
+// Bewertungen" und der KI-Wochenrückblick brauchen Text, nicht nur Sterne.
+const NOTES: Record<string, { good: string[]; bad: string[] }> = {
+  schawarma: {
+    good: ['Fleisch saftig und würzig, Laffa frisch.', 'Konstant das beste Schawarma in der Gegend.', 'Granatapfel-Knoblauchsauce macht es aus.'],
+    bad: ['Heute leider ziemlich trocken.', 'Etwas wenig Fleisch für den Preis.'],
+  },
+  sabich: {
+    good: ['Aubergine perfekt gebraten, Ei genau richtig.', 'Frisch und leicht, komme wieder.'],
+    bad: ['Pita war eingerissen, alles rausgefallen.'],
+  },
+  platte: {
+    good: ['Riesenportion, wird man richtig satt.', 'Salat und Gurken frisch, gutes Preis-Leistungs-Verhältnis.'],
+    bad: ['20 Minuten Wartezeit, Pommes dann kalt.'],
+  },
+  schnitzelpita: {
+    good: ['Schnitzel knusprig, Preiselbeere ist genial.'],
+    bad: ['Für die Größe zu teuer.', 'Schnitzel etwas zäh.'],
+  },
+  falafelpita: {
+    good: ['Falafel innen grün und frisch.'],
+    bad: ['Zu trocken, mehr Tehina wäre gut.', 'Etwas fad gewürzt.'],
+  },
+  pommes: {
+    good: ['Frisch und heiß, gut gesalzen.'],
+    bad: ['Lauwarm und labbrig angekommen.', 'Kamen deutlich zu spät.', 'Handwarm, nicht knusprig.'],
+  },
+  onion: {
+    good: ['Knusprig und nicht zu fettig.'],
+    bad: ['Teig löst sich vom Ring ab.', 'Zu ölig.', 'Labberig.'],
+  },
+  caesar: {
+    good: ['Schnitzel top.'],
+    bad: ['Salat labberig, zu wenig Dressing.', 'Wenig Parmesan, lieblos.'],
+  },
+  hummusteller: {
+    good: ['Cremig und gut abgeschmeckt.'],
+    bad: ['Kam kalt.', 'Melanzani schmeckte nach nichts.'],
+  },
+  bcpita: { good: ['Klingt schräg, schmeckt großartig.', 'Sauce cremig, schön würzig.'], bad: [] },
+  arayes: { good: ['Überraschend würzig für vegan, schön knusprig.'], bad: ['Etwas ölig vom Grill.'] },
+  melanzani: { good: ['Schafskäse und Zaatar passen gut.'], bad: ['Zu viel Öl.'] },
+};
+
 const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'hungryguys2026';
 const OWNER_EMAIL = process.env.HUNGRY_ADMIN_EMAIL ?? 'sialexander458@gmail.com';
+
+/** Zufallsgenerator mit Saat — derselbe Lauf ergibt denselben Bestand. */
+function makeRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+/** Sterne um einen Ruf herum gestreut, hart auf 1–5 begrenzt. */
+function starsAround(rep: number, rnd: () => number): number {
+  const drift = (rnd() + rnd() - 1) * 1.15;
+  return Math.max(1, Math.min(5, Math.round(rep + drift)));
+}
 
 async function main() {
   // ── 1) Registry ─────────────────────────────────────────
@@ -343,6 +443,83 @@ async function main() {
     console.log('Kuratierte Bewertungen existieren bereits.');
   }
 
+  // ── 11) Demo-Verlauf (~12 Wochen) ───────────────────────
+  // Nur wenn außer den kuratierten noch nichts da ist — sonst würde jeder
+  // erneute Lauf den Verlauf verdoppeln. Wer mehr will, nimmt danach
+  // `npm run demo-reviews --prefix server -- <wochen> hungry-guys`.
+  if ((await ordersCol.countDocuments({ demo: true })) <= SEED_REVIEWS.length) {
+    const rnd = makeRandom(0x48554e47 ^ HISTORY_WEEKS); // "HUNG"
+    const skuByDishId = new Map([...dishIdBySku].map(([sku, id]) => [id, sku]));
+    const dishIds = dishDocs.map(d => d._id!.toString());
+    const days = HISTORY_WEEKS * 7;
+    const histOrders: Omit<OrderDoc, '_id'>[] = [];
+    const histReviews: Omit<ReviewDoc, '_id'>[] = [];
+
+    for (let offset = days - 1; offset >= 12; offset -= 1) { // die letzten 11 Tage gehören den kuratierten
+      const day = new Date();
+      day.setHours(0, 0, 0, 0);
+      day.setDate(day.getDate() - offset);
+      const wd = day.getDay();
+      const weekend = wd === 5 || wd === 6;
+      const weekdayFactor = weekend ? 1.5 : wd === 0 ? 1.15 : wd === 1 ? 0.65 : 1;
+      const growth = 0.75 + (days - offset) / days * 0.5; // leichter Aufwärtstrend
+      const orders = Math.max(1, Math.round(ORDERS_PER_DAY * weekdayFactor * growth * (0.8 + rnd() * 0.4)));
+
+      for (let i = 0; i < orders; i += 1) {
+        const table = tables[Math.floor(rnd() * tables.length)];
+        const at = new Date(day);
+        at.setHours(11, 30, 0, 0);
+        at.setMinutes(at.getMinutes() + Math.floor(rnd() * 630)); // 11:30–22:00
+
+        // 1–4 Positionen, nach Nachfrage gewichtet
+        const picked: string[] = [];
+        const wanted = 1 + Math.floor(rnd() * 4);
+        for (let k = 0; k < wanted * 4 && picked.length < wanted; k += 1) {
+          const id = dishIds[Math.floor(rnd() * dishIds.length)];
+          const demand = DISH_PROFILE[skuByDishId.get(id) ?? '']?.demand ?? 3;
+          if (rnd() * 5 > demand) continue;
+          if (!picked.includes(id)) picked.push(id);
+        }
+        if (picked.length === 0) picked.push(dishIds[Math.floor(rnd() * dishIds.length)]);
+
+        const orderId = new ObjectId();
+        histOrders.push({
+          orderId, branchId, tableId: String(table._id), tableNumber: table.number,
+          createdAt: at.getTime(), itemCount: picked.length, demo: true,
+        });
+
+        if (rnd() > REVIEW_RATE) continue;
+        const dishRatings = picked.map(id => {
+          const sku = skuByDishId.get(id) ?? '';
+          const stars = starsAround(DISH_PROFILE[sku]?.rep ?? 4, rnd);
+          const pool = NOTES[sku];
+          let note: string | undefined;
+          if (pool && rnd() < 0.4) {
+            const bucket = stars >= 4 ? pool.good : pool.bad;
+            if (bucket.length) note = bucket[Math.floor(rnd() * bucket.length)];
+          }
+          return note ? { dishId: id, stars, note } : { dishId: id, stars };
+        });
+        // Service am Wochenende schlechter — Wartezeit ist das Thema
+        const service = Math.max(1, Math.min(5, Math.round(4.3 - (weekend ? 0.5 : 0) + (rnd() + rnd() - 1) * 1.1)));
+        histReviews.push({
+          orderId, branchId, tableId: String(table._id), tableNumber: table.number,
+          dishRatings,
+          overall: { service, ambience: 0, speed: 0 },
+          createdAt: at.getTime() + (40 + Math.floor(rnd() * 50)) * 60 * 1000,
+          demo: true,
+        });
+      }
+    }
+
+    await ordersCol.insertMany(histOrders as OrderDoc[]);
+    await reviewsCol.insertMany(histReviews as ReviewDoc[]);
+    const pct = Math.round(histReviews.length / histOrders.length * 100);
+    console.log(`Demo-Verlauf angelegt (${HISTORY_WEEKS} Wochen): ${histOrders.length} Bestellungen, ${histReviews.length} Bewertungen (${pct} %).`);
+  } else {
+    console.log('Demo-Verlauf existiert bereits.');
+  }
+
   // Gerichtsschnitte (ratingsByBranch) aus allen Bewertungen neu rechnen.
   const allReviews = await reviewsCol.find().toArray();
   const byDish = new Map<string, Record<string, { sum: number; count: number }>>();
@@ -375,9 +552,9 @@ async function main() {
   console.log(`    manager@hungry-guys.demo    Filialleitung   / ${DEMO_PASSWORD}`);
   console.log(`    kellner1@hungry-guys.demo   Service         / ${DEMO_PASSWORD}`);
   console.log(`    gast.stammkunde@hungry-guys.demo   Gast, 420 Punkte   / ${DEMO_PASSWORD}`);
-  console.log('\n  Mehr Verlauf fürs Dashboard (optional):');
-  console.log(`    npm run demo-reviews --prefix server -- 8 ${ORG_SLUG}`);
-  console.log(`  Demo-Bewertungen wieder entfernen:`);
+  console.log(`\n  Dashboard-Verlauf (~${HISTORY_WEEKS} Wochen) ist eingebaut. Noch mehr:`);
+  console.log(`    npm run demo-reviews --prefix server -- 20 ${ORG_SLUG}`);
+  console.log(`  Demo-Bestand (Verlauf + kuratierte) wieder entfernen:`);
   console.log(`    npm run demo-reviews --prefix server -- --reset ${ORG_SLUG}`);
   console.log('');
 
