@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
     "seed:miners": "tsx src/seedTheMiners.ts",
+    "seed:hungry-guys": "tsx src/seedHungryGuys.ts",
     "new-org": "tsx src/newOrg.ts",
     "drop-org": "tsx src/dropOrg.ts",
     "set-password": "tsx src/setPassword.ts",
