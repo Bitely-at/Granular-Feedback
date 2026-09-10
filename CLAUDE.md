@@ -51,6 +51,10 @@ npm run drop-org --prefix server -- <slug> --yes
 # Dresden Altstadt, Prag JZP, Prag Maj), je mit eigenem Standortfoto.
 npm run seed:miners --prefix server
 
+# Prototyp-Mandant: 'hungry-guys' — Smash-Burger beim Schwedenplatz, eine
+# Filiale, Burger-Karte, acht kuratierte Bewertungen (Burger top, Beilagen mau).
+npm run seed:hungry-guys --prefix server
+
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
