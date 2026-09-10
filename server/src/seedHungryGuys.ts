@@ -8,32 +8,50 @@ import type {
 } from './types.js';
 
 // ═══════════════════════════════════════════════════════════
-// Prototyp-Mandant "Hungry Guys" — Smash-Burger-Laden beim Schwedenplatz
+// Prototyp-Mandant "Hungry Guy" — Street-Food-Pita beim Schwedenplatz
 //
 //   npm run seed:hungry-guys --prefix server
 //
-// Baut die Organisation 'hungry-guys' mit einer Filiale (Schwedenplatz), einer
-// Burger-Karte, acht Tischen, vier Gutscheinen, Personal- und Gastkonten und
-// einer Handvoll kuratierter, gerichtsgenauer Bewertungen — das Muster
-// "Burger top, Beilagen durchwachsen", das gerichtsgenaues Feedback trägt.
+// Baut die Organisation 'hungry-guys' mit einer Filiale (Rabensteig, Ecke
+// Fleischmarkt), der ECHTEN Karte (Pita, Platten, Beilagen), acht Tischen,
+// vier Gutscheinen, Personal- und Gastkonten und einer Handvoll kuratierter,
+// gerichtsgenauer Bewertungen — das Muster "Pita/Schawarma stark, Beilagen und
+// Wartezeit durchwachsen", das gerichtsgenaues Feedback trägt.
 //
-// Fotos sind ausgesuchte Unsplash-Aufnahmen und passen nicht immer aufs Gramm
-// zum Gericht — in der Verwaltung ist jedes tauschbar (Gericht antippen).
+// Datenquelle: das echte Lokal (hungryguy.wien, über web.archive.org, weil die
+// Domain auf manchen österreichischen Netzen DNS-gesperrt ist) und die
+// foodora-Karte des Standorts (Gericht­namen, -preise und die Studiofotos je
+// Gericht auf images.deliveryhero.io). Logo und Standortfoto stammen von der
+// eigenen Website. Jedes Foto ist über die Verwaltung tauschbar (Gericht
+// antippen).
 //
-// Das Skript ist wiederholbar: Stammdaten (Name, Preis) bleiben unangetastet,
-// Fotos und Verfügbarkeit werden nachgezogen.
+// Das Skript ist selbstheilend: die Karte wird bei jedem Lauf an MENU
+// angeglichen (Name/Preis/Foto per Upsert, überzählige Gerichte fliegen raus).
+// Fällt dabei ein Gericht weg, werden auch die Demo-Bewertungen neu erzeugt,
+// damit keine auf ein gelöschtes Gericht zeigt.
 // ═══════════════════════════════════════════════════════════
 
 const ORG_SLUG = 'hungry-guys';
-const ORG_NAME = 'Hungry Guys';
+const ORG_NAME = 'Hungry Guy';
 const BRANCH_SLUG = 'schwedenplatz';
 const BRANCH_NAME = 'Schwedenplatz';
-const BRANCH_ADDRESS = 'Marc-Aurel-Straße 5, 1010 Wien';
+const BRANCH_ADDRESS = 'Rabensteig 1, 1010 Wien';
 
+// Logo und Standortfoto: die eigene Website, gespiegelt über web.archive.org
+// (die Domain hungryguy.wien ist auf einigen AT-Providern DNS-gesperrt). Fällt
+// der Spiegel aus, greift bei der Marke der Emoji-Fallback und beim Titelbild
+// die Akzentfläche.
+const LOGO =
+  'https://web.archive.org/web/20240130150336id_/https://hungryguy.wien/wp/wp-content/uploads/2015/12/hungry-guy-logo-black.png';
+const COVER =
+  'https://web.archive.org/web/20250804164859id_/https://hungryguy.wien/wp/wp-content/uploads/2023/10/hungry-gut-fron.jpg';
+
+// Echte Gerichtsfotos: die foodora-Studioaufnahmen des Standorts.
+const DH = (path: string) => `https://images.deliveryhero.io/image/${path}`;
+
+// Unsplash-CDN — nur für die zwei Getränke, zu denen es kein foodora-Foto gibt.
 const IMG = (id: string, w = 600, h = 600) =>
   `https://images.unsplash.com/${id}?w=${w}&h=${h}&fit=crop&auto=format&q=80`;
-
-const COVER = IMG('photo-1550547660-d9450f859349', 1200, 675);
 
 /** dd.mm.yyyy, rund ein halbes Jahr in der Zukunft — `voucherExpired` liest das. */
 function halfYearOut(): string {
@@ -51,39 +69,45 @@ interface MenuItem {
 }
 
 const MENU: MenuItem[] = [
-  // ── Burger ──
-  { sku: 'classic', name: 'Classic Smash', price: 11.9, cat: 'Speisen', photo: 'photo-1568901346375-23c9450c58cd' },
-  { sku: 'bacon', name: 'Bacon Smash', price: 13.9, cat: 'Speisen', photo: 'photo-1553979459-d2229ba7433b' },
-  { sku: 'double', name: 'Double Trouble', price: 15.9, cat: 'Speisen', photo: 'photo-1571091718767-18b5b1457add' },
-  { sku: 'chicken', name: 'Crispy Chicken Burger', price: 12.5, cat: 'Speisen', photo: 'photo-1586190848861-99aa4a171e90' },
-  { sku: 'veggie', name: 'Veggie Smash', price: 12.9, cat: 'Speisen', photo: 'photo-1520072959219-c595dc870360' },
-  { sku: 'pulled', name: 'Pulled Pork Burger', price: 13.5, cat: 'Speisen', photo: 'photo-1594035900144-17151c9910af' },
-  // ── Beilagen & Snacks ──
-  { sku: 'fries', name: 'Pommes', price: 4.5, cat: 'Speisen', photo: 'photo-1573080496219-bb080dd4f877' },
-  { sku: 'loaded', name: 'Loaded Fries', price: 8.9, cat: 'Speisen', photo: 'photo-1607013251379-e6eecfffe234' },
-  { sku: 'sweet', name: 'Süßkartoffel-Pommes', price: 5.9, cat: 'Speisen', photo: 'photo-1552332386-f8dd00dc2f85' },
-  { sku: 'wings', name: 'Chicken Wings (6 Stück)', price: 9.9, cat: 'Speisen', photo: 'photo-1608039755401-742074f0548d' },
-  { sku: 'onion', name: 'Onion Rings', price: 5.9, cat: 'Speisen', photo: 'photo-1639024471283-03518883512d' },
-  { sku: 'brownie', name: 'Brownie mit Vanilleeis', price: 6.5, cat: 'Speisen', photo: 'photo-1606313564200-e75d5e30476c' },
+  // ── Street Food in der Pita ──
+  { sku: 'schawarma', name: 'Schawarma Pita', price: 14.6, cat: 'Speisen', photo: DH('fd-mj/products/11774880.jpg') },
+  { sku: 'sabich', name: 'Sabich', price: 14.6, cat: 'Speisen', photo: DH('fd-mj/products/11774881.jpg') },
+  { sku: 'falafelpita', name: 'Falafel Pita', price: 12.0, cat: 'Speisen', photo: DH('fd-mj/products/11774885.jpg') },
+  { sku: 'schnitzelpita', name: 'Wiener Schnitzel Pita', price: 15.6, cat: 'Speisen', photo: DH('fd-mj/Products/11774887.jpg') },
+  { sku: 'bcpita', name: 'Butter Chicken Pita', price: 14.5, cat: 'Speisen', photo: DH('global-menu-service/MJM_AT/vendor/yqvp/product/cc2aad4f-d2d9-40c5-8829-c94f6bacf121.jpg') },
+  { sku: 'arayes', name: 'Vegane Arayes', price: 18.6, cat: 'Speisen', photo: DH('global-menu-service/MJM_AT/vendor/yqvp/product/12978781/cd2d61be-84c5-46f2-984b-67f79646df73.jpg') },
+  { sku: 'cheese', name: 'Cheeseburger', price: 15.5, cat: 'Speisen', photo: DH('fd-mj/products/11774884.jpg') },
+  // ── Street Food in der Pfanne / auf der Platte ──
+  { sku: 'platte', name: 'Schawarma Platte', price: 21.5, cat: 'Speisen', photo: DH('fd-mj/products/11774877.jpg') },
+  { sku: 'falafel', name: 'Falafel Teller (vegan)', price: 17.5, cat: 'Speisen', photo: DH('fd-mj/products/11774870.jpg') },
+  { sku: 'hummusteller', name: 'Hummus Teller', price: 17.5, cat: 'Speisen', photo: DH('global-menu-service/MJM_AT/vendor/yqvp/product/11516398/dab7ac38-8194-4cbc-856e-2ae13cd4133c.jpg') },
+  { sku: 'melanzani', name: 'Melanzani mit Feta', price: 16.5, cat: 'Speisen', photo: DH('global-menu-service/MJM_AT/vendor/yqvp/product/c789941b-322b-45d5-9107-7dc9219dc03a.jpg') },
+  { sku: 'caesar', name: 'Schnitzel Caesar Salat', price: 16.5, cat: 'Speisen', photo: DH('global-menu-service/MJM_AT/vendor/yqvp/product/d5ceb194-eb46-4a16-b03d-ed95c012e242.jpg') },
+  // ── Beilagen ──
+  { sku: 'pommes', name: 'Pommes Frites', price: 6.0, cat: 'Speisen', photo: DH('fd-mj/products/11774917.jpg') },
+  { sku: 'onion', name: 'Zwiebelringe', price: 5.5, cat: 'Speisen', photo: DH('fd-mj/products/11774918.jpg') },
+  { sku: 'guyssalat', name: "Guy's Salat", price: 7.5, cat: 'Speisen', photo: DH('fd-mj/products/11774920.jpg') },
+  { sku: 'hummus', name: 'Hummus', price: 8.0, cat: 'Speisen', photo: DH('fd-mj/Products/11774919.jpg') },
   // ── Getränke ──
-  { sku: 'shake', name: 'Milkshake Vanille', price: 5.9, cat: 'Getränke', photo: 'photo-1572802419224-296b0aeee0d9' },
-  { sku: 'lemo', name: 'Hausgemachte Limonade', price: 4.2, cat: 'Getränke', photo: 'photo-1621263764928-df1444c5e859' },
-  { sku: 'cola', name: 'Craft Cola', price: 3.9, cat: 'Getränke', photo: 'photo-1622483767028-3f66f32aef97' },
-  { sku: 'beer', name: 'Ottakringer 0,5 l', price: 4.5, cat: 'Getränke', photo: 'photo-1608270586620-248524c67de9' },
-  { sku: 'icetea', name: 'Eistee Pfirsich', price: 3.8, cat: 'Getränke', photo: 'photo-1499638673689-79a0b5115d87' },
-  { sku: 'espr', name: 'Espresso', price: 2.8, cat: 'Getränke', photo: 'photo-1510591509098-f4fdc6d0ff04' },
+  { sku: 'almdudler', name: 'Almdudler 0,33 l', price: 4.05, cat: 'Getränke', photo: DH('fd-mj/products/11774929.jpg') },
+  { sku: 'fanta', name: 'Fanta Orange 0,33 l', price: 4.05, cat: 'Getränke', photo: DH('fd-mj/Products/1621309.jpg') },
+  { sku: 'ayran', name: 'Ayran', price: 3.5, cat: 'Getränke', photo: DH('fd-mj/products/11779503.jpg') },
+  { sku: 'voeslauer', name: 'Vöslauer prickelnd 0,5 l', price: 3.75, cat: 'Getränke', photo: DH('fd-mj/products/11774933.jpg') },
+  { sku: 'makava', name: 'Makava Eistee 0,25 l', price: 4.5, cat: 'Getränke', photo: IMG('photo-1499638673689-79a0b5115d87') },
+  { sku: 'trumer', name: 'Trumer Pils 0,33 l', price: 5.45, cat: 'Getränke', photo: IMG('photo-1608270586620-248524c67de9') },
 ];
 
 const VOUCHERS = [
-  { title: 'Gratis Pommes', points: 100, img: IMG('photo-1573080496219-bb080dd4f877', 1000, 500) },
-  { title: 'Gratis Milkshake', points: 180, img: IMG('photo-1572802419224-296b0aeee0d9', 1000, 500) },
-  { title: '10 % auf die ganze Rechnung', points: 250, img: IMG('photo-1550547660-d9450f859349', 1000, 500) },
-  { title: 'Gratis Classic Smash', points: 500, img: IMG('photo-1568901346375-23c9450c58cd', 1000, 500) },
+  { title: 'Gratis Pommes', points: 100, img: DH('fd-mj/products/11774917.jpg?width=1000&height=500') },
+  { title: 'Gratis Ayran', points: 150, img: DH('fd-mj/products/11779503.jpg?width=1000&height=500') },
+  { title: '10 % auf die ganze Rechnung', points: 250, img: COVER },
+  { title: 'Gratis Schawarma Pita', points: 500, img: DH('fd-mj/products/11774880.jpg?width=1000&height=500') },
 ];
 
 // ── Kuratierte Bewertungen, alle Filiale Schwedenplatz ──────
-// An öffentlichen Google-Rezensionen orientiert, selbst formuliert. Ergibt das
-// Muster "Burger stark, Beilagen und Wartezeit durchwachsen".
+// An öffentlichen Google-/Tripadvisor-Rezensionen orientiert, selbst
+// formuliert. Ergibt das Muster "Pita und Schawarma stark, Beilagen und
+// Wartezeit durchwachsen, Preis grenzwertig".
 interface SeedReview {
   table: number;
   items: { sku: string; stars: number; note: string }[];
@@ -92,35 +116,35 @@ interface SeedReview {
 
 const SEED_REVIEWS: SeedReview[] = [
   { table: 2, daysAgo: 11, items: [
-    { sku: 'classic', stars: 5, note: 'Patty richtig krustig, genau wie es sein soll.' },
-    { sku: 'fries', stars: 3, note: 'Pommes waren lauwarm und labbrig.' },
+    { sku: 'schawarma', stars: 5, note: 'Schawarma hausgemacht, die 13 Gewürze schmeckt man wirklich raus.' },
+    { sku: 'pommes', stars: 3, note: 'Pommes waren nur noch lauwarm und labbrig.' },
   ] },
   { table: 5, daysAgo: 9, items: [
-    { sku: 'bacon', stars: 5, note: 'Speck knusprig, Sauce top.' },
-    { sku: 'shake', stars: 4, note: 'Cremig, könnte etwas kälter sein.' },
+    { sku: 'sabich', stars: 5, note: 'Aubergine und Ei perfekt, Granatapfel gibt den Frischekick.' },
+    { sku: 'ayran', stars: 4, note: 'Frisch und cremig, für mich einen Tick zu salzig.' },
   ] },
   { table: 1, daysAgo: 7, items: [
-    { sku: 'chicken', stars: 4, note: 'Saftig, Panade gut. Bun etwas trocken.' },
-    { sku: 'onion', stars: 2, note: 'Zu fettig, Teig löst sich vom Ring.' },
+    { sku: 'schnitzelpita', stars: 4, note: 'Schnitzel saftig, Preiselbeere dazu ist ein Geniestreich. Für die Größe grenzwertig teuer.' },
+    { sku: 'onion', stars: 2, note: 'Zwiebelringe labberig, der Teig löst sich vom Ring.' },
   ] },
   { table: 7, daysAgo: 6, items: [
-    { sku: 'double', stars: 5, note: 'Mega Portion, jeden Cent wert.' },
+    { sku: 'platte', stars: 5, note: 'Riesenportion, das Laffa-Brot frisch gebacken. Jeden Cent wert.' },
   ] },
   { table: 3, daysAgo: 4, items: [
-    { sku: 'veggie', stars: 4, note: 'Überraschend gut, für Fleischesser okay.' },
-    { sku: 'loaded', stars: 3, note: 'Käse war schon fest, zu wenig Jalapeños.' },
+    { sku: 'falafelpita', stars: 4, note: 'Falafel innen grün und würzig. Etwas mehr Tehina dürfte rein.' },
+    { sku: 'hummusteller', stars: 3, note: 'Hummus cremig, kam aber kalt und die Melanzani schmeckte nach nichts.' },
   ] },
   { table: 4, daysAgo: 3, items: [
-    { sku: 'pulled', stars: 4, note: 'Fleisch zart, Coleslaw fehlte etwas Säure.' },
-    { sku: 'sweet', stars: 5, note: 'Beste Süßkartoffel-Pommes der Stadt.' },
+    { sku: 'arayes', stars: 4, note: 'Überraschend würzig für vegan, schön knusprig vom Grill.' },
+    { sku: 'caesar', stars: 3, note: 'Schnitzel top, Salat aber labberig und zu wenig Dressing.' },
   ] },
   { table: 6, daysAgo: 2, items: [
-    { sku: 'classic', stars: 5, note: 'Konstant gut, komme immer wieder.' },
-    { sku: 'wings', stars: 3, note: '20 Minuten gewartet, dann nur handwarm.' },
+    { sku: 'schawarma', stars: 5, note: 'Konstant gut, ich hole mir das jede Woche.' },
+    { sku: 'pommes', stars: 3, note: 'Fast 20 Minuten gewartet, dann kamen sie nur handwarm.' },
   ] },
   { table: 8, daysAgo: 1, items: [
-    { sku: 'bacon', stars: 5, note: 'Bester Smash Burger beim Schwedenplatz.' },
-    { sku: 'lemo', stars: 4, note: 'Frisch und nicht zu süß.' },
+    { sku: 'bcpita', stars: 5, note: 'Butter Chicken in der Pita klingt schräg, schmeckt großartig.' },
+    { sku: 'almdudler', stars: 4, note: 'Eiskalt serviert, passt.' },
   ] },
 ];
 
@@ -147,7 +171,7 @@ async function main() {
   // ── 3) Branding ─────────────────────────────────────────
   const settingsCol = db.collection<BrandDoc>('settings');
   const brandFields = {
-    name: ORG_NAME, accent: '#C2410C', logo: '🍔',
+    name: ORG_NAME, accent: '#1F3D33', logo: '🥙', logoImage: LOGO,
     coverImage: COVER, guestLang: 'de' as const,
   };
   if ((await settingsCol.countDocuments({ _id: 'brand' })) === 0) {
@@ -175,22 +199,29 @@ async function main() {
   }
   const branchId = branch._id!.toString();
 
-  // ── 5) Speisekarte ──────────────────────────────────────
+  // ── 5) Speisekarte an MENU angleichen ───────────────────
   const dishesCol = db.collection<DishDoc>('dishes');
-  if ((await dishesCol.countDocuments()) === 0) {
-    await dishesCol.insertMany(MENU.map(m => ({
-      name: m.name, img: IMG(m.photo), price: m.price, cat: m.cat,
-      branchIds: null, ratingsByBranch: {},
-    })));
-    console.log(`Speisekarte angelegt (${MENU.length} Positionen).`);
-  } else {
-    let fixed = 0;
-    for (const m of MENU) {
-      const r = await dishesCol.updateOne({ name: m.name }, { $set: { img: IMG(m.photo) } });
-      fixed += r.modifiedCount;
-    }
-    console.log(`Speisekarte existiert bereits — ${fixed} Fotos aktualisiert.`);
+  const fresh = (await dishesCol.countDocuments()) === 0;
+  for (const m of MENU) {
+    await dishesCol.updateOne(
+      { name: m.name },
+      {
+        $set: { img: m.photo, price: m.price, cat: m.cat },
+        $setOnInsert: { branchIds: null, ratingsByBranch: {} },
+      },
+      { upsert: true },
+    );
   }
+  const keep = new Set(MENU.map(m => m.name));
+  const stale = await dishesCol.find({ name: { $nin: [...keep] } }).toArray();
+  if (stale.length > 0) {
+    await dishesCol.deleteMany({ _id: { $in: stale.map(d => d._id!) } });
+    console.log(`Speisekarte: ${stale.length} überzählige Gerichte entfernt (${stale.map(d => d.name).join(', ')}).`);
+  }
+  console.log(fresh
+    ? `Speisekarte angelegt (${MENU.length} Positionen).`
+    : `Speisekarte an MENU angeglichen (${MENU.length} Positionen).`);
+
   const dishDocs = await dishesCol.find().toArray();
   const idByName = new Map(dishDocs.map(d => [d.name, d._id!.toString()]));
   const dishIdBySku = new Map(MENU.map(m => [m.sku, idByName.get(m.name)!]));
@@ -206,22 +237,26 @@ async function main() {
     console.log('Tische existieren bereits.');
   }
 
-  // ── 7) Gutscheine (kettenweit einlösbar) ────────────────
+  // ── 7) Gutscheine (kettenweit einlösbar) — an VOUCHERS angleichen ──
   const vouchersCol = db.collection<VoucherDoc>('vouchers');
-  if ((await vouchersCol.countDocuments()) === 0) {
-    const expiry = halfYearOut();
-    await vouchersCol.insertMany(VOUCHERS.map(v => ({
-      title: v.title, points: v.points, expiry, branchIds: null, img: v.img,
-    })));
-    console.log(`Gutscheine angelegt (${VOUCHERS.length}, gültig bis ${expiry}).`);
-  } else {
-    let fixed = 0;
-    for (const v of VOUCHERS) {
-      const r = await vouchersCol.updateOne({ title: v.title }, { $set: { img: v.img } });
-      fixed += r.modifiedCount;
-    }
-    console.log(`Gutscheine existieren bereits — ${fixed} Fotos aktualisiert.`);
+  const voucherFresh = (await vouchersCol.countDocuments()) === 0;
+  const expiry = halfYearOut();
+  for (const v of VOUCHERS) {
+    await vouchersCol.updateOne(
+      { title: v.title },
+      { $set: { points: v.points, img: v.img, branchIds: null }, $setOnInsert: { expiry } },
+      { upsert: true },
+    );
   }
+  const keepVouchers = new Set(VOUCHERS.map(v => v.title));
+  const staleVouchers = await vouchersCol.find({ title: { $nin: [...keepVouchers] } }).toArray();
+  if (staleVouchers.length > 0) {
+    await vouchersCol.deleteMany({ _id: { $in: staleVouchers.map(v => v._id!) } });
+    console.log(`Gutscheine: ${staleVouchers.length} überzählige entfernt (${staleVouchers.map(v => v.title).join(', ')}).`);
+  }
+  console.log(voucherFresh
+    ? `Gutscheine angelegt (${VOUCHERS.length}, gültig bis ${expiry}).`
+    : `Gutscheine an VOUCHERS angeglichen (${VOUCHERS.length}).`);
 
   // ── 8) Personal ─────────────────────────────────────────
   const usersCol = db.collection<UserDoc>('users');
@@ -261,6 +296,17 @@ async function main() {
   const reviewsCol = db.collection<ReviewDoc>('reviews');
   const tables = await tablesCol.find({ branchId }).toArray();
   const tableByNumber = new Map(tables.map(t => [t.number, t]));
+
+  // Zeigt eine bestehende Demo-Bewertung auf ein Gericht, das es nicht mehr
+  // gibt (Karte umgestellt), alles einmal wegräumen und neu erzeugen.
+  const demoReviews = await reviewsCol.find({ demo: true }).toArray();
+  const liveDishIds = new Set(dishDocs.map(d => d._id!.toString()));
+  const orphaned = demoReviews.some(rv => rv.dishRatings.some(r => !liveDishIds.has(r.dishId)));
+  if (orphaned) {
+    await reviewsCol.deleteMany({ demo: true });
+    await ordersCol.deleteMany({ demo: true });
+    console.log('Demo-Bewertungen zeigten auf entfernte Gerichte — verworfen, werden neu erzeugt.');
+  }
 
   if ((await reviewsCol.countDocuments({ demo: true })) === 0) {
     const orderDocs: Omit<OrderDoc, '_id'>[] = [];
