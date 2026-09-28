@@ -13,13 +13,68 @@ import { verifyGoogleIdToken, googleClientId } from './googleAuth.js';
 import { generateReviewText } from './reviewText.js';
 import { generateHighlight, scanReceipt, hasClaude, type HighlightInput } from './ai.js';
 import { canEncryptApiKeys, encryptApiKey, decryptApiKey } from './secrets.js';
+import { Limiter, limitByIp, tooManyRequests } from './rateLimit.js';
 import type {
   Organization, BrandDoc, DashboardDoc, GuestDoc, DishRatingInput, UserDoc, Branch,
   DishDoc, RedemptionDoc, ReviewDoc, InsightsDoc, TableDoc, OrderDoc,
 } from './types.js';
 
 const app = express();
-app.use(cors());
+app.disable('x-powered-by');
+
+// ═══════════════════════════════════════════════════════════
+// CORS: nur die eigenen Oberflächen dürfen aus dem Browser zugreifen
+//
+// Vorher `cors()` ohne Einschränkung: jede fremde Seite durfte die API aus dem
+// Browser eines Besuchers aufrufen. Werkzeuge ohne Origin-Header (curl, die
+// verify-Skripte, Render selbst) betrifft das nicht — CORS ist eine Regel für
+// Browser, kein Zugriffsschutz. Der liegt weiterhin in requireAuth.
+//
+// CORS_ORIGINS (kommagetrennt) ersetzt die Liste unten vollständig, z. B. für
+// eine neue Domain. Netlify-Vorschauen (deploy-preview-12--bitelyvienna…)
+// sind zusätzlich über das Muster erlaubt.
+// ═══════════════════════════════════════════════════════════
+
+const DEFAULT_ORIGINS = [
+  'https://app.bitely.at',
+  'https://bitelyvienna.netlify.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173', // vite preview
+];
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS ?? '').split(',').map(o => o.trim().replace(/\/$/, '')).filter(Boolean)
+);
+if (allowedOrigins.size === 0) DEFAULT_ORIGINS.forEach(o => allowedOrigins.add(o));
+const NETLIFY_PREVIEW = /^https:\/\/[a-z0-9-]+--bitelyvienna\.netlify\.app$/;
+
+app.use(cors({
+  origin(origin, callback) {
+    // Kein Origin = kein Browser-Aufruf von einer fremden Seite.
+    if (!origin || allowedOrigins.has(origin) || NETLIFY_PREVIEW.test(origin)) {
+      callback(null, true);
+      return;
+    }
+    // Keine CORS-Header statt eines Fehlers: der Browser blockt die Antwort
+    // selbst, und das Log bleibt frei von Stacktraces.
+    callback(null, false);
+  },
+}));
+
+// Sicherheits-Header für jede Antwort. Die API liefert nur JSON aus — nichts
+// davon soll als Seite eingebettet, als anderes Format gedeutet oder mit einem
+// Referrer weitergereicht werden.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  if (process.env.RENDER) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 // Höheres Limit, da hochgeladene Bilder als komprimiertes Base64 im JSON-Body ankommen.
 app.use(express.json({ limit: '8mb' }));
 
@@ -100,13 +155,12 @@ function serialize<T extends WithId<Document>>(doc: T) {
 }
 
 // Wie serialize(), aber ohne passwordHash — der darf niemals in einer
-// Antwort landen. users taucht über getFullState() im GEMEINSAMEN
-// Zustandsobjekt auf, das auch der Gast lädt (siehe GET /state).
+// Antwort landen. users geht über getFullState() nur noch an das Personal;
+// die Regel hier gilt trotzdem, weil auch ein Kellner keinen Hash braucht.
 function serializeUser(doc: WithId<UserDoc>) {
   const { _id, passwordHash, googleSub, apiKeyEnc, ...rest } = doc;
   // Weder Hash noch Googles Konto-ID noch der eigene API-Schlüssel gehören in
-  // eine Antwort: `users` steckt im Gesamtzustand, den auch ein Gast lädt. Was
-  // die Verwaltung braucht, ist ohnehin nur, OB es sie gibt.
+  // eine Antwort. Was die Verwaltung braucht, ist ohnehin nur, OB es sie gibt.
   return {
     id: String(_id), ...rest,
     hasPassword: !!passwordHash,
@@ -601,6 +655,17 @@ async function getFullState(
   await expireStaleRedemptions(db);
   await releaseStaleTables(db);
 
+  /**
+   * Was nur das Personal sieht: Mitarbeiterkonten, Alarme und Bewertungen.
+   *
+   * Der Gesamtzustand ist ohne Anmeldung abrufbar — jeder, der einmal einen
+   * QR-Code gescannt hat, kennt die URL. Früher standen hier für jeden Aufrufer
+   * alle Mitarbeiterkonten der Kette (Name, E-Mail, Rolle) und alle
+   * Gästekommentare der Filiale drin. Die Gastansicht liest keines der drei;
+   * für sie bleiben die Listen leer, und die Abfrage entfällt gleich mit.
+   */
+  const none = Promise.resolve([] as WithId<Document>[]);
+
   const [brandDoc, dashboardDoc, branches, dishes, tables, vouchers, users, alerts, reviews, redemptions] = await Promise.all([
     db.collection<BrandDoc>('settings').findOne({ _id: 'brand' }),
     db.collection<DashboardDoc>('settings').findOne({ _id: 'dashboard' }),
@@ -608,11 +673,13 @@ async function getFullState(
     db.collection('dishes').find(availableHere).toArray(),
     db.collection('tables').find(branchFilter).toArray(),
     db.collection('vouchers').find(availableHere).toArray(),
-    db.collection('users').find().toArray(),
-    db.collection('alerts').find(branchFilter).sort({ createdAt: -1 }).toArray(),
+    isStaff ? db.collection('users').find().toArray() : none,
+    isStaff ? db.collection('alerts').find(branchFilter).sort({ createdAt: -1 }).toArray() : none,
     // Begrenzt: der Gesamtzustand wird bei jedem Seitenaufruf geladen, und die
     // Rezensionen wachsen als einzige Collection unbegrenzt mit.
-    db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray(),
+    isStaff
+      ? db.collection('reviews').find(branchFilter).sort({ createdAt: -1 }).limit(REVIEW_PAGE_SIZE).toArray()
+      : none,
     db.collection<RedemptionDoc>('redemptions').find(redemptionScope).sort({ createdAt: -1 }).limit(REDEMPTION_PAGE_SIZE).toArray(),
   ]);
 
@@ -672,14 +739,26 @@ app.get('/version', (_req, res) => {
   });
 });
 
-// ── Health-Check: sagt im Klartext, ob die Datenbank steht ──
+// ── Health-Check: sagt, ob die Datenbank steht ──
 // Bewusst ohne Mandanten-Kontext, damit er auch dann antwortet,
 // wenn noch keine Organisation angelegt ist.
+//
+// Öffentlich nur ja/nein. Früher stand hier für jeden lesbar die Liste aller
+// Kunden (Organisationen), der Datenbank-Benutzer, der Cluster-Host und bei
+// Fehlern die Meldung der Datenbank. Die ausführliche Fassung gibt es nur
+// außerhalb von Render (lokal); auf Render steht sie im Log, und
+// `npm run check-db --prefix server` liefert sie jederzeit im Klartext.
+const HEALTH_DETAILS = !process.env.RENDER;
+
 app.get('/health', async (_req, res) => {
   const connection = connectionSummary();
   try {
     const db = await platformDb();
     await db.command({ ping: 1 });
+    if (!HEALTH_DETAILS) {
+      res.json({ ok: true, database: 'verbunden' });
+      return;
+    }
     const orgs = await db.collection('organizations').find().toArray();
     res.json({
       ok: true,
@@ -692,6 +771,11 @@ app.get('/health', async (_req, res) => {
     });
   } catch (err) {
     const e = err as { message?: string; code?: unknown; codeName?: string };
+    if (!HEALTH_DETAILS) {
+      console.error('Health-Check: Datenbank nicht erreichbar —', e?.message ?? err, '→', explainDbError(err));
+      res.status(503).json({ ok: false, database: 'nicht verbunden' });
+      return;
+    }
     res.status(503).json({
       ok: false,
       database: 'nicht verbunden',
@@ -710,7 +794,12 @@ const router = express.Router({ mergeParams: true });
 // Fehler-Handler weiter: die Anfrage bliebe ohne Antwort hängen und das Handy
 // wartet endlos. Statt jede Route einzeln zu umschließen, wird das hier einmal
 // zentral nachgerüstet — gilt damit auch für später hinzukommende Routen.
-for (const method of ['get', 'post', 'patch', 'delete'] as const) {
+//
+// `put` fehlte hier lange. Schlimmer als eine hängende Anfrage: Node beendet
+// den ganzen Prozess bei einem unbehandelt abgelehnten Promise. Ein frisch
+// angelegtes Gastkonto und ein PUT /guest/me/api-key mit leerem Schlüssel
+// genügten, um den Server abzuschießen — beliebig oft wiederholbar.
+for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
   const original = router[method].bind(router) as (path: string, handler: unknown) => unknown;
   (router as unknown as Record<string, unknown>)[method] = (path: string, handler: RouteHandler) =>
     original(path, (req: Request, res: Response, next: NextFunction) =>
@@ -720,26 +809,54 @@ for (const method of ['get', 'post', 'patch', 'delete'] as const) {
 
 app.use('/api/:orgSlug', resolveOrg, router);
 
+// ═══════════════════════════════════════════════════════════
+// RATENBEGRENZUNG (rateLimit.ts)
+//
+// Ohne sie ließ sich ein Passwort beliebig oft raten — und scrypt ist mit
+// Absicht teuer, tausend Versuche halten den Server zugleich beschäftigt.
+// Die Grenzen sind großzügig, weil ein ganzes Lokal über dasselbe WLAN und
+// damit dieselbe Adresse kommen kann.
+// ═══════════════════════════════════════════════════════════
+
+/** Anmelde- und Google-Routen: Aufrufe je Adresse, getrennt nach Route. */
+const authIpLimiter = new Limiter(30, 15 * 60 * 1000);
+/** Fehlgeschlagene Passwort-Anmeldungen je Konto, egal von welcher Adresse. */
+const loginFailLimiter = new Limiter(10, 15 * 60 * 1000);
+/** Neue Gastkonten je Adresse — hoch genug für ein volles Lokal im selben WLAN. */
+const registerIpLimiter = new Limiter(30, 60 * 60 * 1000);
+
+function accountKey(req: OrgRequest, kind: 'staff' | 'guest', email: string): string {
+  return `${req.params.orgSlug}:${kind}:${email}`;
+}
+
 // ── Anmeldung: Admin, Manager, Kellner (Servicekraft) ──
 // Der Gast hat bewusst kein echtes Konto hier (siehe POST /guest/login) —
 // das Login-Gate für Gäste ist Teil eines eigenen Tickets.
-router.post('/auth/login', async (req: OrgRequest, res) => {
+router.post('/auth/login', limitByIp(authIpLimiter, 'staff-login', async (req: OrgRequest, res) => {
   const email = optionalText(req.body?.email, 'E-Mail', 200)?.toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!email || !password) {
     res.status(400).json({ error: 'E-Mail und Passwort sind erforderlich.' });
     return;
   }
+  const failKey = accountKey(req, 'staff', email);
+  const wait = loginFailLimiter.blockedFor(failKey);
+  if (wait > 0) {
+    tooManyRequests(res, wait);
+    return;
+  }
   const user = await req.db!.collection<UserDoc>('users').findOne({ email });
   if (!user || user.status !== 'aktiv' || !verifyPassword(password, user.passwordHash)) {
+    loginFailLimiter.hit(failKey);
     res.status(401).json({ error: 'E-Mail oder Passwort ist falsch.' });
     return;
   }
+  loginFailLimiter.reset(failKey);
   const token = signToken({
     sub: String(user._id), orgSlug: req.params.orgSlug!, role: user.role, branchId: user.branchId,
   });
   res.json({ token, user: serializeUser(user) });
-});
+}));
 
 // ── Anmeldung prüfen (z. B. nach Seiten-Reload, bevor der gespeicherte Token verworfen wird) ──
 router.get('/auth/me', async (req: OrgRequest, res) => {
@@ -1345,7 +1462,7 @@ function guestSession(req: OrgRequest, doc: WithId<GuestDoc>) {
 }
 
 // ── Gast: Konto anlegen ──
-router.post('/guest/register', async (req: OrgRequest, res) => {
+router.post('/guest/register', limitByIp(registerIpLimiter, 'guest-register', async (req: OrgRequest, res) => {
   const db = req.db!;
   const email = requireText(req.body?.email, 'E-Mail', 200).toLowerCase();
   const name = requireText(req.body?.name, 'Name', 80);
@@ -1369,25 +1486,33 @@ router.post('/guest/register', async (req: OrgRequest, res) => {
   };
   const inserted = await db.collection<GuestDoc>('guests').insertOne(doc as GuestDoc);
   res.json(guestSession(req, { ...doc, _id: inserted.insertedId } as WithId<GuestDoc>));
-});
+}));
 
 // ── Gast: anmelden ──
-router.post('/guest/login', async (req: OrgRequest, res) => {
+router.post('/guest/login', limitByIp(authIpLimiter, 'guest-login', async (req: OrgRequest, res) => {
   const email = optionalText(req.body?.email, 'E-Mail', 200)?.toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!email || !password) {
     res.status(400).json({ error: 'E-Mail und Passwort sind erforderlich.' });
     return;
   }
+  const failKey = accountKey(req, 'guest', email);
+  const wait = loginFailLimiter.blockedFor(failKey);
+  if (wait > 0) {
+    tooManyRequests(res, wait);
+    return;
+  }
   const guest = await req.db!.collection<GuestDoc>('guests').findOne({ email });
   // Dieselbe Meldung für "gibt es nicht" und "falsches Passwort" — sonst
   // verrät die Antwort, welche E-Mails ein Konto haben.
   if (!guest || !verifyPassword(password, guest.passwordHash)) {
+    loginFailLimiter.hit(failKey);
     res.status(401).json({ error: 'E-Mail oder Passwort ist falsch.' });
     return;
   }
+  loginFailLimiter.reset(failKey);
   res.json(guestSession(req, guest));
-});
+}));
 
 /**
  * Welche Anmeldewege der Gast hat.
@@ -1417,7 +1542,7 @@ router.get('/auth-options', async (_req: OrgRequest, res) => {
  * wer sich erst mit Passwort registriert hat und später Google nimmt, landet
  * im selben Konto und behält seine Punkte.
  */
-router.post('/guest/google', async (req: OrgRequest, res) => {
+router.post('/guest/google', limitByIp(authIpLimiter, 'guest-google', async (req: OrgRequest, res) => {
   const db = req.db!;
   if (!googleClientId()) {
     res.status(503).json({ error: 'Google-Anmeldung ist auf diesem Server nicht eingerichtet.' });
@@ -1458,7 +1583,7 @@ router.post('/guest/google', async (req: OrgRequest, res) => {
   };
   const inserted = await guests.insertOne(doc as GuestDoc);
   res.json(guestSession(req, { ...doc, _id: inserted.insertedId } as WithId<GuestDoc>));
-});
+}));
 
 // ── Gast: Sitzung prüfen (nach dem Neuladen der Seite) ──
 router.get('/guest/me', async (req: OrgRequest, res) => {
@@ -1660,7 +1785,7 @@ router.delete('/guest/me/api-key', async (req: OrgRequest, res) => {
  * Google beweist nur, wer vor dem Gerät sitzt. Welche Rechte daraus folgen,
  * steht weiterhin im Konto (`role`, `branchId`), und das Token stellen wir aus.
  */
-router.post('/auth/google', async (req: OrgRequest, res) => {
+router.post('/auth/google', limitByIp(authIpLimiter, 'staff-google', async (req: OrgRequest, res) => {
   if (!googleClientId()) {
     res.status(503).json({ error: 'Google-Anmeldung ist auf diesem Server nicht eingerichtet.' });
     return;
@@ -1702,7 +1827,7 @@ router.post('/auth/google', async (req: OrgRequest, res) => {
     sub: String(user._id), orgSlug: req.params.orgSlug!, role: user.role, branchId: user.branchId,
   });
   res.json({ token, user: serializeUser({ ...user, googleSub: identity.sub }) });
-});
+}));
 
 // ── Kellner: Alarm-Banner (Bewertung < 3 Sterne) als erledigt markieren ──
 router.post('/alerts/:id/resolve', staffOrAdmin(async (req: OrgRequest, res) => {

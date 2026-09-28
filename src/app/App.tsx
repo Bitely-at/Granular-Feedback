@@ -303,17 +303,47 @@ function useDocumentTitle(brandName: string | undefined, suffix?: string | null)
   }, [brandName, suffix]);
 }
 
-function useGoogleFont(fontName: string | undefined) {
+/**
+ * Marken-Schriften aus dem eigenen Build (@fontsource), nicht von
+ * fonts.googleapis.com — sonst ginge mit jedem Scan am Tisch die IP-Adresse des
+ * Gastes an Google. Inter steht schon fest in fonts.css; die anderen lädt
+ * Vite als eigene CSS-Dateien erst, wenn ein Lokal die Schrift gewählt hat.
+ * Wer BRAND_FONTS (store.tsx) erweitert, trägt die Schrift hier nach und
+ * installiert das passende @fontsource-Paket.
+ */
+const BRAND_FONT_LOADERS: Record<string, () => Promise<unknown>> = {
+  'Poppins': () => Promise.all([
+    import('@fontsource/poppins/400.css'), import('@fontsource/poppins/500.css'),
+    import('@fontsource/poppins/600.css'), import('@fontsource/poppins/700.css'),
+  ]),
+  'DM Sans': () => Promise.all([
+    import('@fontsource/dm-sans/400.css'), import('@fontsource/dm-sans/500.css'),
+    import('@fontsource/dm-sans/600.css'), import('@fontsource/dm-sans/700.css'),
+  ]),
+  'Fraunces': () => Promise.all([
+    import('@fontsource/fraunces/400.css'), import('@fontsource/fraunces/500.css'),
+    import('@fontsource/fraunces/600.css'), import('@fontsource/fraunces/700.css'),
+  ]),
+  'Playfair Display': () => Promise.all([
+    import('@fontsource/playfair-display/400.css'), import('@fontsource/playfair-display/600.css'),
+    import('@fontsource/playfair-display/700.css'),
+  ]),
+  'Space Grotesk': () => Promise.all([
+    import('@fontsource/space-grotesk/400.css'), import('@fontsource/space-grotesk/500.css'),
+    import('@fontsource/space-grotesk/600.css'), import('@fontsource/space-grotesk/700.css'),
+  ]),
+};
+const loadedBrandFonts = new Set<string>();
+
+function useBrandFont(fontName: string | undefined) {
   useEffect(() => {
-    const entry = BRAND_FONTS.find(f => f.name === fontName);
-    if (!entry) return;
-    const id = `bitely-font-${entry.name.replace(/\s+/g, '-')}`;
-    if (document.getElementById(id)) return;
-    const link = document.createElement('link');
-    link.id = id;
-    link.rel = 'stylesheet';
-    link.href = `https://fonts.googleapis.com/css2?family=${entry.googleFamily}&display=swap`;
-    document.head.appendChild(link);
+    if (!fontName || loadedBrandFonts.has(fontName)) return;
+    const load = BRAND_FONT_LOADERS[fontName];
+    if (!load) return; // Inter (fest geladen) oder unbekannt: Systemschrift greift
+    loadedBrandFonts.add(fontName);
+    // Scheitert das Nachladen, bleibt die Systemschrift stehen — beim nächsten
+    // Aufruf wird es erneut versucht.
+    load().catch(() => loadedBrandFonts.delete(fontName));
   }, [fontName]);
 }
 
@@ -2958,7 +2988,7 @@ function AdminApp({ orgSlug, branch, canSwitchBranch, onPick, dark, setDark }: {
     });
   }, [store.brand]);
 
-  useGoogleFont(brandForm.font);
+  useBrandFont(brandForm.font);
 
   // Auswertung nachladen, sobald sich Zeitraum oder Filiale ändert. Die
   // Filiale steckt in den Abhängigkeiten, weil der Umschalter oben zwar den
@@ -5308,7 +5338,7 @@ function OrgChrome({ view, orgSlug, branchSlug, tableNumber, picked, onPick }: {
   useEffect(() => {
     try { localStorage.setItem('bitely.theme', dark ? 'dark' : 'light'); } catch { /* Privatmodus */ }
   }, [dark]);
-  useGoogleFont(store.brand?.font);
+  useBrandFont(store.brand?.font);
   useDocumentTitle(store.brand?.name,
     view === 'admin' ? t('Verwaltung', 'Admin')
       : view === 'waiter' ? t('Service', 'Service')
@@ -5809,7 +5839,7 @@ function LandingChrome({ orgSlug, branchSlug, notFound }: {
   orgSlug: string; branchSlug: string | null; notFound: boolean;
 }) {
   const store = useStore();
-  useGoogleFont(store.brand?.font);
+  useBrandFont(store.brand?.font);
   useDocumentTitle(store.brand?.name);
   const branch = branchSlug ? store.branches.find(b => b.slug === branchSlug) ?? null : null;
 

@@ -1,1 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/*
+ * Inter kommt aus dem eigenen Build (@fontsource), nicht mehr von
+ * fonts.googleapis.com. Jeder Seitenaufruf gab sonst die IP-Adresse des
+ * Gastes an Google weiter — ohne Einwilligung und ohne Not. Genau dafür gab es
+ * 2022 in Österreich eine Abmahnwelle.
+ *
+ * Die übrigen Marken-Schriften lädt useBrandFont (App.tsx) bei Bedarf nach,
+ * ebenfalls aus dem eigenen Build.
+ */
+@import '@fontsource/inter/300.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';

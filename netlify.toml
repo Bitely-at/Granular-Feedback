@@ -18,3 +18,21 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Sicherheits-Header für jede Seite der App.
+# - Einbetten in fremde Seiten verboten (Clickjacking auf Einlöse-Wisch und
+#   Verwaltung). Die Landingpage bettet die App nicht ein.
+# - Referrer nur als Ursprung: die Tisch-URL (/<org>/<filiale>/table/<nr>)
+#   soll nicht vollständig an Google Maps oder andere Links weitergehen.
+# - Kamera nur für die eigene Seite (Bon-Scan), Mikrofon und Standort nie.
+# Eine volle Content-Security-Policy fehlt bewusst noch: Google-Anmeldung,
+# Bilder von beliebigen Adressen und die API-Adresse aus der Buildzeit müssten
+# dafür erst sauber aufgelistet werden.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "frame-ancestors 'none'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(), geolocation=()"

@@ -80,12 +80,13 @@ eigenes TypeScript — für Frontend-Typechecks den Compiler aus `server/` nehme
 ```bash
 ./server/node_modules/.bin/tsc --noEmit --jsx react-jsx --esModuleInterop \
   --skipLibCheck --moduleResolution bundler --module esnext --target es2020 \
-  --strict src/app/store.tsx src/app/App.tsx
+  --strict src/vite-env.d.ts src/app/store.tsx src/app/App.tsx
 ```
 
-Die eine Meldung zu `import.meta.env` ist erwartbar (Vite-Typen fehlen dieser
-Ad-hoc-Konfiguration), alles andere ist echt. `npm run build` (Vite/esbuild)
-prüft **keine** Typen, nur Syntax — ein fehlender React-Import fällt dort nicht auf.
+`src/vite-env.d.ts` gehört dazu: ohne die Vite-Typen meldet der Compiler
+`import.meta.env` und die CSS-Importe der Schriften als Fehler. Mit ihr läuft
+der Check ohne Meldung durch — jede Meldung ist echt. `npm run build`
+(Vite/esbuild) prüft **keine** Typen, nur Syntax — ein fehlender React-Import fällt dort nicht auf.
 
 ## Tisch-Lebenszyklus
 
@@ -183,9 +184,10 @@ Gutscheine als verbraucht.
 - **Punkte lassen sich nachträglich sichern.** Wer ohne Konto bewertet, bekommt in
   der Antwort ein signiertes Ticket (`signPointsTicket`, 30 Minuten). Meldet er
   sich danach an, löst die Oberfläche es über `POST /guest/claim-points` ein. Die
-  Bewertungs-ID allein wäre kein Beleg — sie steht für jeden lesbar im
-  Gesamtzustand. Einmaligkeit steckt im Update-Filter: nur wer die Bewertung noch
-  mit `guestId: null` vorfindet, bekommt die Punkte.
+  Bewertungs-ID allein wäre kein Beleg — sie stand lange für jeden lesbar im
+  Gesamtzustand und steht heute noch in jeder Personal-Antwort. Einmaligkeit
+  steckt im Update-Filter: nur wer die Bewertung noch mit `guestId: null`
+  vorfindet, bekommt die Punkte.
 - **Zwei Token-Arten, streng getrennt.** Das Gast-Token trägt `kind: 'guest'`
   und fällt in `verifyToken` durch; das Personal-Token fällt in
   `verifyGuestToken` durch. Ohne diese Trennung wäre ein Gastkonto eine
@@ -356,6 +358,14 @@ nicht, sie bekommt Fremdes gar nicht erst:
 - Im Frontend heißt „der Server soll entscheiden" `scope: 'self'` (siehe
   `BranchScope` in `store.tsx`). Das löst das Henne-Ei-Problem beim Seitenaufruf:
   ob jemand an eine Filiale gebunden ist, weiß nur der Server.
+- **Nur für das Personal: Mitarbeiterkonten, Alarme und Bewertungen.** Ohne
+  Mitarbeiter-Token bleiben `users`, `alerts` und `reviews` leer (Gerichte,
+  Tische, Gutscheine und die EIGENEN Einlösungen kommen weiter). Der Zustand ist
+  ohne Anmeldung abrufbar — jeder, der einmal einen QR-Code gescannt hat, kennt
+  die URL. Vorher standen dort für jeden Name, E-Mail und Rolle aller
+  Mitarbeiter der Kette und alle Gästekommentare. Die Gastansicht liest keines
+  der drei; wer ihr etwas daraus zeigen will, baut dafür eine eigene, schmale
+  Antwort, statt die Grenze in `getFullState` aufzuweichen.
 - **Filialgetrennt:** Tische, Bewertungen, Alarme, Gerichtsschnitte, welche
   Gerichte geführt und welche Gutscheine eingelöst werden können.
   **Kettenweit:** Branding, Stammdaten der Gerichte, Punkte des Gasts,
@@ -421,10 +431,10 @@ Drei Stellen fragen ein Modell (SDK `@anthropic-ai/sdk`): der
   dieselbe Regel wie bei jeder anderen Eingabe von außen. Gebucht wird nichts
   automatisch: die erkannten Gerichte landen im Warenkorb der Servicekraft.
 - **Der Rezensionstext hängt an einem signierten Ticket** (`signReviewTicket`,
-  30 Minuten), nicht an der Bewertungs-ID. Die steht für jeden lesbar im
-  Gesamtzustand — ohne Ticket könnte jeder für jede fremde Bewertung
-  Modellaufrufe auslösen. Erzeugt wird er **nach** dem Absenden, nicht darin:
-  sonst wartet der Gast Sekunden vor einem hängenden „Wird gesendet…".
+  30 Minuten), nicht an der Bewertungs-ID. Die steht im Gesamtzustand des
+  Personals — ohne Ticket könnte jeder, der eine ID kennt, für fremde
+  Bewertungen Modellaufrufe auslösen. Erzeugt wird er **nach** dem Absenden,
+  nicht darin: sonst wartet der Gast Sekunden vor einem hängenden „Wird gesendet…".
   Der fertige Text wird an der Bewertung abgelegt — Neuladen gibt denselben.
 - **Der Wochenrückblick liegt in `settings._id: 'insights'`**, je Reichweite
   UND Sprache (`<Filial-ID|'all'>:<de|en>`) einmal, und wird erneuert, wenn er
@@ -540,9 +550,13 @@ Was das Dashboard daraus macht:
 ## Fallstricke
 
 **Express 4 fängt keine abgelehnten Promises.** Die Verb-Methoden des Routers
-sind in `index.ts` einmal zentral gepatcht, damit jede Route Fehler an `next()`
-weitergibt. Ohne das bleibt eine Anfrage bei einem DB-Fehler ohne Antwort
-hängen. Neue Routen brauchen kein eigenes `try/catch`.
+(`get`, `post`, `put`, `patch`, `delete`) sind in `index.ts` einmal zentral
+gepatcht, damit jede Route Fehler an `next()` weitergibt. Ohne das bleibt eine
+Anfrage nicht nur hängen: Node beendet bei einem unbehandelt abgelehnten
+Promise den ganzen Prozess. `put` fehlte lange in der Liste — ein Gastkonto und
+ein `PUT /guest/me/api-key` mit leerem Schlüssel legten den Server lahm. Wer
+eine neue Verb-Methode verwendet (`all`, `options` …), trägt sie dort ein.
+Neue Routen brauchen kein eigenes `try/catch`.
 
 **Eingaben prüfen.** `/api` ist öffentlich erreichbar. Was per `$inc` in die
 Datenbank wandert, muss begrenzt sein — `requireStars`, `requireQty`,
@@ -609,8 +623,17 @@ der normale `mongodb+srv`-String.
   `http://localhost:5173`). Ist sie nicht gesetzt, bleibt der Google-Knopf aus
   und E-Mail mit Passwort funktioniert weiterhin. Kein neuer Frontend-Build
   nötig: die ID kommt über `GET /guest/auth-options`.
-- `GET /health` sagt im Klartext, ob die Datenbank steht, als welcher Benutzer
-  verbunden wird (Passwort maskiert) und was zu tun ist.
+- `GET /health` sagt auf Render nur `ok` und ob die Datenbank steht. Die
+  ausführliche Fassung (Benutzer, Host, Organisationen, Fehlerhinweis) gibt es
+  nur lokal; auf Render steht ein Verbindungsfehler im Log, und
+  `npm run check-db --prefix server` liefert die Diagnose jederzeit. Vorher war
+  die Kundenliste samt Datenbank-Benutzer für jeden abrufbar.
+- **Schriften kommen aus dem eigenen Build** (`@fontsource/*`), nie von
+  `fonts.googleapis.com`: Inter fest in `src/styles/fonts.css`, die übrigen
+  Marken-Schriften lädt `useBrandFont` (`App.tsx`, `BRAND_FONT_LOADERS`) bei
+  Bedarf. Wer `BRAND_FONTS` erweitert, installiert das Paket und trägt die
+  Schrift dort nach. Grund: jede Anfrage an Google gibt die IP-Adresse des
+  Gastes weiter.
 - **`GET /version` sagt, welcher Stand läuft** (Commit, Branch, Startzeit).
   Ohne das ist "ist der Deploy durch?" Rätselraten über 404er.
 - **Optionale Umgebungsvariablen gehören ins Render-Dashboard, nicht in
@@ -675,8 +698,7 @@ Tisch nicht.
   wäre jede Google-Adresse der Welt ein Zugang zu einer fremden Verwaltung.
   Google beweist nur, wer davor sitzt; Rolle und Filiale kommen weiter aus dem
   Konto. Weder `passwordHash` noch `googleSub` verlassen den Server
-  (`serializeUser` gibt `hasPassword`/`hasGoogle`) — `users` steckt im Zustand,
-  den auch ein Gast lädt.
+  (`serializeUser` gibt `hasPassword`/`hasGoogle`).
 - **Rechte liegen auf dem Server**, nicht in der Oberfläche: `requireAuth(...)`
   in `index.ts` umschließt jeden geschützten Handler. Die Prüfung in `OrgChrome`
   versteckt nur, sie schützt nicht.
@@ -708,7 +730,8 @@ erst bei der nächsten Anmeldung.
   zentrale Promise-Patch unten in `index.ts` gilt nur für **einen** Handler
   pro Route, ein zweites Argument fiele weg.
 - `passwordHash` darf nie in eine Antwort geraten: dafür `serializeUser()`
-  statt `serialize()`. `users` steckt im Gesamtzustand, den auch der Gast lädt.
+  statt `serialize()`. `users` geht nur noch an das Personal (siehe „Was der
+  Zustand zeigt"), die Regel gilt trotzdem.
 
 `JWT_SECRET` muss in `server/.env` stehen (und in Render), sonst startet der
 Server nicht. Test-Zugänge legt `npm run server:seed` an und gibt sie aus.
@@ -724,12 +747,36 @@ es die Konten der Organisation samt Anmeldefähigkeit auf. Eine gewachsene
 Datenbank kennt womöglich andere E-Mails als das Seed-Skript; die
 Prüfskripte nehmen dafür `ADMIN_EMAIL`/`ADMIN_PASSWORD` aus der Umgebung.
 
+## Absicherung
+
+- **Ratenbegrenzung** (`server/src/rateLimit.ts`, ohne Paket): je Adresse 30
+  Aufrufe in 15 Minuten auf `/auth/login`, `/auth/google`, `/guest/login` und
+  `/guest/google` (je Route getrennt gezählt), 30 neue Gastkonten pro Stunde,
+  und je Konto 10 **Fehlversuche** in 15 Minuten, egal von welcher Adresse —
+  eine gelungene Anmeldung setzt diesen Zähler zurück. Die Adresse kommt auf
+  Render aus `True-Client-IP` (Cloudflare steht davor, `X-Forwarded-For` lässt
+  sich fälschen). Lokal ist der eigene Rechner von der Adressgrenze
+  ausgenommen, damit die verify-Skripte beliebig oft laufen; die Grenze je
+  Konto gilt auch dort. Die Zähler leben im Speicher und beginnen nach einem
+  Neustart von vorn. Umschlossen wird wie bei `requireAuth` der Handler
+  (`limitByIp(...)`), keine zweite Middleware.
+- **CORS nur für die eigenen Oberflächen**: app.bitely.at,
+  bitelyvienna.netlify.app samt Deploy-Vorschauen, localhost:5173/4173.
+  `CORS_ORIGINS` (kommagetrennt) ersetzt die Liste. Aufrufe ohne `Origin`
+  (curl, Skripte) betrifft das nicht — CORS ist eine Browser-Regel, kein
+  Zugriffsschutz.
+- **Sicherheits-Header** auf jeder API-Antwort (`nosniff`, `DENY`,
+  `no-referrer`, CSP `default-src 'none'`, HSTS auf Render) und auf der
+  Oberfläche über `netlify.toml` (kein Einbetten, Referrer nur als Ursprung,
+  Kamera nur für die eigene Seite). Eine volle CSP für die Oberfläche fehlt
+  noch.
+
 ## Bekannte Lücken
 
-CORS offen, keine Ratenbegrenzung — weder auf `/auth/login` noch auf
-`/guest/login` und `/guest/register`. Gastkonten haben
-kein "Passwort vergessen" (dafür bräuchte es Mailversand) und kein Bestätigen
-der E-Mail; wer über Google kommt, hat beides von dort.
+Gastkonten haben kein "Passwort vergessen" (dafür bräuchte es Mailversand) und
+kein Bestätigen der E-Mail; wer über Google kommt, hat beides von dort. Tokens
+lassen sich nicht widerrufen: ein Personal-Token gilt 12 Stunden, ein
+Gast-Token 90 Tage, auch nach dem Abmelden.
 
 Die alte Sammlung `guestProfile` (das von allen Gästen geteilte Profil) bleibt
 als Bestandsdaten liegen — sie wird nirgends mehr gelesen. Einlösungen aus
