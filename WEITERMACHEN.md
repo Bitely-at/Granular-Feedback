@@ -97,8 +97,9 @@ In der Reihenfolge, in der sie zuletzt besprochen wurden:
 6. **Die Prüfsuiten sind seit diesem Umbau nicht gelaufen** (kein Passwort auf
    diesem Rechner). Vor dem nächsten Deploy nachholen:
    `ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run verify:admin` und die drei anderen.
-7. Kleinkram: keine Ratenbegrenzung auf den Anmelderouten, CORS offen, kein
-   "Passwort vergessen", kein Filialpreis. (Tische geben sich inzwischen nach
+7. Kleinkram: kein "Passwort vergessen", kein Filialpreis. (Ratenbegrenzung,
+   CORS-Liste und Sicherheits-Header sind seit Ende September drin, siehe
+   CLAUDE.md, „Absicherung".) (Tische geben sich inzwischen nach
    zwei Stunden von selbst frei, siehe `releaseStaleTables`.)
 
 ## 4. Betriebsfallen, die schon einmal Zeit gekostet haben

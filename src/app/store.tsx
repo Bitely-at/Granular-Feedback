@@ -31,12 +31,12 @@ export interface Brand {
 
 // Kuratierte Auswahl statt freier Schriftart-Eingabe — jede hier lädt zuverlässig via Google Fonts.
 export const BRAND_FONTS = [
-  { name: 'Inter', category: 'Modern & neutral', categoryEn: 'Modern & neutral', googleFamily: 'Inter:wght@400;500;600;700' },
-  { name: 'Poppins', category: 'Freundlich & rund', categoryEn: 'Friendly & round', googleFamily: 'Poppins:wght@400;500;600;700' },
-  { name: 'DM Sans', category: 'Klar & sachlich', categoryEn: 'Clear & plain', googleFamily: 'DM+Sans:wght@400;500;600;700' },
-  { name: 'Fraunces', category: 'Editorial & warm', categoryEn: 'Editorial & warm', googleFamily: 'Fraunces:wght@400;500;600;700' },
-  { name: 'Playfair Display', category: 'Elegant & gehoben', categoryEn: 'Elegant & refined', googleFamily: 'Playfair+Display:wght@400;600;700' },
-  { name: 'Space Grotesk', category: 'Technisch & markant', categoryEn: 'Technical & bold', googleFamily: 'Space+Grotesk:wght@400;500;600;700' },
+  { name: 'Inter', category: 'Modern & neutral', categoryEn: 'Modern & neutral' },
+  { name: 'Poppins', category: 'Freundlich & rund', categoryEn: 'Friendly & round' },
+  { name: 'DM Sans', category: 'Klar & sachlich', categoryEn: 'Clear & plain' },
+  { name: 'Fraunces', category: 'Editorial & warm', categoryEn: 'Editorial & warm' },
+  { name: 'Playfair Display', category: 'Elegant & gehoben', categoryEn: 'Elegant & refined' },
+  { name: 'Space Grotesk', category: 'Technisch & markant', categoryEn: 'Technical & bold' },
 ] as const;
 
 export const BRAND_CARD_STYLES: { id: NonNullable<Brand['cardStyle']>; label: string; labelEn: string; desc: string; descEn: string }[] = [

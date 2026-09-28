@@ -1,0 +1,72 @@
+# Baut die Oberfläche auf GitHub und schiebt sie per Netlify-CLI auf app.bitely.at.
+#
+# Warum so: Netlify Free verbindet sich nicht mit PRIVATEN Repos einer
+# GitHub-Organisation (das gibt es erst ab Pro). Ein Deploy über die CLI ist
+# davon nicht betroffen — das Repo kann privat sein, Netlify bleibt gratis.
+#
+# Einmalig einrichten (GitHub -> Settings -> Secrets and variables -> Actions):
+#   Secrets:
+#     NETLIFY_AUTH_TOKEN  Netlify -> User settings -> Applications -> Personal access tokens
+#     NETLIFY_SITE_ID     Netlify -> Site -> Site configuration -> Site ID
+#   Variables:
+#     VITE_API_BASE_URL      z. B. https://bitely-api.onrender.com  (Pflicht)
+#     VITE_DEFAULT_ORG_PATH  nur setzen, wenn es in Netlify gesetzt war
+#
+# Danach in Netlify die Verknüpfung mit dem Repo lösen
+# (Site configuration -> Build & deploy -> Link repository -> Unlink),
+# sonst versucht Netlify weiter selbst zu bauen und scheitert am privaten Repo.
+#
+# Solange die Variable VITE_API_BASE_URL nicht gesetzt ist, wird der Job
+# übersprungen — die Datei kann also schon im Repo liegen, während Netlify
+# noch selbst baut.
+
+name: Deploy Oberfläche zu Netlify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: netlify-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ vars.VITE_API_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          DEFAULT_ORG_PATH: ${{ vars.VITE_DEFAULT_ORG_PATH }}
+        run: |
+          # Ohne API-Adresse baut Vite trotzdem durch, die App ruft dann aber
+          # /api auf Netlify auf und nichts funktioniert. Lieber hier abbrechen.
+          if [ -z "$VITE_API_BASE_URL" ]; then
+            echo "::error::Variable VITE_API_BASE_URL fehlt (GitHub -> Settings -> Variables)."
+            exit 1
+          fi
+          # Nur setzen, wenn vorhanden: ein leerer Wert würde den Standardpfad
+          # in App.tsx überschreiben, weil ?? nur bei undefined greift.
+          if [ -n "$DEFAULT_ORG_PATH" ]; then
+            export VITE_DEFAULT_ORG_PATH="$DEFAULT_ORG_PATH"
+          fi
+          npm run build
+
+      - name: Deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        # --no-build ist wichtig: sonst baut die CLI noch einmal selbst, ohne
+        # die Variablen von oben. Die Weiterleitungen aus netlify.toml gehen mit.
+        run: npx --yes netlify-cli deploy --prod --no-build --dir=dist --site "$NETLIFY_SITE_ID"
