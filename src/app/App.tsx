@@ -750,19 +750,27 @@ function GuestApp({ branch, tableNumber }: { branch: Branch; tableNumber: number
 
   // Meldet sich der Gast an, NACHDEM er bewertet hat, wandern die Punkte
   // nachträglich auf sein frisches Konto. Der Server lässt das genau einmal zu.
+  //
+  // Kein `cancelled`-Flag mit Aufräumfunktion: der Effekt hängt an
+  // `pointsTicket`, und genau das setzt er selbst zurück. Der Neudurchlauf
+  // räumte dabei den laufenden Aufruf als „abgebrochen" ab — der Server buchte
+  // die Punkte, der Dank-Bildschirm verwarf die Antwort und zeigte „+0".
+  // Doppelte Einlösung (Neudurchlauf, StrictMode) verhindert stattdessen die
+  // Ref; das Ticket wird erst geleert, wenn die Antwort da ist.
+  const claimingTicket = useRef<string | null>(null);
   useEffect(() => {
     if (!pointsTicket || !store.guest.loggedIn) return;
-    let cancelled = false;
+    if (claimingTicket.current === pointsTicket) return;
     const ticket = pointsTicket;
-    setPointsTicket(null);
+    claimingTicket.current = ticket;
     store.claimPoints(ticket)
       .then(claimed => {
-        if (cancelled || claimed <= 0) return;
+        if (claimed <= 0) return;
         setMissedPts(0);
         setEarnedPts(claimed);
       })
-      .catch(() => { /* Ticket abgelaufen oder schon eingelöst — dann bleibt es dabei. */ });
-    return () => { cancelled = true; };
+      .catch(() => { /* Ticket abgelaufen oder schon eingelöst — dann bleibt es dabei. */ })
+      .finally(() => setPointsTicket(cur => (cur === ticket ? null : cur)));
   }, [pointsTicket, store.guest.loggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (s: GuestScreen) => setScreen(s);

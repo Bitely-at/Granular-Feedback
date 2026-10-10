@@ -654,10 +654,14 @@ export function StoreProvider({ orgSlug, scope, audience = 'staff', children }: 
   const applyGuestSession = useCallback(async (data: { token: string; guest: GuestAccount }) => {
     writeGuestToken(orgSlug, data.token);
     setGuestUser(data.guest);
-    // Wie bei `login`: der Zustand galt bisher für einen anonymen Aufruf. Bis der
-    // neue geladen ist, den Ladebildschirm zeigen — sonst blitzt kurz die
-    // „Organisation nicht gefunden"-Meldung auf (leerer Zustand, brand === null).
-    setLoading(true);
+    // Anders als bei `login`: der Zustand ist NICHT leer — die Gastansicht lädt
+    // Marke, Karte und Tisch schon anonym (der QR-Code funktioniert ja ohne
+    // Konto). `setLoading(true)` würde hier `OrgChrome` kurz auf den
+    // Ladebildschirm umschalten und damit GuestApp abmontieren — mit ihr jeden
+    // lokalen Bildschirmzustand: den Dank-Bildschirm nach dem Bewerten und vor
+    // allem den Punkte-Gutschein (`pointsTicket`), der beim Wiederaufbau
+    // verloren ist und sich dann nie mehr einlösen lässt. Also nur nachladen,
+    // ohne den Ladebildschirm dazwischenzuschalten.
     await refresh();
   }, [orgSlug, refresh]);
 
