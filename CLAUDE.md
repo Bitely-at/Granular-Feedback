@@ -61,6 +61,13 @@ npm run seed:miners --prefix server
 # MENU/VOUCHERS/DISH_PROFILE angeglichen; kein drop-org nötig.
 npm run seed:hungry-guys --prefix server
 
+# Pitch-Demos echter Lokale (hao-han, kung-fu-bao, sette, kaoo): echte Karte,
+# echte Fotos (Google-Eintrag/Wolt), an Google-Rezensionen orientierte
+# Bewertungen + 12 Wochen Verlauf. Je Lokal eine Beschreibung in
+# server/src/prospects/<name>.ts, Aufbau in prospects/engine.ts. Passwort
+# <slug ohne Bindestrich>2026.
+npm run seed:prospect --prefix server -- <slug|all>
+
 npm run check-db --prefix server   # Verbindung prüfen, Klartext-Diagnose
 npm run verify:tables    # 17 Ablauf-Tests gegen laufenden Server
 npm run verify:admin     # 30 Tests für Menü-, Gutschein- und Filialverwaltung
