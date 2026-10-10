@@ -61,7 +61,7 @@ npm run seed:miners --prefix server
 # MENU/VOUCHERS/DISH_PROFILE angeglichen; kein drop-org nötig.
 npm run seed:hungry-guys --prefix server
 
-# Pitch-Demos echter Lokale (hao-han, kung-fu-bao, sette, kaoo): echte Karte,
+# Pitch-Demos echter Lokale (hao-han, kung-fu-bao, sette, kaoo, kendang = Pilot): echte Karte,
 # echte Fotos (Google-Eintrag/Wolt), an Google-Rezensionen orientierte
 # Bewertungen + 12 Wochen Verlauf. Je Lokal eine Beschreibung in
 # server/src/prospects/<name>.ts, Aufbau in prospects/engine.ts. Passwort

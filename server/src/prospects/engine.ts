@@ -60,6 +60,8 @@ export interface Prospect {
   weekendDip: number;
   /** Öffnungsfenster in Minuten ab Mitternacht, für die Zeitstempel. */
   open: [number, number];
+  /** Ruhetage (0 = Sonntag … 6 = Samstag) — an denen entsteht kein Verlauf. */
+  closedDays?: number[];
   randomSeed: number;
 }
 
@@ -276,6 +278,7 @@ export async function seedProspect(p: Prospect): Promise<void> {
       day.setHours(0, 0, 0, 0);
       day.setDate(day.getDate() - offset);
       const wd = day.getDay();
+      if (p.closedDays?.includes(wd)) continue;
       const weekend = wd === 5 || wd === 6;
       const weekdayFactor = weekend ? 1.5 : wd === 0 ? 1.15 : wd === 1 ? 0.65 : 1;
       const growth = 0.75 + (days - offset) / days * 0.5; // leichter Aufwärtstrend

@@ -5,6 +5,7 @@ import { haoHan } from './prospects/haoHan.js';
 import { kungFuBao } from './prospects/kungFuBao.js';
 import { sette } from './prospects/sette.js';
 import { kaoo } from './prospects/kaoo.js';
+import { kendang } from './prospects/kendang.js';
 
 // ═══════════════════════════════════════════════════════════
 // Pitch-Demos für einzelne Lokale anlegen
@@ -18,7 +19,7 @@ import { kaoo } from './prospects/kaoo.js';
 // Aufbau übernimmt `prospects/engine.ts`. Wieder entfernen: drop-org.
 // ═══════════════════════════════════════════════════════════
 
-const PROSPECTS: Prospect[] = [haoHan, kungFuBao, sette, kaoo];
+const PROSPECTS: Prospect[] = [haoHan, kungFuBao, sette, kaoo, kendang];
 
 async function main() {
   const arg = process.argv[2];
